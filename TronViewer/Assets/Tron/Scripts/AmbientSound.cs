@@ -56,7 +56,11 @@ namespace Tron
             Source.Play();
         }
 
-        void LateUpdate() => UpdateVolume();
+        // Silent ones (SoundFX waiting for ON) cost nothing.
+        void LateUpdate()
+        {
+            if (Source.isPlaying) UpdateVolume();
+        }
 
         void UpdateVolume()
         {

@@ -2,7 +2,8 @@ using UnityEngine;
 
 namespace Tron
 {
-    // Runs a keyframer live at start (KeyframerMotion, one engine update per frame) and puts the objects
+    // Runs a keyframer, active at start or started by a message (KeyframerMotion, one engine update per
+    // frame; LevelBuilder.BuildKeyframers joins it to the level's command manager) and puts the objects
     // it controls where it says: world models (their collider moves with them; LevelBuilder gives solid
     // ones a kinematic body) and drawn models (props, characters; attachments ride on their parent).
     // Objects the viewer doesn't draw (SpecialFX, cameras, volumes...) still count as controlled, as in
@@ -27,6 +28,13 @@ namespace Tron
             this.shown = shown;
             this.sound = sound;
             this.clip = clip;
+        }
+
+        // REMOVE: the keyframer leaves the level; its objects stay where they are and its sound stops.
+        public void Remove()
+        {
+            enabled = false;
+            if (sound) sound.Source.Stop();
         }
 
         void Update()
