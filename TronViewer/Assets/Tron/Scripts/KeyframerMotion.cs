@@ -437,6 +437,15 @@ namespace Tron
             return new LTQuat(s0 * a.x + s1 * b.x, s0 * a.y + s1 * b.y, s0 * a.z + s1 * b.z, s0 * a.w + s1 * b.w);
         }
 
+        public LTQuat Conjugate() => new LTQuat(-x, -y, -z, w);
+
+        // v turned by this (unit) rotation: q v q*.
+        public LTVec Rotate(LTVec v)
+        {
+            var r = this * new LTQuat(v.x, v.y, v.z, 0) * Conjugate();
+            return new LTVec(r.x, r.y, r.z);
+        }
+
         public LTVec Right() => new LTVec(1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y));
         public LTVec Forward() => new LTVec(2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y));
     }
