@@ -31,14 +31,19 @@ namespace Tron
             return f;
         }
 
-        // Visible: its renderers draw; Solid: its colliders collide (RayHit has no use in the viewer yet).
+        // Visible: its renderers draw. Solid: its colliders block. RayHit without Solid: they only take the
+        // use ray (UseOnlyLayer, as LevelBuilderDoors does for usable non-solid world models). Neither: off.
         static void Show(IEnumerable<GameObject> gos, GameBaseFlags f)
         {
             foreach (var go in gos)
             {
                 if (!go) continue;
                 foreach (var r in go.GetComponentsInChildren<Renderer>(true)) r.enabled = f.Visible;
-                foreach (var c in go.GetComponentsInChildren<Collider>(true)) c.enabled = f.Solid;
+                foreach (var c in go.GetComponentsInChildren<Collider>(true))
+                {
+                    c.enabled = f.Solid || f.RayHit;
+                    c.gameObject.layer = f.Solid ? 0 : UseOnlyLayer;
+                }
             }
         }
 
