@@ -7,56 +7,16 @@ u16 control (bit0 prev tangent, bit1 next tangent), u8 soundLen, u8 commandLen, 
 f32 pitchYawRoll[3] (radians), f32 timeStamp (s since the previous key), f32 soundRadius,
 sound[soundLen], command[commandLen] (not NUL-terminated), then the tangents present (relative to pos).
 """
+import re
 import struct
 
+import commands
 import waveform
 
 # KeyFramer::OnTrigger verbs that run its own path (REVERSE is BACKWARD). MOVETO and the TARGET family
 # aren't sent by any live keyframer to itself.
 SELF_VERBS = {"ON": "ON", "OFF": "OFF", "PAUSE": "PAUSE", "RESUME": "RESUME", "FORWARD": "FORWARD",
               "BACKWARD": "BACKWARD", "REVERSE": "BACKWARD", "TOGGLEDIR": "TOGGLEDIR", "GOTO": "GOTO"}
-
-
-def _split(text):
-    """Command language tokens: words and parenthesized groups (kept as their inner text, nested ones
-    whole); a top-level ';' ends a command. Returns a list of commands, each a list of tokens."""
-    commands, tokens, word, depth = [], [], "", 0
-    for ch in text:
-        if depth:
-            if ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if not depth:
-                    tokens.append(("(", word))
-                    word = ""
-                    continue
-            word += ch
-        elif ch == "(":
-            if word:
-                tokens.append(word)
-            word, depth = "", 1
-        elif ch == ";" or ch.isspace():
-            if word:
-                tokens.append(word)
-            word = ""
-            if ch == ";" and tokens:
-                commands.append(tokens)
-                tokens = []
-        else:
-            word += ch
-    if word:
-        tokens.append(("(", word) if depth else word)
-    if tokens:
-        commands.append(tokens)
-    return commands
-
-
-def _words(tokens):
-    """A message's words: a single parenthesized group stands for its inner words."""
-    if len(tokens) == 1 and isinstance(tokens[0], tuple):
-        return tokens[0][1].split()
-    return [t[1] if isinstance(t, tuple) else t for t in tokens]
 
 
 def find_key(name, base_key_name, n_keys):
@@ -73,26 +33,34 @@ def find_key(name, base_key_name, n_keys):
 
 def self_commands(command, name, base_key_name, n_keys, delay=0.0):
     """The messages a key command sends to its own keyframer `name`, in order: verb (SELF_VERBS'
-    values), delay (s, from `delay <t> (<command>)`) and key (GOTO's key index, else -1)."""
+    values), delay (s, from `delay <t> (<command>)`) and key (GOTO's key index, else -1). Read with the
+    engine's grammar (commands.py): the string runs only if its first statement is a command, and each
+    message is split into statements again by the receiver."""
+    if not commands.is_valid(command):
+        return []
     out = []
-    for tokens in _split(command):
-        head = tokens[0].lower() if isinstance(tokens[0], str) else ""
-        if head == "delay" and len(tokens) >= 3:
-            inner = tokens[2][1] if isinstance(tokens[2], tuple) else " ".join(_words(tokens[2:]))
-            out += self_commands(inner, name, base_key_name, n_keys, delay + float(tokens[1]))
-        elif head == "msg" and len(tokens) >= 3 and isinstance(tokens[1], str) \
-                and tokens[1].lower() == name.lower():
-            words = _words(tokens[2:])
-            verb = SELF_VERBS.get(words[0].upper()) if words else None
-            if verb is None:
-                continue
-            key = -1
-            if verb == "GOTO":
-                key = find_key(words[1], base_key_name, n_keys) if len(words) > 1 else -1
-                if key < 0:
+    for words in commands.statements(command):
+        verb = words[0].upper() if commands.verb_count(words) else None
+        if verb == "DELAY":
+            out += self_commands(words[2], name, base_key_name, n_keys, delay + _atof(words[1]))
+        elif verb == "MSG" and words[1].lower() == name.lower():
+            for message in commands.statements(words[2]):
+                self_verb = SELF_VERBS.get(message[0].upper()) if message else None
+                if self_verb is None:
                     continue
-            out.append({"verb": verb, "delay": delay, "key": key})
+                key = -1
+                if self_verb == "GOTO":
+                    key = find_key(message[1], base_key_name, n_keys) if len(message) > 1 else -1
+                    if key < 0:
+                        continue
+                out.append({"verb": self_verb, "delay": delay, "key": key})
     return out
+
+
+def _atof(text):
+    """C atof: the longest leading number, 0 if none."""
+    m = re.match(r"\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?", text)
+    return float(m.group(0)) if m else 0.0
 
 
 CLASS = "KeyFramer"

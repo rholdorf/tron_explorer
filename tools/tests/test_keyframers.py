@@ -81,6 +81,17 @@ def test_reverse_is_backward():
         {"verb": "BACKWARD", "delay": 0.0, "key": -1}]
 
 
+def test_key_commands_follow_the_engine_tokenizer():
+    # docs/research/command-language.md: ';' ends a statement even inside parentheses, a string whose first
+    # statement isn't a command never runs, and a statement with the wrong word count is skipped.
+    import keyframer
+    assert keyframer.self_commands("delay 1 (msg kf pause; msg kf resume", "kf", "k", 3) == [
+        {"verb": "PAUSE", "delay": 1.0, "key": -1}, {"verb": "RESUME", "delay": 0.0, "key": -1}]
+    assert keyframer.self_commands("*msg kf pause; msg kf resume", "kf", "k", 3) == []
+    assert keyframer.self_commands("msg other on; msg kf pause now; msg kf resume", "kf", "k", 3) == [
+        {"verb": "RESUME", "delay": 0.0, "key": -1}]
+
+
 def test_goto_names_a_key_by_base_name_and_index():
     # KeyFramer::FindKey: the base name (any case), then "0", "01".."09", "10".. by key index.
     import keyframer
