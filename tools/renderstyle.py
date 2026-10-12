@@ -151,52 +151,76 @@ def _argb(v):
     return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255, (v >> 24) / 255]
 
 
-def compile_style(s, name):
-    """The shader description of a style, or ValueError when the model shader can't draw it.
-    A second pass is folded into the first when that's exact: pass 0 opaque, pass 1 alpha-blended or
-    opaque with the same Z and cull states (its alpha test then selects instead of discarding)."""
+def _state(ps):
+    """A pass's hardware state as Unity material values."""
+    return {
+        "blend": UNITY_BLEND[BLEND[ps.blend]],
+        "zwrite": int(ps.zbuffer == 0),
+        "ztest": 8 if ps.zbuffer == 2 else ZFUNC[ps.ztest],
+        "cull": {0: 0, 1: 2, 2: 1}[ps.cull],                           # D3D CCW culls back faces
+    }
+
+
+def _pass(ps, where, blend_over=0):
+    return {
+        "stages": _stages(ps, where),
+        "tfactor": _argb(ps.tfactor),
+        "lit": int(bool(ps.lit)),
+        "blendOver": blend_over,
+        "alphaTest": [UNITY_CMP.get(ps.alpha_test, 0), ps.alpha_ref / 255],
+    }
+
+
+def _check(s, name):
+    if len(s.passes) > 2:
+        raise ValueError(f"{name}: {len(s.passes)} passes")
     for i, ps in enumerate(s.passes):
         if ps.has_d3d or ps.bump or ps.fill != 1:
             raise ValueError(f"{name} pass {i}: shader pass, bump map or wireframe")
         if BLEND.get(ps.blend) not in UNITY_BLEND:
             raise ValueError(f"{name} pass {i}: blend {BLEND.get(ps.blend, ps.blend)} not supported")
+
+
+def compile_style(s, name):
+    """The shader description of a style, or ValueError when the model shader can't draw it: the
+    material and one or two draws, each with its hardware state and the passes it evaluates.
+    A second pass is folded into the first draw when that's exact: pass 0 opaque, pass 1 alpha-blended
+    or opaque with the same Z and cull states (its alpha test then selects instead of discarding).
+    Otherwise it needs the framebuffer and is a draw of its own after the first, with its own states
+    (rendermodelpiecelist.cpp draws each pass of a piece in turn); each draw is fogged on its own."""
+    _check(s, name)
     p0 = s.passes[0]
-    out = {
-        "blend": UNITY_BLEND[BLEND[p0.blend]],
-        "zwrite": int(p0.zbuffer == 0),
-        "ztest": 8 if p0.zbuffer == 2 else ZFUNC[p0.ztest],
-        "cull": {0: 0, 1: 2, 2: 1}[p0.cull],                           # D3D CCW culls back faces
-        "material": {"ambient": list(s.ambient), "diffuse": list(s.diffuse), "emissive": list(s.emissive)},
-        "passes": [],
-    }
-    if len(s.passes) > 2:
-        raise ValueError(f"{name}: {len(s.passes)} passes")
+    out = {"material": {"ambient": list(s.ambient), "diffuse": list(s.diffuse), "emissive": list(s.emissive)}}
+    draw = dict(_state(p0), passes=[_pass(p0, f"{name} pass 0")])
+    out["draws"] = [draw]
     if len(s.passes) == 2:
         p1 = s.passes[1]
-        if not (BLEND[p0.blend] == "opaque" and BLEND[p1.blend] in ("opaque", "alpha") and p0.cull == p1.cull
+        if (BLEND[p0.blend] == "opaque" and BLEND[p1.blend] in ("opaque", "alpha") and p0.cull == p1.cull
                 and p1.zbuffer == 0 and p0.zbuffer == 0 and p1.ztest in (0, 2) and p0.alpha_test == 0):
-            raise ValueError(f"{name}: second pass can't be folded into one draw")
-    for i, ps in enumerate(s.passes):
-        out["passes"].append({
-            "stages": _stages(ps, f"{name} pass {i}"),
-            "tfactor": _argb(ps.tfactor),
-            "lit": int(bool(ps.lit)),
-            "blendOver": int(BLEND[ps.blend] == "alpha") if i else 0,
-            "alphaTest": [UNITY_CMP.get(ps.alpha_test, 0), ps.alpha_ref / 255],
-        })
+            draw["passes"].append(_pass(p1, f"{name} pass 1", int(BLEND[p1.blend] == "alpha")))
+        else:
+            out["draws"].append(dict(_state(p1), passes=[_pass(p1, f"{name} pass 1")]))
     return out
 
 
 def compile_glow(s, name):
-    """The pass a style is swapped for while drawing the screen-glow buffer ([GlowRSMap] in
-    clientbutes.txt). Only its first pass is drawn, over the model's own blend state; a
-    MUL_SRCALPHA_ZERO glow style is premultiplied in the shader instead."""
-    c = compile_style(s, name)
-    if len(c["passes"]) != 1 or BLEND[s.passes[0].blend] not in ("opaque", "mul_srcalpha_zero"):
-        raise ValueError(f"{name}: glow style must be one opaque or MUL_SRCALPHA_ZERO pass")
-    g = c["passes"][0]
-    g["blendOver"] = int(BLEND[s.passes[0].blend] == "mul_srcalpha_zero")   # premultiply by alpha
-    return g
+    """The passes a style is swapped for while drawing the screen-glow buffer ([GlowRSMap] in
+    clientbutes.txt), with the state they need. One opaque or MUL_SRCALPHA_ZERO pass (premultiplied
+    in the shader, blendOver 1) can be drawn over an opaque model's own state. Two alpha-blended
+    passes with the same Z and cull fold into one premultiplied draw, Blend One OneMinusSrcAlpha
+    (blendOver 2 on the first): over(over(dst, c0, a0), c1, a1) = c1 a1 + (1 - a1) a0 c0
+    + (1 - a0)(1 - a1) dst. No other glow style is used."""
+    _check(s, name)
+    p0 = s.passes[0]
+    if len(s.passes) == 1 and BLEND[p0.blend] in ("opaque", "mul_srcalpha_zero"):
+        return dict(_state(p0), blend=UNITY_BLEND["opaque"],
+                    passes=[_pass(p0, name, int(BLEND[p0.blend] == "mul_srcalpha_zero"))])
+    if (len(s.passes) == 2 and all(BLEND[p.blend] == "alpha" for p in s.passes)
+            and len({(p.zbuffer, p.ztest, p.cull) for p in s.passes}) == 1):
+        return dict(_state(p0), blend=(1, 10),
+                    passes=[_pass(p0, f"{name} pass 0", 2), _pass(s.passes[1], f"{name} pass 1", 1)])
+    raise ValueError(f"{name}: glow style must be one opaque or MUL_SRCALPHA_ZERO pass, "
+                     f"or two alpha-blended passes")
 
 
 if __name__ == "__main__":

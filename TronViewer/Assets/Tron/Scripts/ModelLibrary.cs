@@ -11,6 +11,7 @@ namespace Tron
     {
         public ModelJson data;
         public Mesh mesh;   // one submesh per piece, LOD 0, bind pose, LithTech units; bones = data.nodes
+                            // (shared; ModelLibrary.WithRepeatedPieces makes variants for multi-draw styles)
         public float[] animData;   // the clips' float block (data.anims index into it)
 
         // Index of the clip named `name` in data.anims, or -1.
@@ -113,6 +114,26 @@ namespace Tron
             }
             cache[file] = result;
             return result;
+        }
+
+        // The model's mesh plus submeshes that repeat the given pieces (in order, after the model's own),
+        // so one renderer draws a piece again with another material: a render style's later draws share
+        // the skinning, bones and property block of the first. Cached per model and piece list.
+        public static Mesh WithRepeatedPieces(LoadedModel model, List<int> pieces, Dictionary<string, Mesh> cache, List<UnityEngine.Object> owned)
+        {
+            var key = model.data.file + "|" + string.Join(",", pieces);
+            if (cache.TryGetValue(key, out var mesh)) return mesh;
+            mesh = UnityEngine.Object.Instantiate(model.mesh);   // copies vertices, skin, bind poses, submeshes
+            mesh.name = $"{model.mesh.name} +{pieces.Count}";
+            owned.Add(mesh);
+            int n = model.mesh.subMeshCount;
+            mesh.subMeshCount = n + pieces.Count;
+            for (int j = 0; j < pieces.Count; j++)
+                mesh.SetSubMesh(n + j, model.mesh.GetSubMesh(pieces[j]), MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices);
+            mesh.bounds = model.mesh.bounds;
+            mesh.UploadMeshData(false);
+            cache[key] = mesh;
+            return mesh;
         }
     }
 }

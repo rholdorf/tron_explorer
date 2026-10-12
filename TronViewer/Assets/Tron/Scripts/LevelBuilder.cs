@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 8;
+        public const int FormatVersion = 9;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family).
@@ -182,8 +182,11 @@ namespace Tron
             if (Data.models == null || Data.models.Length == 0) return;
             var root = new GameObject("Models");
             root.transform.SetParent(Root.transform, false);
-            var styleMaterials = new Dictionary<(int, string, string), Material>();
+            var styleMaterials = new Dictionary<(int, string, string), Material[]>();
             var models = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
+            var repeatMeshes = new Dictionary<string, Mesh>();
+            var repeats = new List<int>();
+            var repeatMats = new List<Material>();
             var built = new (LoadedModel model, Transform[] bones)[Data.models.Length];
             var mpb = new MaterialPropertyBlock();
             var lightDirs = new Vector4[ModelLighting.MaxLights];
@@ -213,15 +216,33 @@ namespace Tron
                     go.transform.localRotation = obj.Rotation;
                     if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
                 }
+                // One material per piece for its style's first draw; later draws repeat the piece as extra
+                // submeshes of the same renderer (same skinning and property block), drawn after it.
                 var mats = new Material[inst.pieces.Length];
+                repeats.Clear();
+                repeatMats.Clear();
                 for (int i = 0; i < mats.Length; i++)
                 {
                     var p = inst.pieces[i];
                     string t1 = p.tex != null && p.tex.Length > 0 ? p.tex[0] : "", t2 = p.tex != null && p.tex.Length > 1 ? p.tex[1] : "";
                     var key = (p.style, t1, t2);
                     if (!styleMaterials.TryGetValue(key, out var m))
-                        styleMaterials[key] = m = CreateModelMaterial(Data.renderStyles[p.style], t1, t2);
-                    mats[i] = m;
+                        styleMaterials[key] = m = CreateModelMaterials(Data.renderStyles[p.style], t1, t2);
+                    mats[i] = m[0];
+                    for (int d = 1; d < m.Length; d++)
+                    {
+                        repeats.Add(i);
+                        repeatMats.Add(m[d]);
+                    }
+                }
+                var mesh = model.mesh;
+                if (repeats.Count > 0)
+                {
+                    mesh = ModelLibrary.WithRepeatedPieces(model, repeats, repeatMeshes, owned);
+                    var all = new Material[mats.Length + repeatMats.Count];
+                    mats.CopyTo(all, 0);
+                    repeatMats.CopyTo(all, mats.Length);
+                    mats = all;
                 }
                 Renderer r;
                 if (inst.skinned != 0)
@@ -231,14 +252,14 @@ namespace Tron
                     if (inst.parent < 0 && !string.IsNullOrEmpty(inst.anim) && !animator.Play(model, inst.anim, bones))
                         Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
                     var smr = go.AddComponent<SkinnedMeshRenderer>();
-                    smr.sharedMesh = model.mesh;
+                    smr.sharedMesh = mesh;
                     smr.bones = bones;
                     smr.localBounds = SkinnedBounds(go.transform, model, bones);
                     r = smr;
                 }
                 else
                 {
-                    go.AddComponent<MeshFilter>().sharedMesh = model.mesh;
+                    go.AddComponent<MeshFilter>().sharedMesh = mesh;
                     r = go.AddComponent<MeshRenderer>();
                 }
                 r.sharedMaterials = mats;
@@ -333,33 +354,46 @@ namespace Tron
             return result;
         }
 
-        // A Tron/Model material for one compiled render style and the piece's texture list.
-        Material CreateModelMaterial(RenderStyleJson rs, string tex1, string tex2)
+        // Tron/Model materials for one compiled render style and the piece's texture list, one per draw.
+        // A later draw sorts after the one before it (the engine draws a piece's passes in turn).
+        Material[] CreateModelMaterials(RenderStyleJson rs, string tex1, string tex2)
         {
-            var m = new Material(modelShader) { name = $"{rs.name} {tex1}" };
-            owned.Add(m);
-            foreach (var (prop, tex) in new[] { ("_Tex1", tex1), ("_Tex2", tex2) })
+            var result = new Material[rs.draws.Length];
+            for (int d = 0; d < result.Length; d++)
             {
-                if (string.IsNullOrEmpty(tex)) continue;
-                var t = DtxLoader.Load(tex);
-                if (t != null) m.SetTexture(prop, t.tex);
-                else MissingTextures.Add(tex);
+                var draw = rs.draws[d];
+                var m = new Material(modelShader) { name = d == 0 ? $"{rs.name} {tex1}" : $"{rs.name} {tex1} draw {d}" };
+                owned.Add(m);
+                foreach (var (prop, tex) in new[] { ("_Tex1", tex1), ("_Tex2", tex2) })
+                {
+                    if (string.IsNullOrEmpty(tex)) continue;
+                    var t = DtxLoader.Load(tex);
+                    if (t != null) m.SetTexture(prop, t.tex);
+                    else MissingTextures.Add(tex);
+                }
+                // lit < 0: the draw has no such pass (glow-only draws, draws without glow).
+                if (draw.passes.Length > 0) SetPass(m, "_S", draw.passes[0], "_TF0", "_P0");
+                else m.SetVector("_P0", new Vector4(-1, 0, 0, 0));
+                if (draw.passes.Length > 1) SetPass(m, "_T", draw.passes[1], "_TF1", "_P1");
+                if (draw.glow.Length > 0) SetPass(m, "_G", draw.glow[0], "_TFG", "_PG");
+                else m.SetVector("_PG", new Vector4(-1, 0, 0, 0));
+                if (draw.glow.Length > 1) SetPass(m, "_H", draw.glow[1], "_TFH", "_PH");
+                m.SetVector("_MatDiffuse", Vec(rs.material.diffuse));
+                m.SetVector("_MatEmissive", Vec(rs.material.emissive));
+                m.SetVector("_MatAmbient", Vec(rs.material.ambient));
+                m.SetFloat("_SrcBlend", draw.blend[0]);
+                m.SetFloat("_DstBlend", draw.blend[1]);
+                m.SetFloat("_ZWrite", draw.zwrite);
+                m.SetFloat("_ZTest", draw.ztest);
+                m.SetFloat("_Cull", draw.cull);
+                // Blended draws go after the opaque world, like the engine's translucent model list.
+                int queue = draw.blend[0] != (int)BlendMode.One || draw.blend[1] != (int)BlendMode.Zero ? (int)RenderQueue.Transparent
+                          : draw.passes.Length > 0 && draw.passes[0].alphaTest[0] != 0 ? (int)RenderQueue.AlphaTest
+                          : (int)RenderQueue.Geometry;
+                m.renderQueue = d == 0 ? queue : Math.Max(queue, result[d - 1].renderQueue + 1);
+                result[d] = m;
             }
-            SetPass(m, "_S", rs.passes[0], "_TF0", "_P0");
-            if (rs.passes.Length > 1) SetPass(m, "_T", rs.passes[1], "_TF1", "_P1");
-            SetPass(m, "_G", rs.glow, "_TFG", "_PG");
-            m.SetVector("_MatDiffuse", Vec(rs.material.diffuse));
-            m.SetVector("_MatEmissive", Vec(rs.material.emissive));
-            m.SetVector("_MatAmbient", Vec(rs.material.ambient));
-            m.SetFloat("_SrcBlend", rs.blend[0]);
-            m.SetFloat("_DstBlend", rs.blend[1]);
-            m.SetFloat("_ZWrite", rs.zwrite);
-            m.SetFloat("_ZTest", rs.ztest);
-            m.SetFloat("_Cull", rs.cull);
-            // Blended styles draw after the opaque world, like the engine's translucent model list.
-            if (rs.blend[0] != (int)BlendMode.One || rs.blend[1] != (int)BlendMode.Zero) m.renderQueue = (int)RenderQueue.Transparent;
-            else if (rs.passes[0].alphaTest[0] != 0) m.renderQueue = (int)RenderQueue.AlphaTest;
-            return m;
+            return result;
         }
 
         static void SetPass(Material m, string stagePrefix, RenderPassJson p, string tf, string flags)
