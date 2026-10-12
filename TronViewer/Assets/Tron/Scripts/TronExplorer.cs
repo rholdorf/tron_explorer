@@ -26,6 +26,8 @@ namespace Tron
         RenderTexture glowRT, blurA, blurB;
         Material blurMat, compositeMat;
         bool glowEnabled = true;
+        bool muted;
+        AudioSource testSound;
         bool menuOpen = true, showHelp = true;
         Vector2 menuScroll;
         string filter = "";
@@ -41,6 +43,7 @@ namespace Tron
             ResolveRoots();
             DtxLoader.Root = extractedRoot;
             TextureEffects.Root = extractedRoot;
+            SoundLoader.Root = exportRoot == null ? null : Path.Combine(exportRoot, "sounds");
             gameObject.AddComponent<SpriteAnimator>();
             var indexPath = Path.Combine(exportRoot ?? "", "levels.json");
             if (exportRoot != null && File.Exists(indexPath))
@@ -57,6 +60,8 @@ namespace Tron
             if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
             var auto = GetArg("-level");
             if (auto != null) Load(auto);
+            var sound = GetArg("-playsound");
+            if (sound != null) PlayTestSound(sound);
             if (float.TryParse(GetArg("-benchmark"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var secs) && level != null)
                 StartCoroutine(Benchmark(secs));
         }
@@ -81,6 +86,22 @@ namespace Tron
             Debug.Log($"BENCH {level.Data.name} frames={ms.Count} avg={avg:0.00}ms ({1000 / avg:0} fps) " +
                       $"p50={ms[ms.Count / 2]:0.00}ms p95={ms[(int)(ms.Count * 0.95f)]:0.00}ms {Screen.width}x{Screen.height}");
             Application.Quit();
+        }
+
+        // Checks the sound pipeline until sounds are placed in the level: loops one sound file
+        // ("Snd\amb\drone12.WAV"), unpositioned, until the next level load. "-playsound <path>" on the
+        // command line. Returns false if the file isn't in the export.
+        public bool PlayTestSound(string path)
+        {
+            if (testSound) Destroy(testSound.gameObject);
+            var clip = SoundLoader.Load(path);
+            if (!clip) { Debug.LogWarning($"Sound {path} not in the export ({SoundLoader.Root})"); return false; }
+            testSound = new GameObject("Test sound").AddComponent<AudioSource>();
+            testSound.clip = clip;
+            testSound.loop = true;
+            testSound.spatialBlend = 0;
+            testSound.Play();
+            return true;
         }
 
         void OnDestroy() => RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
@@ -219,6 +240,8 @@ namespace Tron
             var sw = Stopwatch.StartNew();
             level?.Destroy();
             DtxLoader.ClearCache();
+            if (testSound) Destroy(testSound.gameObject);
+            SoundLoader.ClearCache();
             level = new LevelBuilder();
             try
             {
@@ -296,6 +319,7 @@ namespace Tron
                 if (kb.escapeKey.wasPressedThisFrame || kb.tabKey.wasPressedThisFrame) menuOpen = !menuOpen || level == null;
                 if (kb.f1Key.wasPressedThisFrame) showHelp = !showHelp;
                 if (kb.gKey.wasPressedThisFrame) glowEnabled = !glowEnabled;
+                if (kb.mKey.wasPressedThisFrame) { muted = !muted; AudioListener.volume = muted ? 0 : 1; }
                 UpdateUiScaleInput(kb);
                 if (kb.rKey.wasPressedThisFrame && level != null && !menuOpen) Spawn();
                 if (kb.tKey.wasPressedThisFrame && level != null && !menuOpen) Spawn(spawnIndex + 1);
@@ -405,7 +429,7 @@ namespace Tron
             }
 
             var p = player ? player.transform.position / LT.Scale : Vector3.zero;
-            string hud = $"{level?.Data.name}   {fps:0} fps   pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip ? "   [NOCLIP]" : "") +
+            string hud = $"{level?.Data.name}   {fps:0} fps   pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") +
                 (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "");
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
@@ -413,7 +437,7 @@ namespace Tron
             if (showHelp)
             {
                 var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · " +
-                                          "G glow · R reiniciar · T próximo ponto · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
+                                          "G glow · M som · R reiniciar · T próximo ponto · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }
