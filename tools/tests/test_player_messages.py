@@ -177,3 +177,31 @@ def test_a_sine_replaces_a_ramp_on_the_same_variable(driver):
                   ("run", "msg player (sinconsolevar fogg 0 100 4)"), ("tick", 1), ("var", "fogg"),
                   ("tick", 2), ("var", "fogg")])
     assert values(out, "var") == [100, 0]
+
+
+# ---- WorldProperties ----
+
+def test_fogcolor_sets_the_fog_color_in_any_case_of_the_name(driver):
+    out = driver([("run", "msg worldproperties0 (FOGCOLOR 1 2 3)"), ("var", "fogr"), ("var", "fogg"), ("var", "fogb")])
+    assert values(out, "var") == [1, 2, 3]
+
+
+def test_a_worldproperties_message_copies_every_world_variable_again_wiping_a_ramp_that_keeps_running(driver):
+    out = driver([("run", "msg player (rampconsolevar fognearz 300 2)"), ("tick", 1), ("var", "fognearz"),
+                  ("run", "msg WorldProperties0 (fogfarz 900)"), ("var", "fognearz"), ("var", "fogfarz"),
+                  ("tick", 0.5), ("var", "fognearz")])
+    assert values(out, "var") == [200, 100, 900, 250]
+
+
+def test_glow_fog_and_fog_enable_messages_set_their_variables(driver):
+    out = driver([("run", "msg WorldProperties0 (screenglowfogenable 1); msg WorldProperties0 (screenglowfognearz 650);"
+                          " msg WorldProperties0 (screenglowfogfarz 2000); msg WorldProperties0 (fogenable 0);"
+                          " msg WorldProperties0 (fognearz 5)"),
+                  ("var", "ScreenGlowFogEnable"), ("var", "ScreenGlowFogNearZ"), ("var", "ScreenGlowFogFarZ"),
+                  ("var", "FogEnable"), ("var", "FogNearZ")])
+    assert values(out, "var") == [1, 650, 2000, 0, 5]
+
+
+def test_farz_is_not_a_worldproperties_message(driver):
+    out = driver([("run", "msg WorldProperties0 (farz 100)"), ("var", "farz"), ("report",)])
+    assert out == [("var", "farz", "5000"), ("unhandled", "MSG", "WorldProperties", "FARZ", "1")]

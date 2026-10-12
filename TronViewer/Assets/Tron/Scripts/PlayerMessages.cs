@@ -217,7 +217,33 @@ namespace Tron
             });
         }
 
-        public static void HandleWorldProperties(CommandMgr mgr, int id, RenderVars vars) { }
+        // Tron's WorldProperties messages (object.lto; ltjs worldproperties.cpp): each sets the server's
+        // variable, then every world variable is copied again to the client. FARZ isn't one of them.
+        static readonly Dictionary<string, string> WorldMessages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "FOGENABLE", "FogEnable" }, { "FOGNEARZ", "FogNearZ" }, { "FOGFARZ", "FogFarZ" },
+            { "SKYFOGENABLE", "SkyFogEnable" }, { "SKYFOGNEARZ", "SkyFogNearZ" }, { "SKYFOGFARZ", "SkyFogFarZ" },
+            { "SCREENGLOWFOGENABLE", "ScreenGlowFogEnable" }, { "SCREENGLOWFOGNEARZ", "ScreenGlowFogNearZ" },
+            { "SCREENGLOWFOGFARZ", "ScreenGlowFogFarZ" },
+        };
+
+        public static void HandleWorldProperties(CommandMgr mgr, int id, RenderVars vars)
+        {
+            mgr.Handle(id, m =>
+            {
+                if (m.Is("FOGCOLOR"))
+                {
+                    if (m.ArgCount < 3) return false;
+                    vars.SetWorld("FogR", Num(m, 0));
+                    vars.SetWorld("FogG", Num(m, 1));
+                    vars.SetWorld("FogB", Num(m, 2));
+                    return true;
+                }
+                if (!WorldMessages.TryGetValue(m.Word, out var name) || m.ArgCount < 1) return false;
+                vars.SetWorld(name, Num(m, 0));
+                return true;
+            });
+        }
 
         static float Num(Message m, int i) => CommandMgr.Atof(m.Arg(i));
 
