@@ -4,6 +4,10 @@
 //   glow pass (_LTGlowPass): fullbright -> texture.rgb * texture.a, everything else black
 //   envmap  = (texture ADDSIGNED env) * diffuse  (EnvMapAdd=1; EnvMapAlpha masks env by texture alpha)
 //   detail  = (texture ADDSIGNED detail) * diffuse
+//   lightmap (shader lightmap_texture, d3d_rendershader_lightmap.cpp): the game draws the lightmap,
+//            then the texture pass with blend DESTCOLOR/SRCCOLOR (= 2 * dst * src with Saturate) and
+//            fog color 0x808080, so fog = 2 * lerp(fog, lm, f) * lerp(0.5, tex, f); fullbright adds a
+//            SRCALPHA/INVSRCALPHA pass of the (grey-fogged) texture. Reproduced here in one pass.
 // plus D3D linear fog. Math is done in gamma space like the original, then converted
 // to linear for the sRGB render target (textures are uploaded as linear = raw values).
 Shader "Tron/World"
@@ -13,6 +17,8 @@ Shader "Tron/World"
         _MainTex ("Texture", 2D) = "white" {}
         _EnvTex ("Env Map", 2D) = "gray" {}
         _DetailTex ("Detail", 2D) = "gray" {}
+        _LightmapTex ("Lightmap atlas (uv2)", 2D) = "gray" {}
+        _UseLightmap ("Use Lightmap", Float) = 0
         _UseEnv ("Use Env", Float) = 0
         _EnvAlpha ("Env Map masked by alpha", Float) = 0
         _UseDetail ("Use Detail", Float) = 0
@@ -43,9 +49,9 @@ Shader "Tron/World"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            sampler2D _MainTex, _EnvTex, _DetailTex;
+            sampler2D _MainTex, _EnvTex, _DetailTex, _LightmapTex;
             float4 _MainTex_ST;
-            float _UseEnv, _EnvAlpha, _UseDetail, _Cutoff, _Alpha, _Fullbright, _NoFog;
+            float _UseEnv, _EnvAlpha, _UseDetail, _Cutoff, _Alpha, _Fullbright, _NoFog, _UseLightmap;
             float4 _DetailScale, _UVScroll;
 
             // Set globally per camera by TronExplorer: color (gamma 0-1), x=near, y=far, z=enabled
@@ -59,6 +65,7 @@ Shader "Tron/World"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
+                float2 uv2 : TEXCOORD1;
                 float4 color : COLOR;
             };
 
@@ -69,6 +76,7 @@ Shader "Tron/World"
                 float2 envuv : TEXCOORD1;
                 float2 detuv : TEXCOORD2;
                 float fog : TEXCOORD3;
+                float2 lmuv : TEXCOORD4;
                 float4 color : COLOR;
             };
 
@@ -79,14 +87,18 @@ Shader "Tron/World"
                 o.uv = v.uv + _UVScroll.xy * _Time.y;
                 float2 d = v.uv * _DetailScale.xy;
                 o.detuv = float2(d.x * _DetailScale.z - d.y * _DetailScale.w, d.x * _DetailScale.w + d.y * _DetailScale.z);
-                // Sphere-ish env map from the camera-space normal (d3d_SetEnvMapTransform)
-                float3 vn = normalize(mul((float3x3)UNITY_MATRIX_IT_MV, v.normal));
-                o.envuv = vn.xy * float2(0.5, -0.5) + 0.5;
+                // d3d_SetEnvMapTransform: per-vertex D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR, rotated to
+                // world space by m_mWorldEnvMap (camera basis), then uv = R.xy * (-0.5 / EnvScale) + 0.5
+                // with EnvScale 1. Level geometry is in LithTech world axes, so Unity world space matches.
+                float3 wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                float3 r = reflect(normalize(wpos - _WorldSpaceCameraPos), UnityObjectToWorldNormal(v.normal));
+                o.envuv = r.xy * -0.5 + 0.5;
                 float3 viewPos = UnityObjectToViewPos(v.vertex);
                 // Fog is computed in LithTech units: distance is divided by the world scale.
                 float dist = -viewPos.z / _LTFogParams.w;
                 o.fog = _LTFogParams.z > 0 && _NoFog == 0 ? saturate((_LTFogParams.y - dist) / max(_LTFogParams.y - _LTFogParams.x, 1e-3)) : 1;
                 o.color = v.color;
+                o.lmuv = v.uv2;
                 return o;
             }
 
@@ -109,7 +121,17 @@ Shader "Tron/World"
                     fixed3 g = _Fullbright > 0 ? tex.rgb * tex.a : 0;
                     return fixed4(g, a);
                 }
-                fixed3 lit = c * i.color.rgb * max(_LTSaturate, 1);
+                float sat = max(_LTSaturate, 1);
+                if (_UseLightmap > 0)
+                {
+                    // Multipass: lightmap fogged to the fog color, texture fogged to 1/Saturate.
+                    fixed3 lm = lerp(_LTFogColor.rgb, tex2D(_LightmapTex, i.lmuv).rgb, i.fog);
+                    fixed3 texPass = lerp(1 / sat, c, i.fog);
+                    c = saturate(lm * texPass * sat);
+                    if (_Fullbright > 0) c = lerp(c, lerp(1 / sat, tex.rgb, i.fog), tex.a);
+                    return fixed4(GammaToLinearSpace(c), a);
+                }
+                fixed3 lit = c * i.color.rgb * sat;
                 c = _Fullbright > 0 ? lerp(lit, tex.rgb, tex.a) : lit;
                 c = lerp(_LTFogColor.rgb, saturate(c), i.fog);
                 return fixed4(GammaToLinearSpace(c), a);

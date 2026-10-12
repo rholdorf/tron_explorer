@@ -179,7 +179,13 @@ class RenderSection:
 
 
 class RenderBlock:
-    __slots__ = ("center", "half", "sections", "verts", "tris", "poly_ids", "children")
+    __slots__ = ("center", "half", "sections", "verts", "tris", "poly_ids", "children", "light_groups")
+
+
+class LightGroup:
+    """Switchable light baked separately (d3d_renderblock.cpp SRBLightGroup): added on top of the
+    vertex colors and lightmaps scaled by `color` (0-1 per channel)."""
+    __slots__ = ("name", "color", "vertex_intensities", "section_lms")
 
 
 class RenderWorld:
@@ -212,14 +218,21 @@ def read_render_block(r):
     for _ in range(r.u32()):  # occluders
         nv = r.u8()
         r.p += nv * 12 + 16 + 4
-    for _ in range(r.u32()):  # light groups (dynamic light-group intensities)
-        r.str16()
-        r.p += 12
-        r.skip(r.u32())
+    rb.light_groups = []
+    for _ in range(r.u32()):
+        lg = LightGroup()
+        lg.name = r.str16()
+        lg.color = r.vec3()
+        lg.vertex_intensities = r.raw(r.u32())
+        # per section: list of sub-lightmaps (left, top, width, height, RLE intensity data)
+        lg.section_lms = []
         for _ in range(r.u32()):
+            subs = []
             for _ in range(r.u32()):
-                r.p += 16
-                r.skip(r.u32())
+                left, top, w, h = r.fmt("<4I")
+                subs.append((left, top, w, h, r.raw(r.u32())))
+            lg.section_lms.append(subs)
+        rb.light_groups.append(lg)
     flags = r.u8()
     c = r.fmt("<2I")
     rb.children = [c[i] if flags & (1 << i) else -1 for i in range(2)]

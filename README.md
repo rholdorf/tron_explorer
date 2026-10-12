@@ -41,6 +41,13 @@ G screen glow · R respawn · T next start/teleport point · Tab/Esc level menu 
   glass…) are placed at their object's `Pos`/`Rotation` so they can move later.
 - **Lighting**: baked per-vertex color, combined as in `d3d_rendershader_gouraud.cpp` with the
   game's `Saturate 1` (MODULATE2X). Math is done in gamma space like D3D9.
+- **Lightmaps**: `lightmap_texture` sections are drawn by the game as a lightmap pass (shader 2
+  section: own copy of the triangles, uv0 = lightmap uv) followed by the texture multiplied over
+  it. The exporter packs all section lightmaps into one atlas per level (in `level.bin`), matches
+  the texture-pass triangles to their lightmap triangles by vertex position and gives them uv2;
+  the shader does both passes in one, fog included (`d3d_rendershader_lightmap.cpp`).
+- **Light groups** (switchable lights) are added to vertex colors and lightmaps with their
+  initial color. Toggling them from scripts is part of the behavior phase.
 - **Textures**: DTX v-5 loaded straight to GPU (DXT1/DXT5, DXT3 re-encoded as DXT5, BGRA32).
   Command string honored: `AlphaRef`, `EnvMap`/`EnvMapAlpha` (ADDSIGNED), `DetailTex`.
   DTX fullbright flag = alpha is a self-illumination mask, and drives the screen glow.

@@ -3,11 +3,19 @@
 <out>/level.json  metadata (materials, meshes, colliders, world models, objects)
 <out>/level.bin   binary payload:
     char[4] 'TRLV', u32 version,
-    u32 nVerts, u32 nIdx, u32 nColVerts, u32 nColIdx,
-    render verts  (nVerts * 36 bytes: pos f32x3, normal f32x3, rgba u8x4, uv f32x2)
+    u32 nVerts, u32 nIdx, u32 nColVerts, u32 nColIdx, u32 lmWidth, u32 lmHeight,
+    render verts  (nVerts * 44 bytes: pos f32x3, normal f32x3, rgba u8x4, uv f32x2, lightmap uv f32x2)
     render idx    (u32, relative to the owning mesh's first vertex)
     collider verts (f32x3)
     collider idx  (u32, relative to the owning collider's first vertex)
+    lightmap atlas (lmWidth * lmHeight * 4 bytes RGBA32, first row = v 0)
+
+Lightmapping (d3d_renderblock.cpp): a lightmapped polygon is stored twice in its render block, once
+in a "lightmap" section (shader 2: uv0 = lightmap coords, one RLE RGB lightmap per section) and once
+in a "lightmap_texture" section (shader 4: the texture pass). The game draws the lightmap and then
+multiplies the texture over it; here the lightmap texels are packed into one atlas per level and
+the texture-pass triangles get the matching lightmap uv (matched by vertex position), so the
+viewer draws both in one pass. Light groups (switchable lights) are added with their initial color.
 All positions are raw LithTech units/space (left-handed, Y up — same handedness as Unity).
 """
 import json
@@ -20,12 +28,96 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 import dat85  # noqa: E402
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
+LIGHTMAP_SHADER = 2
+LIGHTMAPPED_SHADERS = {4, 9}
+NO_LIGHTMAP = -1      # lmid: vertex has no lightmap uv
+NEUTRAL_LIGHTMAP = 0  # lmid of the 50% grey patch (x2 = unlit texture) for unmatched texture-pass tris
 
-# Unity's canonical attribute order: Position, Normal, Color, TexCoord0
-OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4), ("uv", "<f4", 2)])
-assert OUT_VERTEX.itemsize == 36
+# Unity's canonical attribute order: Position, Normal, Color, TexCoord0, TexCoord1
+OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4), ("uv", "<f4", 2),
+                       ("uv2", "<f4", 2)])
+assert OUT_VERTEX.itemsize == 44
+
+
+def apply_vertex_light_groups(colors, light_groups):
+    """Add each light group's per-vertex intensities (RLE: value, or 0 + skip count) times its
+    color to the D3DCOLOR vertex colors, clamped per channel (CD3D_RenderBlock lighting)."""
+    if not light_groups:
+        return colors
+    rgb = np.stack([(colors >> 16) & 0xFF, (colors >> 8) & 0xFF, colors & 0xFF], 1).astype(np.int64)
+    for lg in light_groups:
+        col = np.array(lg.color, np.float32)
+        if not (col * 255).astype(np.uint32).any():
+            continue
+        vi, i, v = lg.vertex_intensities, 0, 0
+        while v < len(colors) and i < len(vi):
+            val = vi[i]
+            i += 1
+            if val == 0:
+                v += vi[i] + 1
+                i += 1
+                continue
+            rgb[v] = np.minimum(rgb[v] + (col * np.float32(val)).astype(np.uint32), 255)
+            v += 1
+    rgb = rgb.astype(np.uint32)
+    return (colors & 0xFF000000) | (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
+
+
+def section_lightmap(s, sub_lms, light_groups):
+    """Decompressed RGB lightmap of a shader-2 section with the light groups' sub-lightmaps added
+    (CD3D_RenderBlock::UpdateShaderLightmaps)."""
+    img = np.frombuffer(dat85.decompress_lightmap(s.lm_data, s.lm_w, s.lm_h), np.uint8)
+    img = img.reshape(s.lm_h, s.lm_w, 3).astype(np.int64)
+    for lg, subs in zip(light_groups, sub_lms):
+        col = np.array(lg.color, np.float32)
+        if not (col * 255).astype(np.uint32).any():
+            continue
+        for left, top, w, h, data in subs:
+            i, run, run_val = 0, 0, None
+            for y in range(top, top + h):
+                for x in range(left, left + w):
+                    if run:
+                        add = run_val
+                        run -= 1
+                    else:
+                        if data[i] == 0xFF:
+                            run = data[i + 1]
+                            i += 2
+                        add = (col * np.float32(data[i])).astype(np.uint32)
+                        i += 1
+                        if run:
+                            run_val = np.minimum(add, 255)
+                    img[y, x] = np.minimum(img[y, x] + add, 255)
+    return img.astype(np.uint8)
+
+
+def pack_atlas(images, pad=1):
+    """Shelf-pack lightmaps (edges replicated by `pad` texels so bilinear filtering never bleeds).
+    Returns (atlas RGBA, list of (x, y) of each image's first texel)."""
+    area = sum((w + 2 * pad) * (h + 2 * pad) for h, w, _ in (i.shape for i in images))
+    width = 256
+    widest = max(i.shape[1] for i in images) + 2 * pad
+    while width < 4096 and (width * width < area * 1.3 or width < widest):
+        width *= 2
+    order = sorted(range(len(images)), key=lambda k: -images[k].shape[0])
+    pos, x, y, shelf = [None] * len(images), 0, 0, 0
+    for k in order:
+        h, w = images[k].shape[0] + 2 * pad, images[k].shape[1] + 2 * pad
+        if x + w > width:
+            x, y, shelf = 0, y + shelf, 0
+        pos[k] = (x + pad, y + pad)
+        x += w
+        shelf = max(shelf, h)
+    height = max(4, (y + shelf + 3) // 4 * 4)
+    atlas = np.zeros((height, width, 4), np.uint8)
+    atlas[..., 3] = 255
+    for img, (px, py) in zip(images, pos):
+        padded = np.pad(img, ((pad, pad), (pad, pad), (0, 0)), mode="edge")
+        h, w = padded.shape[:2]
+        atlas[py - pad:py - pad + h, px - pad:px - pad + w, :3] = padded
+    return atlas, pos
 
 
 class Writer:
@@ -34,6 +126,10 @@ class Writer:
         self.nv = self.ni = self.ncv = self.nci = 0
         self.materials, self.mat_index = [], {}
         self.meshes, self.colliders = [], []
+        self.lightmaps = [np.full((2, 2, 3), 128, np.uint8)]  # NEUTRAL_LIGHTMAP
+        self.lm_fixups = []  # (vertex array, lmid array): local lightmap uv -> atlas uv at write time
+        self.lm_atlas = None
+        self.unmatched_lm_tris = 0
 
     def material(self, s):
         key = (s.textures[0].replace("\\", "/").lower(), s.textures[1].replace("\\", "/").lower(),
@@ -43,42 +139,89 @@ class Writer:
             self.materials.append({"tex": key[0], "tex2": key[1], "shader": key[2], "effect": key[3]})
         return self.mat_index[key]
 
+    def block_lightmaps(self, b):
+        """Register the block's lightmaps; map each lightmap triangle (by its sorted vertex
+        positions) to {position: (lmid, u, v)}."""
+        by_tri = {}
+        start = 0
+        for si, s in enumerate(b.sections):
+            n = s.tri_count
+            tris = b.tris[start:start + n]
+            start += n
+            if s.shader != LIGHTMAP_SHADER or not s.lm_data:
+                continue
+            subs = [lg.section_lms[si] if si < len(lg.section_lms) else [] for lg in b.light_groups]
+            lmid = len(self.lightmaps)
+            self.lightmaps.append(section_lightmap(s, subs, b.light_groups))
+            for t in tris:
+                pts = [b.verts["pos"][i].tobytes() for i in t]
+                by_tri[tuple(sorted(pts))] = {p: (lmid, *b.verts["uv0"][i]) for p, i in zip(pts, t)}
+        return by_tri
+
     def add_mesh(self, name, blocks):
         """Merge render blocks into one mesh with one submesh per material."""
-        vparts, by_mat = [], {}
+        parts, lmids, by_mat = [], [], {}
         base = 0
         for b in blocks:
             if len(b.verts) == 0:
                 continue
+            v = np.zeros(len(b.verts), OUT_VERTEX)
+            v["pos"] = b.verts["pos"]
+            v["normal"] = b.verts["normal"]
+            v["uv"] = np.nan_to_num(b.verts["uv0"], nan=0.0, posinf=0.0, neginf=0.0)
+            c = apply_vertex_light_groups(b.verts["color"], b.light_groups)  # D3DCOLOR 0xAARRGGBB
+            v["rgba"][:, 0] = (c >> 16) & 0xFF
+            v["rgba"][:, 1] = (c >> 8) & 0xFF
+            v["rgba"][:, 2] = c & 0xFF
+            v["rgba"][:, 3] = (c >> 24) & 0xFF
+            block_parts, block_lmids = [v], [np.full(len(v), NO_LIGHTMAP, np.int32)]
+            nv = len(v)
+            lm_tris = None
             start = 0
             for s in b.sections:
                 tris = b.tris[start:start + s.tri_count]
                 start += s.tri_count
                 if s.shader not in RENDERED_SHADERS or len(tris) == 0:
                     continue
+                if s.shader in LIGHTMAPPED_SHADERS:
+                    if lm_tris is None:
+                        lm_tris = self.block_lightmaps(b)
+                    # Unshared copies of the texture-pass vertices carrying the lightmap uv.
+                    flat = tris.reshape(-1)
+                    nv_extra = v[flat]
+                    ids = np.full(len(flat), NEUTRAL_LIGHTMAP, np.int32)
+                    for k, t in enumerate(tris):
+                        pts = [b.verts["pos"][i].tobytes() for i in t]
+                        m = lm_tris.get(tuple(sorted(pts)))
+                        if m is None:
+                            self.unmatched_lm_tris += 1
+                            nv_extra["uv2"][3 * k:3 * k + 3] = 0.5
+                            continue
+                        for j, p in enumerate(pts):
+                            ids[3 * k + j], u, vv = m[p]
+                            nv_extra["uv2"][3 * k + j] = (u, vv)
+                    block_parts.append(nv_extra)
+                    block_lmids.append(ids)
+                    tris = np.arange(nv, nv + len(flat), dtype=np.uint32).reshape(-1, 3)
+                    nv += len(flat)
                 by_mat.setdefault(self.material(s), []).append(tris.astype(np.uint32) + base)
-            vparts.append(b.verts)
-            base += len(b.verts)
+            parts += block_parts
+            lmids += block_lmids
+            base += nv
         if not by_mat:
             return -1
-        src = np.concatenate(vparts)
-        out = np.zeros(len(src), OUT_VERTEX)
-        out["pos"] = src["pos"]
-        out["normal"] = src["normal"]
-        out["uv"] = np.nan_to_num(src["uv0"], nan=0.0, posinf=0.0, neginf=0.0)
-        c = src["color"]  # D3DCOLOR 0xAARRGGBB
-        out["rgba"][:, 0] = (c >> 16) & 0xFF
-        out["rgba"][:, 1] = (c >> 8) & 0xFF
-        out["rgba"][:, 2] = c & 0xFF
-        out["rgba"][:, 3] = (c >> 24) & 0xFF
         subs, local = [], 0
         idx_parts = []
-        for mat, parts in by_mat.items():
-            ids = np.concatenate(parts).reshape(-1)
+        for mat, tri_parts in by_mat.items():
+            ids = np.concatenate(tri_parts).reshape(-1)
             subs.append({"mat": mat, "start": local, "count": int(len(ids))})
             idx_parts.append(ids)
             local += len(ids)
-        idx = np.concatenate(idx_parts)
+        # Keep only referenced vertices (drops the originals of the copied texture-pass vertices).
+        used, remap = np.unique(np.concatenate(idx_parts), return_inverse=True)
+        out, lmid, idx = np.concatenate(parts)[used], np.concatenate(lmids)[used], remap.astype(np.uint32)
+        if (lmid != NO_LIGHTMAP).any():
+            self.lm_fixups.append((out, lmid))
         pos = out["pos"]
         mesh = {"name": name, "vtxOffset": self.nv, "vtxCount": int(len(out)), "idxOffset": self.ni,
                 "subs": subs, "min": pos.min(0).tolist(), "max": pos.max(0).tolist()}
@@ -88,6 +231,20 @@ class Writer:
         self.ni += len(idx)
         self.meshes.append(mesh)
         return len(self.meshes) - 1
+
+    def finish_lightmaps(self):
+        """Pack the lightmap atlas and turn local lightmap uvs into atlas uvs."""
+        if not self.lm_fixups:
+            return
+        atlas, pos = pack_atlas(self.lightmaps)
+        height, width = atlas.shape[:2]
+        org = np.array(pos, np.float32)
+        size = np.array([(i.shape[1], i.shape[0]) for i in self.lightmaps], np.float32)
+        for out, lmid in self.lm_fixups:
+            m = lmid != NO_LIGHTMAP
+            k = lmid[m]
+            out["uv2"][m] = (org[k] + out["uv2"][m] * size[k]) / np.array([width, height], np.float32)
+        self.lm_atlas = atlas
 
     def add_collider(self, name, points, tris):
         if len(tris) == 0:
@@ -107,9 +264,13 @@ class Writer:
     def write_bin(self, path):
         with open(path, "wb") as f:
             f.write(b"TRLV")
-            f.write(struct.pack("<5I", FORMAT_VERSION, self.nv, self.ni, self.ncv, self.nci))
+            lm = self.lm_atlas
+            lm_h, lm_w = lm.shape[:2] if lm is not None else (0, 0)
+            f.write(struct.pack("<7I", FORMAT_VERSION, self.nv, self.ni, self.ncv, self.nci, lm_w, lm_h))
             for a in self.verts + self.idx + self.cverts + self.cidx:
                 f.write(np.ascontiguousarray(a).tobytes())
+            if lm is not None:
+                f.write(np.ascontiguousarray(lm).tobytes())
 
 
 def polys_to_tris(polys):
@@ -183,6 +344,9 @@ def export(dat_path, out_dir, rel_name):
         "worldModels": world_models,
         "objects": objects,
     }
+    wr.finish_lightmaps()
+    meta["lightmap"] = list(wr.lm_atlas.shape[1::-1]) if wr.lm_atlas is not None else [0, 0]
+    meta["unmatchedLightmapTris"] = wr.unmatched_lm_tris
     os.makedirs(out_dir, exist_ok=True)
     wr.write_bin(os.path.join(out_dir, "level.bin"))
     with open(os.path.join(out_dir, "level.json"), "w") as f:

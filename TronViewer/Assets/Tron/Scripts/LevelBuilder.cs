@@ -12,7 +12,8 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 2;
+        public const int FormatVersion = 3;
+        const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family).
         static readonly HashSet<string> SolidClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -48,6 +49,7 @@ namespace Tron
         readonly Dictionary<(int, string, float, int, bool), Material> blendedMaterials = new Dictionary<(int, string, float, int, bool), Material>();
         readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
         Shader shader;
+        Texture2D lightmapAtlas;
         byte[] bin;
         int vtxBase, idxBase, cvtxBase, cidxBase;
 
@@ -59,11 +61,12 @@ namespace Tron
             bin = File.ReadAllBytes(Path.Combine(levelDir, "level.bin"));
             if (bin[0] != 'T' || bin[1] != 'R' || bin[2] != 'L' || bin[3] != 'V') throw new Exception("bad level.bin");
             int nv = BitConverter.ToInt32(bin, 8), ni = BitConverter.ToInt32(bin, 12);
-            int ncv = BitConverter.ToInt32(bin, 16);
-            vtxBase = 24;
-            idxBase = vtxBase + nv * 36;
+            int ncv = BitConverter.ToInt32(bin, 16), nci = BitConverter.ToInt32(bin, 20);
+            vtxBase = HeaderSize;
+            idxBase = vtxBase + nv * VertexSize;
             cvtxBase = idxBase + ni * 4;
             cidxBase = cvtxBase + ncv * 12;
+            LoadLightmapAtlas(BitConverter.ToInt32(bin, 24), BitConverter.ToInt32(bin, 28), cidxBase + nci * 4);
 
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
@@ -81,6 +84,26 @@ namespace Tron
             BuildWorldModels();
             bin = null;
         }
+
+        // One RGBA atlas of all section lightmaps (see tools/export_level.py); raw values, like the DTX path.
+        void LoadLightmapAtlas(int width, int height, int offset)
+        {
+            if (width == 0 || height == 0) return;
+            lightmapAtlas = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
+            {
+                name = "Lightmaps", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear,
+            };
+            owned.Add(lightmapAtlas);
+            using (var px = new NativeArray<byte>(width * height * 4, Allocator.Temp))
+            {
+                NativeArray<byte>.Copy(bin, offset, px, 0, px.Length);
+                lightmapAtlas.LoadRawTextureData(px);
+            }
+            lightmapAtlas.Apply(false, true);
+        }
+
+        // Section shaders whose texture pass is multiplied over a lightmap (d3d_renderblock.cpp).
+        static bool IsLightmapped(int shader) => shader == 4 || shader == 9;
 
         void BuildMaterials()
         {
@@ -118,6 +141,11 @@ namespace Tron
                     }
                     if (t.frames != null && t.frames.Length > 1)
                         SpriteAnimator.Register(m, t.frames, t.frameRate);
+                }
+                if (IsLightmapped(mj.shader) && lightmapAtlas)
+                {
+                    m.SetTexture("_LightmapTex", lightmapAtlas);
+                    m.SetFloat("_UseLightmap", 1);
                 }
                 TextureEffects.Apply(m, mj.effect);
                 materials[i] = m;
@@ -261,10 +289,11 @@ namespace Tron
                 new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3),
                 new VertexAttributeDescriptor(VertexAttribute.Normal, VertexAttributeFormat.Float32, 3),
                 new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4),
-                new VertexAttributeDescriptor(VertexAttribute.TexCoord0, VertexAttributeFormat.Float32, 2));
-            using (var vb = new NativeArray<byte>(mj.vtxCount * 36, Allocator.Temp))
+                new VertexAttributeDescriptor(VertexAttribute.TexCoord0, VertexAttributeFormat.Float32, 2),
+                new VertexAttributeDescriptor(VertexAttribute.TexCoord1, VertexAttributeFormat.Float32, 2));
+            using (var vb = new NativeArray<byte>(mj.vtxCount * VertexSize, Allocator.Temp))
             {
-                NativeArray<byte>.Copy(bin, vtxBase + mj.vtxOffset * 36, vb, 0, vb.Length);
+                NativeArray<byte>.Copy(bin, vtxBase + mj.vtxOffset * VertexSize, vb, 0, vb.Length);
                 mesh.SetVertexBufferData(vb, 0, 0, vb.Length);
             }
             int idxCount = 0;
