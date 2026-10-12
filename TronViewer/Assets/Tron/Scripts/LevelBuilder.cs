@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 10;
+        public const int FormatVersion = 11;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -121,13 +121,18 @@ namespace Tron
         // Section shaders whose texture pass is multiplied over a lightmap (d3d_renderblock.cpp).
         static bool IsLightmapped(int shader) => shader == 4 || shader == 9;
 
+        // Dual-texture sections without a second texture (all of them in the retail data; the exporter
+        // refuses any other): the engine falls back to the plain Gouraud_Texture / Lightmap_Texture
+        // shader, which ignores the texture's EnvMap and DetailTex (docs/research/dual-texture.md).
+        static bool IsPlainTexture(int shader) => shader == 8 || shader == 9;
+
         void BuildMaterials()
         {
             materials = new Material[Data.materials.Length];
             for (int i = 0; i < materials.Length; i++)
             {
                 var mj = Data.materials[i];
-                var m = CreateMaterial(mj.tex);
+                var m = CreateMaterial(mj.tex, !IsPlainTexture(mj.shader));
                 if (IsLightmapped(mj.shader) && lightmapAtlas)
                 {
                     m.SetTexture("_LightmapTex", lightmapAtlas);
@@ -138,8 +143,9 @@ namespace Tron
             }
         }
 
-        // A world-shader material for one LithTech texture, honoring its DTX command string.
-        Material CreateMaterial(string tex)
+        // A world-shader material for one LithTech texture, honoring its DTX command string
+        // (EnvMap and DetailTex only when `useEnvAndDetail`: the engine picked an env/detail shader).
+        Material CreateMaterial(string tex, bool useEnvAndDetail)
         {
             var m = new Material(shader) { name = tex };
             owned.Add(m);
@@ -153,14 +159,14 @@ namespace Tron
             if (t.uvScale != 1) m.SetTextureScale("_MainTex", Vector2.one * t.uvScale);
             if (t.alphaRef > 0) m.SetFloat("_Cutoff", t.alphaRef / 255f);
             if (t.fullbright) m.SetFloat("_Fullbright", 1);
-            var env = string.IsNullOrEmpty(t.envMap) ? null : DtxLoader.Load(t.envMap);
+            var env = !useEnvAndDetail || string.IsNullOrEmpty(t.envMap) ? null : DtxLoader.Load(t.envMap);
             if (env != null)
             {
                 m.SetTexture("_EnvTex", env.tex);
                 m.SetFloat("_UseEnv", 1);
                 m.SetFloat("_EnvAlpha", t.envMapAlpha ? 1 : 0);
             }
-            var det = string.IsNullOrEmpty(t.detailTex) ? null : DtxLoader.Load(t.detailTex);
+            var det = !useEnvAndDetail || string.IsNullOrEmpty(t.detailTex) ? null : DtxLoader.Load(t.detailTex);
             if (det != null)
             {
                 float rad = t.detailAngle * Mathf.Deg2Rad;
@@ -175,9 +181,10 @@ namespace Tron
 
         // Model instances (see tools/export_models.py), at their spawn position (after MoveToFloor). Props:
         // a MeshRenderer at the bind pose. Characters: a SkinnedMeshRenderer over one Transform per model
-        // node, looping their clip (ModelAnimator). Attachments hang from their character's socket node,
-        // posed at their own animation 0, frame 0 (attachment models keep their geometry where it sits on
-        // the body and move it to the socket with that pose), and follow it as the character moves.
+        // node, looping their clip (ModelAnimator). Attachments hang from their parent's socket node (a
+        // prop's nodes stay at the bind pose); a character's are posed at their own animation 0, frame 0
+        // (attachment models keep their geometry where it sits on the body and move it to the socket with
+        // that pose), and follow it as the character moves.
         void BuildModels(string exportRoot)
         {
             if (Data.models == null || Data.models.Length == 0) return;
@@ -260,6 +267,10 @@ namespace Tron
                 }
                 else
                 {
+                    // A prop with sockets can carry attachments (bin berries, tank turrets): its node
+                    // Transforms at the bind pose, the pose its mesh is drawn in.
+                    if (model.data.sockets != null && model.data.sockets.Length > 0)
+                        built[n] = (model, BuildBones(go.transform, model, false));
                     go.AddComponent<MeshFilter>().sharedMesh = mesh;
                     r = go.AddComponent<MeshRenderer>();
                 }

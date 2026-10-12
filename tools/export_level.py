@@ -28,17 +28,19 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 import animation  # noqa: E402
-import butes  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
 import floor  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 
-FORMAT_VERSION = 10
+FORMAT_VERSION = 11
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
+# Without a second texture the engine draws these as plain texture sections (AllocShader falls back
+# to Gouraud_Texture / Lightmap_Texture, ignoring EnvMap/DetailTex); every retail one is like that.
+DUAL_TEXTURE_SHADERS = {8, 9}
 NO_LIGHTMAP = -1      # lmid: vertex has no lightmap uv
 NEUTRAL_LIGHTMAP = 0  # lmid of the 50% grey patch (x2 = unlit texture) for unmatched texture-pass tris
 
@@ -142,6 +144,8 @@ class Writer:
     def material(self, s):
         key = (s.textures[0].replace("\\", "/").lower(), s.textures[1].replace("\\", "/").lower(),
                s.shader, s.effect.lower())
+        if s.shader in DUAL_TEXTURE_SHADERS and key[1]:
+            raise ValueError(f"dual-texture section with a second texture ({key[1]}): not supported")
         if key not in self.mat_index:
             self.mat_index[key] = len(self.materials)
             self.materials.append({"tex": key[0], "tex2": key[1], "shader": key[2], "effect": key[3]})
@@ -302,24 +306,16 @@ def encode_prop(k, v):
     return {"k": k, "t": "n", "s": "", "v": [float(v)]}
 
 
-def template_model(resolver, name):
-    """(model file, skins, render styles) of a modelbutes.txt template, as the game's
-    CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
-    t = resolver.templates[name.lower()]
-    return butes.norm(t["modelfile"]), [butes.norm(x) for x in butes.indexed(t, "skin")], \
-        [butes.norm(x) for x in butes.indexed(t, "renderstyle")]
-
-
 def moves_to_floor(o, resolver):
     """Whether the object runs MoveToFloor when it spawns: CCharacter and Prop read the object's
     MoveToFloor (default TRUE, character.cpp / prop.cpp); a PropType (and Finder) takes its type's
     proptypes.txt entry. ArchiveBin / SecRezzer (Tron classes without source) aren't moved."""
-    p = {q["k"].lower(): q for q in o["props"]}
+    p = export_models.props(o)
     if o["cls"] in ("CAIHuman", "Prop", "Alarm"):
         q = p.get("movetofloor")
         return bool(q["v"][0]) if q and q["t"] == "b" and q["v"] else True
     if o["cls"] in ("PropType", "Finder"):
-        t = resolver.proptypes.get(p["type"]["s"].lower()) if "type" in p else None
+        t = resolver.proptypes.get(export_models.string(p, "type").lower())
         return bool(t.get("movetofloor", 1)) if t else False
     return False
 
@@ -364,31 +360,56 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
                        "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount else 0.0})
         return True
 
+    def attach(i, parent, atts, skinned, sockets):
+        """atts: (socket, model file, skins, render styles) on models[parent], at one of `sockets` (its
+        model's). One whose socket isn't there is dropped: CreateAttachment fails, "unable to create socket"."""
+        names = {s.name.lower() for s in sockets}
+        for socket, *att in atts:
+            if socket.lower() not in names:
+                key = (models[parent]["file"], socket)
+                resolver.missing_sockets[key] = resolver.missing_sockets.get(key, 0) + 1
+                continue
+            add(i, att, [1, 1, 1], skinned, parent, socket, pos=models[parent]["pos"])
+
+    by_name, turrets = {}, []
     for i, o in enumerate(objects):
         r = resolver.resolve(o)
         if not r:
             continue
         scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
+        if o["cls"] == "TronTurret":   # attached to another object's model: once all of them exist
+            turrets.append((i, r, scale))
+            continue
         character = o["cls"] == "CAIHuman"
         if not add(i, r, scale, character):
             continue
+        by_name.setdefault(o["name"].lower(), len(models) - 1)
         placed = models[-1]["pos"]
         # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
         # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
         # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
         # border the game shows around the bin's glass.
         if o["cls"] == "ArchiveBin":
-            add(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
+            bin_index = len(models) - 1
+            add(i, resolver.template("ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
+            # Then (0x1000f800) one "Berry" object per item, from the item type's template, attached to an
+            # item socket: the model's sockets but the last (Frame). The game deals the items to them in a
+            # random order (rand() shuffle, 0x1000f730); the exporter keeps item order: item k at Socket{k}.
+            attach(i, bin_index, [(s, *resolver.template(t)) for s, t in resolver.bin_items(o)], False,
+                   styles.model(r[0]).sockets[:-1])
         if not character:
             continue
         parent = len(models) - 1
         models[parent]["anim"] = character_anim(styles, extracted, r[0], idle.idle(o, i) if idle else None)
-        sockets = {s.name.lower() for s in styles.model(r[0]).sockets}
-        for socket, *att in resolver.attachments(o):
-            if socket.lower() not in sockets:   # CreateAttachment fails: "unable to create socket"
-                resolver.missing_sockets[(r[0], socket)] = resolver.missing_sockets.get((r[0], socket), 0) + 1
-                continue
-            add(i, att, [1, 1, 1], True, parent, socket, pos=placed)
+        attach(i, parent, resolver.attachments(o), True, styles.model(r[0]).sockets)
+    parents = {name: (m, {s.name.lower() for s in styles.model(models[m]["file"]).sockets})
+               for name, m in by_name.items()}
+    for i, r, scale in turrets:
+        mount = resolver.turret_mount(objects[i], parents)
+        if mount is None:
+            add(i, r, scale, False)   # "could not find a parent": it stays where it was placed
+            continue
+        add(i, r, scale, False, *mount, pos=models[mount[0]]["pos"])
     return models, render_styles
 
 
@@ -530,8 +551,8 @@ def main():
         print(f"render style {rel} not found, default style instead")
     for cls, n in sorted(resolver.undrawn_attachments.items()):
         print(f"{n} {cls} attachments not drawn (not a model object)")
-    if resolver.skipped_weapons:
-        print(f"{resolver.skipped_weapons} weapon attachments not drawn (weapons.txt hand-held models)")
+    if resolver.hidden_weapons:
+        print(f"{resolver.hidden_weapons} weapon attachments not drawn (no hand-held model)")
     if not only:
         with open(os.path.join(out_root, "levels.json"), "w") as f:
             json.dump({"levels": index}, f, indent=1)

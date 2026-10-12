@@ -29,6 +29,24 @@ OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4
                        ("uv2", "<f4", 2)])
 
 
+def props(obj):
+    """A level object's properties by lowercase key."""
+    return {q["k"].lower(): q for q in obj["props"]}
+
+
+def string(p, key):
+    """The value of string property `key` (lowercase) in props(obj) `p`, or ""."""
+    q = p.get(key)
+    return q["s"] if q and q["t"] == "s" else ""
+
+
+def model_entry(section, model_key, prefix=""):
+    """(model file, skins, render styles) of an attribute-file entry: its `model_key` and its
+    <prefix>SkinN / <prefix>RenderStyleN slots, kept in position (empty slots too)."""
+    return norm(section[model_key]), [norm(x) for x in butes.indexed(section, prefix + "skin")], \
+        [norm(x) for x in butes.indexed(section, prefix + "renderstyle")]
+
+
 class Resolver:
     """Maps a level object to (model file, skins, render styles), following the game's sources:
     the object's own Filename/Skin, a PropType entry (proptypes.txt) or a ModelTemplate
@@ -42,11 +60,42 @@ class Resolver:
                           if "type" in s}
         self.attachables = {s["name"].lower(): s for s in butes.load(os.path.join(a, "attachments.txt")).values()
                             if "name" in s}
-        self.weapons = {s["name"].lower() for s in butes.load(os.path.join(a, "weapons.txt")).values()
+        self.weapons = {s["name"].lower(): s for s in butes.load(os.path.join(a, "weapons.txt")).values()
                         if "name" in s}
-        self.skipped_weapons = 0   # weapon attachments (weapons.txt hand-held models) are not drawn yet
-        self.missing_sockets = {}  # (character model, position) -> attachments dropped for want of a socket
+        self.hidden_weapons = 0    # weapon attachments without a hand-held model (HHModel empty)
+        self.missing_sockets = {}  # (parent model, socket) -> attachments dropped for want of the socket
         self.undrawn_attachments = {}   # object attachment class without a model -> count
+
+    def template(self, name):
+        """(model file, skins, render styles) of a modelbutes.txt template, as the game's
+        CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
+        return model_entry(self.templates[name.lower()], "modelfile")
+
+    @staticmethod
+    def bin_items(obj):
+        """The berries an ArchiveBin shows as (socket, template), one per item (Type1..Type6 that names an
+        item type, in order), item k at Socket{k}. ArchiveBin (object.lto 0x1000f800) picks the template
+        by the item type's index in the list Subroutine, Procedural, Primitive, Permission Set, Email,
+        Custom, HelpFile (0x10284410): 0 is SubroutineBerry, 3 PSetBerry, any other DocumentBerry."""
+        p = props(obj)
+        out = []
+        for k in range(1, 7):
+            t = string(p, f"type{k}").strip().lower()
+            if t in BIN_ITEM_TYPES:
+                out.append((f"Socket{len(out) + 1}", BERRY_TEMPLATES.get(BIN_ITEM_TYPES.index(t), "DocumentBerry")))
+        return out
+
+    @staticmethod
+    def turret_mount(obj, parents):
+        """Where a TronTurret sits, as (parent, socket), or None ("could not find a parent"). TronTurret
+        (object.lto 0x1006c960, 0x1006d590) finds the object named by its Parent property and, every
+        update, puts itself at that object's ParentSocket: a socket attachment for a static frame. Aiming
+        at its Target turns it from there (behavior). parents: object name (lowercase) -> (parent, its
+        model's socket names, lowercase)."""
+        p = props(obj)
+        parent, sockets = parents.get(string(p, "parent").strip().lower(), (None, set()))
+        socket = string(p, "parentsocket")
+        return (parent, socket) if socket.lower() in sockets else None
 
     @staticmethod
     def _skins(value):
@@ -74,14 +123,23 @@ class Resolver:
             t = self.templates.get(s("ModelTemplate").lower())
             if not t or "modelfile" not in t:
                 return None
-            return norm(t["modelfile"]), [norm(x) for x in butes.indexed(t, "skin")], \
-                [norm(x) for x in butes.indexed(t, "renderstyle")]
-        if cls in ("PropType", "Finder"):
-            t = self.proptypes.get(s("Type").lower())
+            return model_entry(t, "modelfile")
+        if cls == "IONode":
+            # IONode::ReadProp (object.lto 0x10022650) takes the hard-coded template "IONode"; its first
+            # update (state 0, 0x10023090) sets the "off" skins: Skin4 in slot 0, then Skin1..3.
+            file, skins, rs = self.template("IONode")
+            return file, skins[4:5] + skins[1:4], rs
+        if cls == "Optimizer":
+            # Optimizer::ReadProp (0x100301ec): the hard-coded template "Optimizer", its first three skins
+            # (the "on" set; death switches to Skin3..5, 0x10031128).
+            file, skins, rs = self.template("Optimizer")
+            return file, skins[:3], rs
+        if cls in ("PropType", "Finder", "TronTurret"):
+            # TronTurret::ReadProp (object.lto 0x1006b818) reads its type from "PropType".
+            t = self.proptypes.get(s("PropType" if cls == "TronTurret" else "Type").lower())
             if not t or "filename" not in t:
                 return None
-            return norm(t["filename"]), [norm(x) for x in butes.indexed(t, "skin")], \
-                [norm(x) for x in butes.indexed(t, "renderstyle")]
+            return model_entry(t, "filename")
         if cls in ("Prop", "Alarm") and s("Filename"):
             return norm(s("Filename")), self._skins(s("Skin")), []
         return None
@@ -91,15 +149,14 @@ class Resolver:
         weapon). The object's own position properties are created first (CAttachments::ReadProp/Init),
         then the template's DefaultAttachmentN = "Position, Name" unless UseDefaultAttachments is off
         (CAIHuman InitialUpdate); a default for an occupied position is dropped (CAttachments::Attach)."""
-        p = {q["k"].lower(): q for q in obj["props"]}
-        t = self.templates.get(p["modeltemplate"]["s"].lower()) if "modeltemplate" in p else None
+        p = props(obj)
+        t = self.templates.get(string(p, "modeltemplate").lower())
         if not t:
             return []
         wanted = []
         for pos in ATTACHMENT_POSITIONS:
-            q = p.get(pos.lower())
-            if q and q["t"] == "s" and q["s"].strip():
-                wanted.append((pos, q["s"].strip()))
+            if string(p, pos.lower()).strip():
+                wanted.append((pos, string(p, pos.lower()).strip()))
         use_defaults = p.get("usedefaultattachments")
         if not use_defaults or use_defaults["t"] != "b" or use_defaults["v"][0]:
             for d in butes.indexed(t, "defaultattachment"):
@@ -119,7 +176,19 @@ class Resolver:
                 continue   # "Unmatched attable name": nothing is created
             occupied.add(pos.lower())
             out.append((pos, name, a))
+        if self.holsters(p):
+            out = [o for o in out if o[0].lower() not in ("righthand", "lefthand")]
         return out
+
+    @staticmethod
+    def holsters(p):
+        """CAIHuman::ReadProp/InitialUpdate: HolsterWeapons with a RightHand or LeftHand set on the object
+        (the holster string) detaches both hands after the defaults are attached. Tron's weapons have no
+        HolsterAttachment, so nothing takes their place. p: props(obj)."""
+        h = p.get("holsterweapons")
+        if not (h and h["t"] == "b" and h["v"] and h["v"][0]):
+            return False
+        return any(string(p, k).strip().lower() not in ("", "<none>") for k in ("righthand", "lefthand"))
 
     def weapon_at(self, obj, position):
         """The weapon a character holds at `position` (e.g. RightHand, its primary weapon), or None."""
@@ -128,20 +197,30 @@ class Resolver:
 
     def attachments(self, obj):
         """A character's drawn attachments as (socket, model file, skins, render styles); the position
-        name is the parent model's socket. Weapons occupy their position but aren't drawn."""
+        name is the parent model's socket. A weapon draws its hand-held model (CreateWeaponAttachment:
+        HHModel, HHSkinN, HHRenderStyleN, no offset; HHModelScale is for powerups only); without one
+        CHHWeaponModel::Setup hides it."""
         out = []
-        for pos, _name, a in self.occupants(obj):
+        for pos, name, a in self.occupants(obj):
             if a is None:
-                self.skipped_weapons += 1
+                w = self.weapons[name.lower()]
+                if not w.get("hhmodel"):
+                    self.hidden_weapons += 1
+                    continue
+                out.append((pos, *model_entry(w, "hhmodel", "hh")))
                 continue
             # Type 0 is a Prop; type 1 creates its Class, which only draws the model if it's a Prop.
             if a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES:
                 self.undrawn_attachments[a.get("class")] = self.undrawn_attachments.get(a.get("class"), 0) + 1
                 continue
             if "model" in a:
-                out.append((pos, norm(a["model"]), [norm(x) for x in butes.indexed(a, "skin")],
-                            [norm(x) for x in butes.indexed(a, "renderstyle")]))
+                out.append((pos, *model_entry(a, "model")))
         return out
+
+
+BIN_ITEM_TYPES = ["subroutine", "procedural", "primitive", "permission set", "email", "custom", "helpfile"]
+# Bin item type (index in BIN_ITEM_TYPES) -> the berry's modelbutes.txt template; any other is DocumentBerry.
+BERRY_TEMPLATES = {0: "SubroutineBerry", 3: "PSetBerry"}
 
 
 # CHumanAttachments' positions (attachments.cpp), plus Tron's rod positions (CAIHuman level properties).
@@ -199,19 +278,7 @@ class Styles:
                 g = self._load(glow)
                 if g is None:
                     raise ValueError(f"{name}: glow style {glow} not found")
-                g = renderstyle.compile_glow(g, glow)
-                if len(draws) == 1 and len(g["passes"]) == 1:
-                    draws[0]["glow"] = g["passes"]   # over the model's own state
-                else:
-                    # A draw of a multi-draw style that writes opaque with Z carries a one-pass glow;
-                    # otherwise the glow is a draw of its own with the glow style's state.
-                    d = next((d for d in draws if len(g["passes"]) == 1 and tuple(d["blend"]) == (1, 0)
-                              and d["zwrite"]), None)
-                    if d is None:
-                        d = {k: g[k] for k in ("blend", "zwrite", "ztest", "cull")}
-                        d["passes"] = []
-                        draws.append(d)
-                    d["glow"] = g["passes"]
+                place_glow(draws, renderstyle.compile_glow(g, glow))
             c["name"] = name
             self.compiled[rel] = c
         return self.compiled[rel]
@@ -232,6 +299,24 @@ class Styles:
             out.append({"style": index[c["name"]],
                         "tex": [skins[t] if 0 <= t < len(skins) else "" for t in textures]})
         return out
+
+
+DRAW_STATE = ("blend", "zwrite", "ztest", "cull")
+
+
+def place_glow(draws, glow):
+    """Puts a compiled glow style (renderstyle.compile_glow) on a style's draws. The glow pass swaps the
+    whole style, states included (RemapRenderStyles), so a blended piece occludes the glow behind it.
+    A one-pass glow that writes opaque with Z rides on a draw that does too; otherwise the glow is a
+    draw of its own with the glow style's state."""
+    def opaque_z(d):
+        return tuple(d["blend"]) == (1, 0) and d["zwrite"]
+    d = next((d for d in draws if len(glow["passes"]) == 1 and opaque_z(glow) and opaque_z(d)), None)
+    if d is None:
+        d = {k: glow[k] for k in DRAW_STATE}
+        d["passes"] = []
+        draws.append(d)
+    d["glow"] = glow["passes"]
 
 
 BONE_WEIGHT = np.dtype([("weight", "<f4"), ("bone", "<i4")])   # Unity BoneWeight1
