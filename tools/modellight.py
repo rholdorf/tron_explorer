@@ -222,7 +222,8 @@ def sun_light(objects):
     return None
 
 
-MAX_MODEL_LIGHTS = 4 # MaxModelLights console variable default; Tron's autoexec.cfg doesn't set it
+DIRECTIONAL_COS_FOV = 0.98  # retail StaticLightCB [0x58d9e4]: spots with cos(FOV/2) above it are directional
+MAX_MODEL_LIGHTS = 4  # MaxModelLights console variable default; Tron's autoexec.cfg doesn't set it
 
 
 def light_sample(lt, pos):
@@ -257,7 +258,7 @@ def _device_light(lt, pos, dims):
     (CreateSampledDirLight), spots at the brightest of the center and the 8 dims-box corners
     (CreateMultiSampledDirLight). The engine keeps D3D-attenuation points as D3D point lights; no
     retail static light uses that model, so they're sampled like the others here."""
-    if lt.get("sun"):
+    if lt.get("directional"):
         return lt["dir"], lt["color"]
     color = light_sample(lt, pos)
     if lt["cosFov"] > -0.99:
@@ -285,7 +286,7 @@ def model_lighting(grid, pos, dims, vis_radius, lights, sun=None, sun_amount=0.0
 
     def insert(lt, to_ambient):
         # CRelevantLightList::InsertLight
-        sample = list(lt["color"]) if lt.get("sun") else light_sample(lt, pos)
+        sample = list(lt["color"]) if lt.get("directional") else light_sample(lt, pos)
         score = max(sample) * (1.0 - to_ambient)
         i = next((k for k, (s, _) in enumerate(slots) if score > s), len(slots))
         if i >= max_lights:
@@ -294,7 +295,7 @@ def model_lighting(grid, pos, dims, vis_radius, lights, sun=None, sun_amount=0.0
             return
         if len(slots) >= max_lights:
             _, out = slots.pop()
-            for c, x in enumerate(light_sample(out, pos) if not out.get("sun") else out["color"]):
+            for c, x in enumerate(light_sample(out, pos) if not out.get("directional") else out["color"]):
                 ambient[c] += x
         kept = dict(lt, color=[c * (1.0 - to_ambient) for c in lt["color"]])
         slots.insert(i, (score, kept))
@@ -302,7 +303,7 @@ def model_lighting(grid, pos, dims, vis_radius, lights, sun=None, sun_amount=0.0
             ambient[c] += to_ambient * sample[c]
 
     if sun is not None and any(sun["color"]):
-        insert({"sun": True, "dir": list(sun["dir"]), "color": [c * sun_amount for c in sun["color"]]},
+        insert({"directional": True, "dir": list(sun["dir"]), "color": [c * sun_amount for c in sun["color"]]},
                sun["toAmbient"])
     for c, x in enumerate(sample_grid(grid, pos, ltjs_order)):
         ambient[c] += x
@@ -313,7 +314,12 @@ def model_lighting(grid, pos, dims, vis_radius, lights, sun=None, sun_amount=0.0
             continue
         if all(c < 1.0 for c in lt["color"]):  # StaticLightCB early out
             continue
-        insert(lt, lt["toAmbient"])
+        if lt["cosFov"] > DIRECTIONAL_COS_FOV:
+            # Retail Lithtech.exe StaticLightCB (0x54f2cb), not in ltjs: a spot narrower than this is
+            # set up as a directional light along its direction, at full color wherever the model is.
+            insert({"directional": True, "dir": list(lt["dir"]), "color": list(lt["color"])}, lt["toAmbient"])
+        else:
+            insert(lt, lt["toAmbient"])
     out = []
     for _, lt in slots:
         d, color = _device_light(lt, pos, dims)
