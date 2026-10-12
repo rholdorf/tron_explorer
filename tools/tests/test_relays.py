@@ -90,9 +90,9 @@ static class Driver
                         var p = a[2].Split(' ').Select(v => float.Parse(v, inv)).ToArray();
                         var c = new LTVec(p[0], p[1], p[2]);
                         var h = new LTVec(24, 53, 24);
-                        relays.UpdateTriggers(player, c - h, c + h);
+                        relays.UpdateObjects(player, c - h, c + h);
                     }
-                    else relays.UpdateTriggers(-1, default(LTVec), default(LTVec));
+                    else relays.UpdateObjects(-1, default(LTVec), default(LTVec));
                     break;
                 }
                 case "run":
@@ -315,3 +315,13 @@ def test_every_relay_in_the_levels_builds_and_fires(driver, extracted):
         lines += fire + [("frame", 0.1, "0 0 0")] * 600 + [("echo", "end")]
         out = driver(lines)
         assert out[-1] == ("end",), f
+
+
+def test_a_startup_command_runs_once_at_its_first_update_as_its_own_sender(driver):
+    out = driver([("obj", "a", "WorldModel"),
+                  ("relay", "s", "StartupCommand", "0 0 0", "$Command=msg a now;delay 0.1 (msg a later)"),
+                  ("echo", "loaded")] + frames(3, 0.1))
+    # startupcommand.cpp: Command runs at the object's first MID_UPDATE (the objects' update, after the
+    # pending-command table), sender and active target itself, and the object is removed. Its delay starts
+    # counting at the next frame's table tick.
+    assert out == [("loaded",), ("got", "a", "s", "now"), ("f1",), ("got", "a", "s", "later"), ("f2",), ("f3",)]
