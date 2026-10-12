@@ -28,14 +28,13 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 import animation  # noqa: E402
-import butes  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
 import floor  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 
-FORMAT_VERSION = 10
+FORMAT_VERSION = 11
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -307,14 +306,6 @@ def encode_prop(k, v):
     return {"k": k, "t": "n", "s": "", "v": [float(v)]}
 
 
-def template_model(resolver, name):
-    """(model file, skins, render styles) of a modelbutes.txt template, as the game's
-    CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
-    t = resolver.templates[name.lower()]
-    return butes.norm(t["modelfile"]), [butes.norm(x) for x in butes.indexed(t, "skin")], \
-        [butes.norm(x) for x in butes.indexed(t, "renderstyle")]
-
-
 def moves_to_floor(o, resolver):
     """Whether the object runs MoveToFloor when it spawns: CCharacter and Prop read the object's
     MoveToFloor (default TRUE, character.cpp / prop.cpp); a PropType (and Finder) takes its type's
@@ -369,21 +360,32 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
                        "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount else 0.0})
         return True
 
+    by_name, turrets = {}, []
     for i, o in enumerate(objects):
         r = resolver.resolve(o)
         if not r:
             continue
         scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
+        if o["cls"] == "TronTurret":   # attached to another object's model: once all of them exist
+            turrets.append((i, r, scale))
+            continue
         character = o["cls"] == "CAIHuman"
         if not add(i, r, scale, character):
             continue
+        by_name.setdefault(o["name"].lower(), len(models) - 1)
         placed = models[-1]["pos"]
         # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
         # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
         # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
         # border the game shows around the bin's glass.
         if o["cls"] == "ArchiveBin":
-            add(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
+            bin_index = len(models) - 1
+            add(i, resolver.template("ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
+            # Then (0x1000f800) one "Berry" object per item, from the item type's template, attached to an
+            # item socket. The game deals the items to Socket1..SocketN-1 in a random order (rand() shuffle,
+            # 0x1000f730); the exporter keeps item order: item k at Socket{k}.
+            for k, berry in enumerate(resolver.bin_items(o), 1):
+                add(i, resolver.template(berry), [1, 1, 1], False, bin_index, f"Socket{k}", pos=placed)
         if not character:
             continue
         parent = len(models) - 1
@@ -394,6 +396,17 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
                 resolver.missing_sockets[(r[0], socket)] = resolver.missing_sockets.get((r[0], socket), 0) + 1
                 continue
             add(i, att, [1, 1, 1], True, parent, socket, pos=placed)
+    # TronTurret (object.lto 0x1006c960, 0x1006d590) finds the object named by its Parent property and,
+    # every update, puts itself at that object's ParentSocket: a socket attachment for a static frame.
+    # Aiming at its Target turns it from there (behavior).
+    for i, r, scale in turrets:
+        p = {q["k"].lower(): q["s"] for q in objects[i]["props"] if q["t"] == "s"}
+        parent = by_name.get(p.get("parent", "").strip().lower())
+        if parent is None or p.get("parentsocket", "").lower() not in \
+                {s.name.lower() for s in styles.model(models[parent]["file"]).sockets}:
+            add(i, r, scale, False)   # "could not find a parent": it stays where it was placed
+            continue
+        add(i, r, scale, False, parent, p["parentsocket"], pos=models[parent]["pos"])
     return models, render_styles
 
 

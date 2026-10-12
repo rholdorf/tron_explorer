@@ -28,7 +28,7 @@ def test_each_bin_gets_a_frame_model_at_its_transform(extracted, tools, tmp_path
     bins = [i for i, o in enumerate(meta["objects"]) if o["cls"] == "ArchiveBin"]
     assert bins
     for i in bins:
-        files = sorted(m["file"] for m in meta["models"] if m["obj"] == i)
+        files = sorted(m["file"] for m in meta["models"] if m["obj"] == i and m["parent"] < 0)
         assert files == ["props/models/archivebin.ltb", "props/models/archivebin_frame.ltb"]
         frame = next(m for m in meta["models"] if m["obj"] == i and m["file"].endswith("_frame.ltb"))
         assert frame["scale"] == [1, 1, 1]
@@ -48,6 +48,8 @@ def test_style_piece_counts_across_all_levels(extracted, tools, tmp_path):
         rel = os.path.relpath(dat, worlds)[:-4]
         meta = export(extracted, tools, tmp_path, rel)
         for m in meta["models"]:
+            if m["parent"] >= 0:   # the bins' berries (test_object_models.py) also draw archivecube
+                continue
             for name in piece_styles(meta, m):
                 counts[name] = counts.get(name, 0) + 1
     assert counts.get("props/rs/archivecube.ltb") == 334

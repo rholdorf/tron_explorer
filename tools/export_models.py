@@ -48,6 +48,28 @@ class Resolver:
         self.missing_sockets = {}  # (character model, position) -> attachments dropped for want of a socket
         self.undrawn_attachments = {}   # object attachment class without a model -> count
 
+    def template(self, name):
+        """(model file, skins, render styles) of a modelbutes.txt template, as the game's
+        CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
+        t = self.templates[name.lower()]
+        return norm(t["modelfile"]), [norm(x) for x in butes.indexed(t, "skin")], \
+            [norm(x) for x in butes.indexed(t, "renderstyle")]
+
+    @staticmethod
+    def bin_items(obj):
+        """The berry templates an ArchiveBin shows, one per item (Type1..Type6 that names an item type, in
+        order). ArchiveBin (object.lto 0x1000f800) picks the template by the item type's index in the
+        list Subroutine, Procedural, Primitive, Permission Set, Email, Custom, HelpFile (0x10284410):
+        0 is SubroutineBerry, 3 PSetBerry, any other DocumentBerry."""
+        p = {q["k"].lower(): q for q in obj["props"]}
+        out = []
+        for k in range(1, 7):
+            q = p.get(f"type{k}")
+            t = q["s"].strip().lower() if q and q["t"] == "s" else ""
+            if t in BIN_ITEM_TYPES:
+                out.append({0: "SubroutineBerry", 3: "PSetBerry"}.get(BIN_ITEM_TYPES.index(t), "DocumentBerry"))
+        return out
+
     @staticmethod
     def _skins(value):
         return [norm(s) for s in value.split(";") if s.strip()] if value else []
@@ -76,8 +98,19 @@ class Resolver:
                 return None
             return norm(t["modelfile"]), [norm(x) for x in butes.indexed(t, "skin")], \
                 [norm(x) for x in butes.indexed(t, "renderstyle")]
-        if cls in ("PropType", "Finder"):
-            t = self.proptypes.get(s("Type").lower())
+        if cls == "IONode":
+            # IONode::ReadProp (object.lto 0x10022650) takes the hard-coded template "IONode"; its first
+            # update (state 0, 0x10023090) sets the "off" skins: Skin4 in slot 0, then Skin1..3.
+            file, skins, rs = self.template("IONode")
+            return file, skins[4:5] + skins[1:4], rs
+        if cls == "Optimizer":
+            # Optimizer::ReadProp (0x100301ec): the hard-coded template "Optimizer", its first three skins
+            # (the "on" set; death switches to Skin3..5, 0x10031128).
+            file, skins, rs = self.template("Optimizer")
+            return file, skins[:3], rs
+        if cls in ("PropType", "Finder", "TronTurret"):
+            # TronTurret::ReadProp (object.lto 0x1006b818) reads its type from "PropType".
+            t = self.proptypes.get(s("PropType" if cls == "TronTurret" else "Type").lower())
             if not t or "filename" not in t:
                 return None
             return norm(t["filename"]), [norm(x) for x in butes.indexed(t, "skin")], \
@@ -162,6 +195,9 @@ class Resolver:
                 out.append((pos, norm(a["model"]), [norm(x) for x in butes.indexed(a, "skin")],
                             [norm(x) for x in butes.indexed(a, "renderstyle")]))
         return out
+
+
+BIN_ITEM_TYPES = ["subroutine", "procedural", "primitive", "permission set", "email", "custom", "helpfile"]
 
 
 # CHumanAttachments' positions (attachments.cpp), plus Tron's rod positions (CAIHuman level properties).

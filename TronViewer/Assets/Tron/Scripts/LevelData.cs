@@ -29,7 +29,7 @@ namespace Tron
     // A level object that shows a model: object index, model file, skin and render style slots,
     // and per exported piece its render style (index into renderStyles) and texture list.
     // skinned: drawn by a SkinnedMeshRenderer over the model's nodes (characters and their attachments).
-    // parent >= 0: an attachment, carried by that instance at its model socket `socket`.
+    // parent >= 0: an attachment, carried by that instance (a character or a prop) at its model socket `socket`.
     // dims: half-extents (LT units, scaled); visRadius: the model's; sunAmount: 0-1 sky visibility toward the sun.
     // Attachments carry their own (their model's dims, at the parent object's position).
     // pos: where the instance spawns (the object's position after MoveToFloor; attachments: their parent's).
