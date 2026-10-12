@@ -5,6 +5,9 @@ namespace Tron
 {
     // First-person movement using the game's own numbers (attributes/serverbutes.txt [Player])
     // and the player dims (24, 53, 24) half-extents. All tunables are in LithTech units.
+    // Runs after Spinner and Keyframer (default order 0), so a world model the player stands on has
+    // already moved this frame when the player rides it.
+    [DefaultExecutionOrder(100)]
     [RequireComponent(typeof(CharacterController))]
     public class PlayerController : MonoBehaviour
     {
@@ -26,6 +29,14 @@ namespace Tron
         float yaw, pitch;
         bool crouched;
         const float HalfHeight = 53, Radius = 24;
+
+        // The moving world model the player stands on (one with a kinematic body: a solid spinner's or a
+        // live keyframer's), and its pose when the player last moved; a static floor is null.
+        Transform standingOn;
+        Vector3 standingPos;
+        Quaternion standingRot;
+        Collider ground;          // during a move: the most upward-facing surface hit
+        float groundNormalY;
 
         void Awake()
         {
@@ -53,6 +64,7 @@ namespace Tron
             yaw = yawDeg;
             pitch = 0;
             velocity = Vector3.zero;
+            standingOn = null;
             ApplyDims(HalfHeight);
         }
 
@@ -97,9 +109,13 @@ namespace Tron
                 float sp = noclipSpeed * (walk ? 0.25f : 1f) * (kb.leftAltKey.isPressed ? 4f : 1f);
                 transform.position += dir * sp * LT.Scale * dt;
                 velocity = Vector3.zero;
+                standingOn = null;
                 return;
             }
             cc.enabled = true;
+            // On the ground from the player's own last move: the carry's move below doesn't count.
+            bool grounded = cc.isGrounded;
+            Ride();
 
             // Crouch: shrink dims from the top, stand up only if there is room.
             if (crouch != crouched)
@@ -109,14 +125,13 @@ namespace Tron
                     crouched = crouch;
                     float half = crouched ? crouchHalfHeight : HalfHeight;
                     float delta = (HalfHeight - crouchHalfHeight) * LT.Scale * (crouched ? -1 : 1);
-                    if (cc.isGrounded) { cc.enabled = false; transform.position += Vector3.up * delta; cc.enabled = true; }
+                    if (grounded) { cc.enabled = false; transform.position += Vector3.up * delta; cc.enabled = true; }
                     ApplyDims(half);
                 }
             }
 
             float speed = crouched ? crouchSpeed : walk ? walkSpeed : runSpeed;
             var wish = (transform.forward * move.y + transform.right * move.x) * speed;
-            bool grounded = cc.isGrounded;
             var horiz = new Vector3(velocity.x, 0, velocity.z);
             horiz = Vector3.MoveTowards(horiz, wish, (grounded ? groundAccel : airAccel) * dt);
             velocity.x = horiz.x;
@@ -129,9 +144,52 @@ namespace Tron
             }
             velocity.y -= gravity * dt;
 
+            ground = null;
+            groundNormalY = 0.001f;
             var flags = cc.Move(velocity * LT.Scale * dt);
             if ((flags & CollisionFlags.Above) != 0 && velocity.y > 0) velocity.y = 0;
+            StandOn(ground);
         }
+
+        // The engine carries what stands on a solid world model when the world model moves or turns
+        // (MoveObject, RotateWorldModel with MO_MOVESTANDINGONS; on the client CMoveMgr::OnObjectMove and
+        // OnObjectRotate do it for every solid world model): the rider is moved, with collision, to where
+        // Riding.Carry puts it. Its view is not turned and it gains no velocity.
+        void Ride()
+        {
+            if (!standingOn) return;
+            // Colliders follow their transforms only at the physics step (autoSyncTransforms is off):
+            // bring the world models' colliders to this frame's pose before moving against them.
+            Physics.SyncTransforms();
+            var pos = standingOn.position;
+            var rot = standingOn.rotation;
+            if (pos == standingPos && rot == standingRot) return;
+            var to = Riding.Carry(V(transform.position), V(standingPos), Q(standingRot), V(pos), Q(rot));
+            cc.Move(new Vector3(to.x, to.y, to.z) - transform.position);
+        }
+
+        // CPlayerMover::SetStandingOn: after its move the player stands on the object below it, unless the
+        // surface is vertical. Only a moving world model (kinematic body) is remembered.
+        void StandOn(Collider c)
+        {
+            var body = c ? c.attachedRigidbody : null;
+            standingOn = body && body.isKinematic ? body.transform : null;
+            if (!standingOn) return;
+            standingPos = standingOn.position;
+            standingRot = standingOn.rotation;
+        }
+
+        void OnControllerColliderHit(ControllerColliderHit hit)
+        {
+            if (hit.normal.y > groundNormalY)
+            {
+                ground = hit.collider;
+                groundNormalY = hit.normal.y;
+            }
+        }
+
+        static LTVec V(Vector3 v) => new LTVec(v.x, v.y, v.z);
+        static LTQuat Q(Quaternion q) => new LTQuat(q.x, q.y, q.z, q.w);
 
         public float Yaw => yaw;
 

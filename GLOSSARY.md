@@ -96,6 +96,10 @@ _Avoid_: rotator (`RotatingWorldModel` is a different class, rotated on command)
 A `KeyFramer`: an object that moves its target objects (world models, props, characters) along a path of keys. Its keys can send it commands (pause, resume, reverse, go to a key), which is how a path waits or ping-pongs.
 _Avoid_: animation (that is for models), mover, path follower
 
+**Riding**:
+Standing on a solid world model that moves or turns, and being carried with it: the player's position follows the world model's move and turns about its position; the view does not turn.
+_Avoid_: platform physics, parenting, pushing (pushing the player sideways is `PushObjects`, not riding)
+
 **Startup command**:
 The command a level runs when it loads (`StartupCommand`). It goes through the command language, so it is behavior, not live at start.
 _Avoid_: init script, level script
