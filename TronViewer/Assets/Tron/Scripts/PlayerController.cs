@@ -221,6 +221,8 @@ namespace Tron
         static LTQuat Q(Quaternion q) => new LTQuat(q.x, q.y, q.z, q.w);
 
         public float Yaw => yaw;
+        // The moving world model the player stands on (null on a static floor).
+        public Transform StandingOn => standingOn;
 
         public void SetView(float yawDeg, float pitchDeg) { yaw = yawDeg; pitch = Mathf.Clamp(pitchDeg, -89f, 89f); }
     }

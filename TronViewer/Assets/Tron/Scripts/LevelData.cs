@@ -22,6 +22,7 @@ namespace Tron
         public SoundFXJson[] soundFX;        // SoundFX, on at start or not (tools/ambient.py)
         public SoundButeFXJson[] soundButeFX; // SoundButeFX, on at start or not (tools/ambient.py)
         public KeyframerJson[] keyframers;   // keyframers, active at start or not (tools/keyframer.py)
+        public ActivateTypeJson[] activateTypes; // the use prompts its objects name (tools/activate.py)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public RenderStyleJson[] renderStyles;
@@ -163,6 +164,9 @@ namespace Tron
 
         static LTVec LTV(float[] v) => new LTVec(v[0], v[1], v[2]);
     }
+
+    // An ActivateType: the use prompt shown while its object is on / off ("" for none).
+    [Serializable] public class ActivateTypeJson { public string name, on, off; }
 
     [Serializable] public class PropJson { public string k, t, s; public float[] v; }
 

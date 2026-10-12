@@ -60,3 +60,15 @@ def test_exporting_the_levels_sounds_writes_every_file_they_name_and_reports_the
 def test_a_missing_file_exports_nothing(extracted, tmp_path):
     assert sounds.export_file(extracted, "snd/amb/drone08.wav", str(tmp_path)) is None
     assert not os.path.exists(os.path.join(str(tmp_path), "sounds", "snd", "amb", "drone08.wav"))
+
+
+def test_doors_switches_and_moving_world_models_name_the_sounds_of_their_states():
+    # ActiveWorldModel ReadProps (generic names) and Door ReadProps (door names), plus LockedSound
+    objects = [obj("SlidingDoor", OpeningSound="snd\\doors\\Door1.WAV", OpenSound="", ClosingSound="snd\\doors\\Door2.WAV",
+                   ClosedSound="snd\\lifts\\lift_02_sp.wav", LockedSound="snd\\switch\\lock_1.wav"),
+               obj("SlidingSwitch", PowerOnSound="snd\\switch\\keypad_02.WAV", OnSound="snd\\event\\surgefuseblow.wav",
+                   PowerOffSound="", OffSound=""),
+               obj("RotatingWorldModel", PowerOffSound="snd\\a.wav"), obj("RotatingDoor", ClosedSound="snd\\b.wav")]
+    assert sounds.sound_names(objects) == [
+        "snd\\doors\\Door1.WAV", "snd\\doors\\Door2.WAV", "snd\\lifts\\lift_02_sp.wav", "snd\\switch\\lock_1.wav",
+        "snd\\switch\\keypad_02.WAV", "snd\\event\\surgefuseblow.wav", "snd\\a.wav", "snd\\b.wav"]
