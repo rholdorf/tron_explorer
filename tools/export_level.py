@@ -360,6 +360,17 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
                        "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount else 0.0})
         return True
 
+    def attach(i, parent, atts, skinned, sockets):
+        """atts: (socket, model file, skins, render styles) on models[parent], at one of `sockets` (its
+        model's). One whose socket isn't there is dropped: CreateAttachment fails, "unable to create socket"."""
+        names = {s.name.lower() for s in sockets}
+        for socket, *att in atts:
+            if socket.lower() not in names:
+                key = (models[parent]["file"], socket)
+                resolver.missing_sockets[key] = resolver.missing_sockets.get(key, 0) + 1
+                continue
+            add(i, att, [1, 1, 1], skinned, parent, socket, pos=models[parent]["pos"])
+
     by_name, turrets = {}, []
     for i, o in enumerate(objects):
         r = resolver.resolve(o)
@@ -382,20 +393,15 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
             bin_index = len(models) - 1
             add(i, resolver.template("ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
             # Then (0x1000f800) one "Berry" object per item, from the item type's template, attached to an
-            # item socket. The game deals the items to Socket1..SocketN-1 in a random order (rand() shuffle,
-            # 0x1000f730); the exporter keeps item order: item k at Socket{k}.
-            for k, berry in enumerate(resolver.bin_items(o), 1):
-                add(i, resolver.template(berry), [1, 1, 1], False, bin_index, f"Socket{k}", pos=placed)
+            # item socket: the model's sockets but the last (Frame). The game deals the items to them in a
+            # random order (rand() shuffle, 0x1000f730); the exporter keeps item order: item k at Socket{k}.
+            attach(i, bin_index, [(s, *resolver.template(t)) for s, t in resolver.bin_items(o)], False,
+                   styles.model(r[0]).sockets[:-1])
         if not character:
             continue
         parent = len(models) - 1
         models[parent]["anim"] = character_anim(styles, extracted, r[0], idle.idle(o, i) if idle else None)
-        sockets = {s.name.lower() for s in styles.model(r[0]).sockets}
-        for socket, *att in resolver.attachments(o):
-            if socket.lower() not in sockets:   # CreateAttachment fails: "unable to create socket"
-                resolver.missing_sockets[(r[0], socket)] = resolver.missing_sockets.get((r[0], socket), 0) + 1
-                continue
-            add(i, att, [1, 1, 1], True, parent, socket, pos=placed)
+        attach(i, parent, resolver.attachments(o), True, styles.model(r[0]).sockets)
     # TronTurret (object.lto 0x1006c960, 0x1006d590) finds the object named by its Parent property and,
     # every update, puts itself at that object's ParentSocket: a socket attachment for a static frame.
     # Aiming at its Target turns it from there (behavior).

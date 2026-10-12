@@ -45,7 +45,7 @@ class Resolver:
         self.weapons = {s["name"].lower(): s for s in butes.load(os.path.join(a, "weapons.txt")).values()
                         if "name" in s}
         self.hidden_weapons = 0    # weapon attachments without a hand-held model (HHModel empty)
-        self.missing_sockets = {}  # (character model, position) -> attachments dropped for want of a socket
+        self.missing_sockets = {}  # (parent model, socket) -> attachments dropped for want of the socket
         self.undrawn_attachments = {}   # object attachment class without a model -> count
 
     def template(self, name):
@@ -57,8 +57,8 @@ class Resolver:
 
     @staticmethod
     def bin_items(obj):
-        """The berry templates an ArchiveBin shows, one per item (Type1..Type6 that names an item type, in
-        order). ArchiveBin (object.lto 0x1000f800) picks the template by the item type's index in the
+        """The berries an ArchiveBin shows as (socket, template), one per item (Type1..Type6 that names an
+        item type, in order), item k at Socket{k}. ArchiveBin (object.lto 0x1000f800) picks the template by the item type's index in the
         list Subroutine, Procedural, Primitive, Permission Set, Email, Custom, HelpFile (0x10284410):
         0 is SubroutineBerry, 3 PSetBerry, any other DocumentBerry."""
         p = {q["k"].lower(): q for q in obj["props"]}
@@ -67,7 +67,8 @@ class Resolver:
             q = p.get(f"type{k}")
             t = q["s"].strip().lower() if q and q["t"] == "s" else ""
             if t in BIN_ITEM_TYPES:
-                out.append({0: "SubroutineBerry", 3: "PSetBerry"}.get(BIN_ITEM_TYPES.index(t), "DocumentBerry"))
+                out.append((f"Socket{len(out) + 1}",
+                            {0: "SubroutineBerry", 3: "PSetBerry"}.get(BIN_ITEM_TYPES.index(t), "DocumentBerry")))
         return out
 
     @staticmethod
