@@ -153,7 +153,9 @@ Shader "Tron/World"
                 }
                 if (_UseDetail > 0)
                     c = saturate(c + SAMPLE_TEXTURE2D(_DetailTex, sampler_DetailTex, i.detuv).rgb - 0.5);
-                float a = (_Fullbright > 0 ? 1 : tex.a) * i.color.a * _Alpha;
+                // Fullbright too: its stage 1 passes texture alpha * diffuse alpha through
+                // (CRenderShader_Gouraud_Texture_Fullbright::PreFlush), which blended world models use.
+                float a = tex.a * i.color.a * _Alpha;
                 if (_LTGlowPass > 0)
                 {
                     // Glow buffer is kept in gamma space; fogged towards black like ScreenGlowFog.
