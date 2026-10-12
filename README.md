@@ -27,7 +27,8 @@ Build/TronExplorer.app        native build
 Then open `TronViewer` in Unity and press Play (scene `Assets/Scenes/Explorer.unity`), or run
 `Build/TronExplorer.app`. The app finds the data by walking up from its own location until it
 sees `export/levels.json`; override with `-tronroot <dir>` or `TRON_EXPLORER_ROOT`.
-`-level m01-01` loads a level directly.
+`-level m01-01` loads a level directly; add `-benchmark 8` to log frame times at the start point
+(vsync off, one `BENCH` line in the player log) and quit.
 
 ## Controls
 

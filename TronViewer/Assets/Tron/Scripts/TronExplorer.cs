@@ -51,6 +51,30 @@ namespace Tron
 
             var auto = GetArg("-level");
             if (auto != null) Load(auto);
+            if (float.TryParse(GetArg("-benchmark"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var secs) && level != null)
+                StartCoroutine(Benchmark(secs));
+        }
+
+        // -level <name> -benchmark <seconds>: frame times at the start point with vsync off, logged
+        // as one "BENCH" line, then quit. Used to measure renderer changes in the player build.
+        System.Collections.IEnumerator Benchmark(float seconds)
+        {
+            Application.runInBackground = true; // keep measuring if the window loses focus
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = -1;
+            showHelp = false;
+            for (float t = 0; t < 1; t += Time.unscaledDeltaTime) yield return null; // warm-up
+            var ms = new System.Collections.Generic.List<float>();
+            for (float t = 0; t < seconds; t += Time.unscaledDeltaTime)
+            {
+                yield return null;
+                ms.Add(Time.unscaledDeltaTime * 1000);
+            }
+            ms.Sort();
+            float avg = ms.Average();
+            Debug.Log($"BENCH {level.Data.name} frames={ms.Count} avg={avg:0.00}ms ({1000 / avg:0} fps) " +
+                      $"p50={ms[ms.Count / 2]:0.00}ms p95={ms[(int)(ms.Count * 0.95f)]:0.00}ms {Screen.width}x{Screen.height}");
+            Application.Quit();
         }
 
         void OnDestroy() => RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
