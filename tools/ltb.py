@@ -345,9 +345,10 @@ def _channels(r, compression, n_keys, n_nodes, decode):
     for _ in range(n_nodes):
         pos, rot = np.zeros((0, 3)), np.zeros((0, 4))
         if compression == 0:
-            if r.u8():             # vertex animation (never used by Tron)
+            if r.u8():             # vertex animation (pv_energyclaw): stepped over
                 for _ in range(n_keys):
-                    r.p += 12 * r.u32()
+                    n = r.u32()
+                    r.p += 12 * n
             elif decode:
                 pos = r.array("<f4", n_keys * 3).reshape(-1, 3).astype(np.float64)
                 rot = r.array("<f4", n_keys * 4).reshape(-1, 4).astype(np.float64)
