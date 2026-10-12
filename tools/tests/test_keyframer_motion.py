@@ -14,7 +14,10 @@ target. Scenario lines for the driver:
   bez <prev x y z | -> <next x y z | ->      (on the last key)
   cmd <command text>                         (on the last key)
   target <x> <y> <z> [<pitch> <yaw> <roll>]
+  cmd64 <base64>                             (on the last key) a command with any characters
   listen <name>                              an object that prints "got <name> <sender> <words joined by |>"
+  reset                                      start a new scenario (a new command manager)
+  quiet <dt> <frames>                        run without printing the frames, then "ok <active>"
   send <message text>                        a message to kf, now
   run <dt> <frames>                          -> per frame (the command table, then the keyframer):
                                                 x y z qx qy qz qw active activations
@@ -83,6 +86,26 @@ static class Driver
                     break;
                 }
                 case "cmd": keys[keys.Count - 1].Command = rest; break;
+                case "cmd64": keys[keys.Count - 1].Command = new string(Convert.FromBase64String(a[1]).Select(b => (char)b).ToArray()); break;
+                case "reset":
+                    keys = new List<KeyframerMotion.Key>();
+                    targets.Clear();
+                    baseKey = "k";
+                    startActive = true;
+                    startPaused = false;
+                    mgr = new CommandMgr(() => 0.0);
+                    id = mgr.Join("kf", "KeyFramer");
+                    m = null;
+                    break;
+                case "quiet":
+                    build();
+                    for (int n = 0; n < int.Parse(a[2]); n++)
+                    {
+                        mgr.Update(F(1));
+                        m.Update(F(1));
+                    }
+                    Console.WriteLine("ok " + (m.Active ? 1 : 0));
+                    break;
                 case "target": targets.Add(new[] { F(1), F(2), F(3), a.Length > 4 ? F(4) : 0, a.Length > 4 ? F(5) : 0, a.Length > 4 ? F(6) : 0 }); break;
                 case "listen":
                 {
@@ -323,3 +346,34 @@ def test_align_to_path_faces_the_way_it_moves(run):
     # Moving along +x faces +x: yaw pi/2.
     f = run("kf 1 0 0 1 1", "key 0 0 0 0", "key 1 100 0 0", "target 0 0 0", "run 0.25 4")
     assert f[3][3:7] == pytest.approx([0, math.sin(math.pi / 4), 0, math.cos(math.pi / 4)], abs=1e-6)
+
+
+def test_every_keyframer_in_the_levels_runs_its_path_and_key_commands(driver, world):
+    # Every keyframer of the 38 single-player levels, started (ON for the ones that start inactive) and run
+    # for 20 s of 0.05 s frames, its key commands going through the command manager: none throws.
+    import base64
+    import glob
+    import keyframer
+    from conftest import EXTRACTED
+    root = os.path.join(EXTRACTED, "worlds")
+    lines, n = [], 0
+    for path in sorted(glob.glob(os.path.join(root, "retailsingleplayer", "*.dat"))):
+        w = world(os.path.relpath(path, root)[:-4])
+        for kf in keyframer.keyframers(w.objects, w.blind):
+            n += 1
+            lines += ["reset", "kf %d %r 0 %d %d" % (kf["looping"], kf["totalPathTime"], kf["alignToPath"],
+                                                      kf["ignoreOffsets"]),
+                      "start %d %d" % (kf["startActive"], kf["startPaused"]), "base " + kf["baseKeyName"]]
+            for k in kf["keys"]:
+                lines.append("key %r %r %r %r %r %r %r" % (k["time"], *k["pos"], *k["pyr"]))
+                if k["bezPrev"] or k["bezNext"]:
+                    lines.append("bez " + " ".join("%r %r %r" % tuple(c) if c else "-"
+                                                   for c in (k["bezPrev"], k["bezNext"])))
+                if k["command"]:
+                    lines.append("cmd64 " + base64.b64encode(k["command"].encode("latin-1")).decode())
+            lines.append("target %r %r %r" % tuple(kf["keys"][0]["pos"]))
+            if not kf["startActive"]:
+                lines.append("send on")
+            lines.append("quiet 0.05 400")
+    rows = driver(*lines)
+    assert len([r for r in rows if r.startswith("ok")]) == n == 2135
