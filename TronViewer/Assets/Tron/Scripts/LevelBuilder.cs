@@ -552,9 +552,6 @@ namespace Tron
                 worldModel.AddComponent<Rigidbody>().isKinematic = true;
         }
 
-        // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
-        // engine's falloff and volume (AmbientSound). A file missing from the export is skipped and listed
-        // in SoundLoader.Missing.
         // Keyframers live at start move the objects named in their ObjectName (KeyFramer::CreateKeyList:
         // every object with each name) along their path (Keyframer). An object is shown by its world model
         // when it has one, else by its drawn models; one the viewer doesn't draw has nothing to move but
@@ -624,6 +621,9 @@ namespace Tron
             }
         }
 
+        // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
+        // engine's falloff and volume (AmbientSound). A file missing from the export is skipped and listed
+        // in SoundLoader.Missing.
         void BuildSoundFX()
         {
             if (Data.soundFX == null || Data.soundFX.Length == 0) return;
