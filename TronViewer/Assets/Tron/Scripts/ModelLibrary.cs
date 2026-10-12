@@ -87,9 +87,9 @@ namespace Tron
                 // Animation clips follow the skin.
                 var animData = new float[nAnim];
                 Buffer.BlockCopy(bin, skinBase + nv + nInf * BoneWeightSize, animData, 0, nAnim * 4);
-                var result0 = new LoadedModel { data = data, mesh = mesh, animData = animData };
+                var loaded = new LoadedModel { data = data, mesh = mesh, animData = animData };
                 var bindposes = new Matrix4x4[data.nodes.Length];
-                for (int i = 0; i < bindposes.Length; i++) bindposes[i] = result0.BindMatrix(i).inverse;
+                for (int i = 0; i < bindposes.Length; i++) bindposes[i] = loaded.BindMatrix(i).inverse;
                 mesh.bindposes = bindposes;
                 mesh.subMeshCount = data.pieces.Length;
                 var bounds = new Bounds();
@@ -106,7 +106,7 @@ namespace Tron
                 }
                 mesh.bounds = bounds;
                 mesh.UploadMeshData(false);   // kept readable: SkinnedMeshRenderers draw it too
-                result = result0;
+                result = loaded;
             }
             catch (Exception e)
             {

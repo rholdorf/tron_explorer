@@ -330,7 +330,7 @@ def export_model(extracted, rel, out_root, anims=(), load=None):
         uv = mesh.field("uv")
         if uv is not None:
             out["uv"] = uv[:, 0]
-        out["rgba"] = (128, 128, 128, 255)  # unused: Tron/Model lights from the material (D3D lighting)
+        out["rgba"] = (128, 128, 128, 255)  # unused: Tron/Model lights from the style's lighting (D3D lighting)
         tris = mesh.indices.astype(np.uint32).reshape(-1)
         pieces.append({"name": p.name, "textures": textures, "style": style, "kind": mesh.kind,
                        "bone": mesh.bone, "vtxOffset": nv, "vtxCount": int(len(out)), "idxOffset": ni,

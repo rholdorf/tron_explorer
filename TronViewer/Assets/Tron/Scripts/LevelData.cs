@@ -44,11 +44,11 @@ namespace Tron
     [Serializable] public class PieceStyleJson { public int style; public string[] tex; }
 
     // A render style compiled for the model shader (tools/renderstyle.py compile_style, export_models.Styles):
-    // its material and one draw per hardware pass, drawn in order.
+    // its lighting (LightingMaterial) and one draw per hardware pass, drawn in order.
     [Serializable] public class RenderStyleJson
     {
         public string name;
-        public RenderStyleMaterialJson material;
+        public RenderStyleLightingJson lighting;
         public RenderDrawJson[] draws;
     }
     // One draw of a piece: its states, the passes it evaluates (1, or 2 folded; none = glow only) and
@@ -59,7 +59,7 @@ namespace Tron
         public int zwrite, ztest, cull;
         public RenderPassJson[] passes, glow;
     }
-    [Serializable] public class RenderStyleMaterialJson { public float[] ambient, diffuse, emissive; }
+    [Serializable] public class RenderStyleLightingJson { public float[] ambient, diffuse, emissive; }
     // stages: 2 stages x (colorOp, colorArg1, colorArg2, texture slot, alphaOp, alphaArg1, alphaArg2, uv set)
     [Serializable] public class RenderPassJson { public float[] stages, tfactor, alphaTest; public int lit, blendOver; }
 
