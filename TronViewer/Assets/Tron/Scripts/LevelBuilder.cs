@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 13;
+        public const int FormatVersion = 15;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -44,6 +44,8 @@ namespace Tron
             return SkyViewMin + Vector3.Scale(SkyViewMax - SkyViewMin, t);
         }
         public readonly Dictionary<string, GameObject> WorldModelObjects = new Dictionary<string, GameObject>();
+        // Object index -> the model instances drawn for it that aren't attachments (a bin and its frame).
+        readonly Dictionary<int, List<GameObject>> modelObjects = new Dictionary<int, List<GameObject>>();
         public readonly List<string> MissingTextures = new List<string>();
 
         Material[] materials;
@@ -90,6 +92,7 @@ namespace Tron
             bin = null;
             BuildModels(exportRoot);
             BuildSoundFX();
+            BuildKeyframers();
         }
 
         // One RGBA atlas of all section lightmaps (see tools/export_level.py); raw values, like the DTX path.
@@ -221,6 +224,8 @@ namespace Tron
                 else
                 {
                     go.transform.SetParent(root.transform, false);
+                    if (!modelObjects.TryGetValue(inst.obj, out var shown)) modelObjects[inst.obj] = shown = new List<GameObject>();
+                    shown.Add(go);
                     go.transform.localPosition = pos;
                     go.transform.localRotation = obj.Rotation;
                     if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
@@ -543,6 +548,94 @@ namespace Tron
         // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
         // engine's falloff and volume (AmbientSound). A file missing from the export is skipped and listed
         // in SoundLoader.Missing.
+        // Keyframers live at start move the objects named in their ObjectName (KeyFramer::CreateKeyList:
+        // every object with each name) along their path (Keyframer). An object is shown by its world model
+        // when it has one, else by its drawn models; one the viewer doesn't draw has nothing to move but
+        // still counts (a keyframer with no object at all never goes active).
+        void BuildKeyframers()
+        {
+            if (Data.keyframers == null || Data.keyframers.Length == 0) return;
+            var byName = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < Data.objects.Length; i++)
+            {
+                var n = Data.objects[i].name;
+                if (string.IsNullOrEmpty(n)) continue;
+                if (!byName.TryGetValue(n, out var list)) byName[n] = list = new List<int>();
+                list.Add(i);
+            }
+            var worldModels = new Dictionary<string, GameObject>(WorldModelObjects, StringComparer.OrdinalIgnoreCase);
+            var parent = new GameObject("Keyframers");
+            parent.transform.SetParent(Root.transform, false);
+            foreach (var kf in Data.keyframers)
+            {
+                var keys = new KeyframerMotion.Key[kf.keys.Length];
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    var k = kf.keys[i];
+                    var cmds = new KeyframerMotion.Command[k.commands?.Length ?? 0];
+                    for (int c = 0; c < cmds.Length; c++)
+                        cmds[c] = new KeyframerMotion.Command { Verb = k.commands[c].verb, Delay = k.commands[c].delay, Key = k.commands[c].key };
+                    keys[i] = new KeyframerMotion.Key
+                    {
+                        Pos = LTV(k.pos), PYR = LTV(k.pyr), Time = k.time, Commands = cmds,
+                        HasPrev = k.bezPrev != null && k.bezPrev.Length >= 3, HasNext = k.bezNext != null && k.bezNext.Length >= 3,
+                    };
+                    if (keys[i].HasPrev) keys[i].BezPrev = LTV(k.bezPrev);
+                    if (keys[i].HasNext) keys[i].BezNext = LTV(k.bezNext);
+                }
+                var motion = new KeyframerMotion(keys, kf.looping, kf.totalPathTime, kf.wave, kf.alignToPath, kf.ignoreOffsets);
+                var shown = new List<Transform[]>();
+                foreach (var name in kf.targets)
+                {
+                    if (!byName.TryGetValue(name, out var objs)) continue;
+                    foreach (int i in objs)
+                    {
+                        var obj = Data.objects[i];
+                        Transform[] gos;
+                        Vector3 pos = obj.Position;
+                        if ((SolidClasses.Contains(obj.cls) || HiddenClasses.Contains(obj.cls)) && worldModels.TryGetValue(obj.name, out var wm))
+                        {
+                            gos = new[] { wm.transform };
+                            // PhysX moves a kinematic body's collider instead of re-baking a static one.
+                            if (wm.GetComponentInChildren<Collider>() != null && !wm.GetComponent<Rigidbody>())
+                                wm.AddComponent<Rigidbody>().isKinematic = true;
+                        }
+                        else if (modelObjects.TryGetValue(i, out var models))
+                        {
+                            gos = models.ConvertAll(m => m.transform).ToArray();
+                            pos = gos[0].localPosition;   // after MoveToFloor
+                        }
+                        else gos = Array.Empty<Transform>();
+                        motion.AddTarget(new LTVec(pos.x, pos.y, pos.z), LTQuat.FromEuler(obj.rot[0], obj.rot[1], obj.rot[2]));
+                        shown.Add(gos);
+                    }
+                }
+                if (motion.Targets.Count == 0) continue;
+
+                var go = new GameObject($"{kf.name} [KeyFramer]");
+                go.transform.SetParent(parent.transform, false);
+                AmbientSound sound = null;
+                AudioClip clip = null;
+                if (!string.IsNullOrEmpty(kf.activeSound) && (clip = SoundLoader.Load(kf.activeSound)))
+                {
+                    // The sound follows the first controlled object; one that isn't drawn gets a stand-in.
+                    var host = shown[0].Length > 0 ? shown[0][0].gameObject : null;
+                    if (!host)
+                    {
+                        host = new GameObject("ActiveSound");
+                        host.transform.SetParent(parent.transform, false);
+                        var t0 = motion.Targets[0].Pos;
+                        host.transform.localPosition = new Vector3(t0.x, t0.y, t0.z);
+                        shown[0] = new[] { host.transform };
+                    }
+                    sound = AmbientSound.Add(host, 0.25f * kf.soundRadius, kf.soundRadius, 100, false, 1);
+                }
+                go.AddComponent<Keyframer>().Init(motion, shown.ToArray(), sound, clip);
+            }
+        }
+
+        static LTVec LTV(float[] v) => new LTVec(v[0], v[1], v[2]);
+
         void BuildSoundFX()
         {
             if (Data.soundFX == null || Data.soundFX.Length == 0) return;
