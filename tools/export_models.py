@@ -200,18 +200,16 @@ class Styles:
                 if g is None:
                     raise ValueError(f"{name}: glow style {glow} not found")
                 g = renderstyle.compile_glow(g, glow)
-                if len(draws) == 1 and len(g["passes"]) == 1:
-                    draws[0]["glow"] = g["passes"]   # over the model's own state
-                else:
-                    # A draw of a multi-draw style that writes opaque with Z carries a one-pass glow;
-                    # otherwise the glow is a draw of its own with the glow style's state.
-                    d = next((d for d in draws if len(g["passes"]) == 1 and tuple(d["blend"]) == (1, 0)
-                              and d["zwrite"]), None)
-                    if d is None:
-                        d = {k: g[k] for k in ("blend", "zwrite", "ztest", "cull")}
-                        d["passes"] = []
-                        draws.append(d)
-                    d["glow"] = g["passes"]
+                # The glow pass swaps the whole style, states included (RemapRenderStyles), so a blended
+                # piece occludes the glow behind it. A one-pass glow rides on a draw that writes opaque
+                # with Z like it; otherwise the glow is a draw of its own with the glow style's state.
+                d = next((d for d in draws if len(g["passes"]) == 1 and tuple(d["blend"]) == (1, 0)
+                          and d["zwrite"]), None)
+                if d is None:
+                    d = {k: g[k] for k in ("blend", "zwrite", "ztest", "cull")}
+                    d["passes"] = []
+                    draws.append(d)
+                d["glow"] = g["passes"]
             c["name"] = name
             self.compiled[rel] = c
         return self.compiled[rel]
