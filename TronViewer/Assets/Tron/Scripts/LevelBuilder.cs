@@ -534,21 +534,24 @@ namespace Tron
                     AddCollider(geom.transform, wm.collider, "collider");
             }
 
-            // Spinners that start on turn their world model; a solid one gets a kinematic body so PhysX
-            // treats its collider as moving rather than re-baking a static one every frame.
+            // Spinners that start on turn their world model.
             if (Data.spinners == null) return;
             foreach (var s in Data.spinners)
             {
                 if (!WorldModelObjects.TryGetValue(s.worldModel, out var go)) continue;
-                if (go.GetComponentInChildren<Collider>() != null)
-                    go.AddComponent<Rigidbody>().isKinematic = true;
+                MakeKinematic(go);
                 go.AddComponent<Spinner>().Init(s);
             }
         }
 
-        // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
-        // engine's falloff and volume (AmbientSound). A file missing from the export is skipped and listed
-        // in SoundLoader.Missing.
+        // A world model the viewer moves gets a kinematic body when it has a collider, so PhysX treats the
+        // collider as moving rather than re-baking a static one every frame.
+        static void MakeKinematic(GameObject worldModel)
+        {
+            if (worldModel.GetComponentInChildren<Collider>() != null && !worldModel.GetComponent<Rigidbody>())
+                worldModel.AddComponent<Rigidbody>().isKinematic = true;
+        }
+
         // Keyframers live at start move the objects named in their ObjectName (KeyFramer::CreateKeyList:
         // every object with each name) along their path (Keyframer). An object is shown by its world model
         // when it has one, else by its drawn models; one the viewer doesn't draw has nothing to move but
@@ -569,22 +572,7 @@ namespace Tron
             parent.transform.SetParent(Root.transform, false);
             foreach (var kf in Data.keyframers)
             {
-                var keys = new KeyframerMotion.Key[kf.keys.Length];
-                for (int i = 0; i < keys.Length; i++)
-                {
-                    var k = kf.keys[i];
-                    var cmds = new KeyframerMotion.Command[k.commands?.Length ?? 0];
-                    for (int c = 0; c < cmds.Length; c++)
-                        cmds[c] = new KeyframerMotion.Command { Verb = k.commands[c].verb, Delay = k.commands[c].delay, Key = k.commands[c].key };
-                    keys[i] = new KeyframerMotion.Key
-                    {
-                        Pos = LTV(k.pos), PYR = LTV(k.pyr), Time = k.time, Commands = cmds,
-                        HasPrev = k.bezPrev != null && k.bezPrev.Length >= 3, HasNext = k.bezNext != null && k.bezNext.Length >= 3,
-                    };
-                    if (keys[i].HasPrev) keys[i].BezPrev = LTV(k.bezPrev);
-                    if (keys[i].HasNext) keys[i].BezNext = LTV(k.bezNext);
-                }
-                var motion = new KeyframerMotion(keys, kf.looping, kf.totalPathTime, kf.wave, kf.alignToPath, kf.ignoreOffsets);
+                var motion = kf.Motion();
                 var shown = new List<Transform[]>();
                 foreach (var name in kf.targets)
                 {
@@ -597,9 +585,7 @@ namespace Tron
                         if ((SolidClasses.Contains(obj.cls) || HiddenClasses.Contains(obj.cls)) && worldModels.TryGetValue(obj.name, out var wm))
                         {
                             gos = new[] { wm.transform };
-                            // PhysX moves a kinematic body's collider instead of re-baking a static one.
-                            if (wm.GetComponentInChildren<Collider>() != null && !wm.GetComponent<Rigidbody>())
-                                wm.AddComponent<Rigidbody>().isKinematic = true;
+                            MakeKinematic(wm);
                         }
                         else if (modelObjects.TryGetValue(i, out var models))
                         {
@@ -635,8 +621,9 @@ namespace Tron
             }
         }
 
-        static LTVec LTV(float[] v) => new LTVec(v[0], v[1], v[2]);
-
+        // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
+        // engine's falloff and volume (AmbientSound). A file missing from the export is skipped and listed
+        // in SoundLoader.Missing.
         void BuildSoundFX()
         {
             if (Data.soundFX == null || Data.soundFX.Length == 0) return;

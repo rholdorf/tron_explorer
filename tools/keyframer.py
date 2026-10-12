@@ -9,6 +9,8 @@ sound[soundLen], command[commandLen] (not NUL-terminated), then the tangents pre
 """
 import struct
 
+import waveform
+
 # KeyFramer::OnTrigger verbs that run its own path (REVERSE is BACKWARD). MOVETO and the TARGET family
 # aren't sent by any live keyframer to itself.
 SELF_VERBS = {"ON": "ON", "OFF": "OFF", "PAUSE": "PAUSE", "RESUME": "RESUME", "FORWARD": "FORWARD",
@@ -94,13 +96,12 @@ def self_commands(command, name, base_key_name, n_keys, delay=0.0):
 
 
 CLASS = "KeyFramer"
-WAVES = ["Linear", "Sine", "SlowOff", "SlowOn"]   # KFWAVE_*
 
 
 def keyframers(objects, blind):
     """The level's keyframers that start active (StartActive, not StartPaused), for the viewer: name,
     targets (the ObjectName list; each name can match several objects), looping, alignToPath, ignoreOffsets,
-    pushObjects, totalPathTime (> 0: velocity mode), wave (index into WAVES), activeSound, soundRadius,
+    totalPathTime (> 0: velocity mode), wave (index into waveform.NAMES), activeSound, soundRadius,
     and keys: pos, pyr, time, bezPrev, bezNext and commands (self_commands of the key's command)."""
     out = []
     for o in objects:
@@ -116,13 +117,14 @@ def keyframers(objects, blind):
         keys = read_keys(blind[int(index)][1])
         if not targets or not keys or not base:
             continue
-        wave = p.get("Wavetype", "Linear")
+        # PushObjects is left out: it moves the targets with MoveObject (pushing what's in the way) rather
+        # than SetObjectPos, which only matters to the player, and the viewer's keyframers don't push it.
         out.append({
             "name": name, "targets": targets,
             "looping": bool(p.get("Looping", False)), "alignToPath": bool(p.get("AlignToPath", False)),
-            "ignoreOffsets": bool(p.get("IgnoreOffsets", False)), "pushObjects": bool(p.get("PushObjects", False)),
+            "ignoreOffsets": bool(p.get("IgnoreOffsets", False)),
             "totalPathTime": float(p.get("TotalPathTime", 0.0)),
-            "wave": next((i for i, w in enumerate(WAVES) if w.lower() == wave.lower()), 0),
+            "wave": waveform.index(p.get("Wavetype", "Linear")),
             "activeSound": p.get("ActiveSound", "").strip(), "soundRadius": float(p.get("SoundRadius", 1000.0)),
             "keys": [{"pos": k["pos"], "pyr": k["pyr"], "time": k["time"], "bezPrev": k["bezPrev"],
                       "bezNext": k["bezNext"],

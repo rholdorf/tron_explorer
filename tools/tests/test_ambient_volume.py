@@ -95,3 +95,9 @@ def test_gain_is_the_db_as_amplitude_and_silent_out_of_earshot(run):
 
 def test_engine_priority_maps_to_unity_priority_lower_is_more_important(run):
     assert run(("priority", 0), ("priority", 1), ("priority", 3)) == [128, 96, 32]
+
+
+def test_inner_beyond_outer_is_still_silent_past_earshot(run):
+    # research §1: no voice beyond 1.5 x OuterRadius (25500 here), even inside a larger InnerRadius
+    [inside, beyond] = run(("gain", 100, 30000, 17000, 20000, 1), ("gain", 100, 30000, 17000, 26000, 1))
+    assert inside > 0 and beyond == 0

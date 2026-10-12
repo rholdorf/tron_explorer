@@ -32,13 +32,11 @@ namespace Tron
             Missing.Clear();
         }
 
-        public static string Normalize(string path) => DtxLoader.Normalize(path);
-
         // The clip for a sound file, or null (and the path in Missing) if it isn't in the export.
         public static AudioClip Load(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return null;
-            path = Normalize(path);
+            path = DtxLoader.Normalize(path);
             if (cache.TryGetValue(path, out var cached)) return cached;
             AudioClip clip = null;
             try

@@ -15,13 +15,14 @@ Engine rules (ltjs spinningworldmodel.cpp / activeworldmodel.cpp, checked agains
 """
 import math
 
+import waveform
+
 CLASS = "SpinningWorldModel"
-WAVEFORMS = ["Linear", "Sine", "SlowOff", "SlowOn"]   # AWM_WAVE_*
 
 
 def spinners(objects):
     """Spinners that start on, from a level's objects (dat85): world model name, final velocity per
-    axis (rad/s, pitch/yaw/roll), PowerOnTime (s) and waveform (index into WAVEFORMS)."""
+    axis (rad/s, pitch/yaw/roll), PowerOnTime (s) and waveform (index into waveform.NAMES)."""
     out = []
     for o in objects:
         p = o["props"]
@@ -31,8 +32,7 @@ def spinners(objects):
         velocity = [2 * math.pi / a if a else 0.0 for a in angles]
         if not any(velocity):
             continue
-        wave = p.get("Waveform", "Linear")
         out.append({"worldModel": p.get("Name", ""), "velocity": velocity,
                     "powerOnTime": float(p.get("PowerOnTime", 100.0)),
-                    "waveform": WAVEFORMS.index(wave) if wave in WAVEFORMS else 0})
+                    "waveform": waveform.index(p.get("Waveform", "Linear"))})
     return out

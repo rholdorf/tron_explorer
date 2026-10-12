@@ -27,6 +27,11 @@ def test_power_on_time_and_waveform():
     assert s["waveform"] == 1
 
 
+def test_waveform_names_match_in_any_case_like_the_engine():
+    # ActiveWorldModel::ReadProps compares with _stricmp; an unknown name stays Linear
+    assert [spinner.spinners([obj(wave=w)])[0]["waveform"] for w in ("slowoff", "SINE", "Bogus")] == [2, 1, 0]
+
+
 def test_only_spinners_that_start_on():
     others = [obj(name="off", start_on=False), dict(obj(name="door"), **{"class": "RotatingWorldModel"})]
     assert [s["worldModel"] for s in spinner.spinners(others + [obj(name="on")])] == ["on"]
