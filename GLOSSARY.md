@@ -126,6 +126,10 @@ _Avoid_: logic object, controller
 A `CommandObject`: a timeline that runs its commands at set times after it is started.
 _Avoid_: sequence, cutscene (cutscenes also need cameras and dialogue)
 
+**Event counter**:
+An `EventCounter`: a count that `inc` and `dec` messages step, running the command set for each value it reaches; Tron's `reset` puts it back to its starting value.
+_Avoid_: counter variable (the command language's variables are something else)
+
 **Use**:
 The player's action on the door or switch in front of them (key E in the viewer).
 _Avoid_: activate (that is also a message), interact
