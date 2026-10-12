@@ -82,12 +82,11 @@ class Resolver:
             return norm(s("Filename")), self._skins(s("Skin")), []
         return None
 
-    def attachments(self, obj):
-        """A character's attachments as (socket, model file, skins, render styles). The object's own
-        position properties are created first (CAttachments::ReadProp/Init), then the template's
-        DefaultAttachmentN = "Position, Name" unless UseDefaultAttachments is off (CAIHuman
-        InitialUpdate); a default for an occupied position is dropped (CAttachments::Attach). The
-        position name is the parent model's socket. Weapons occupy their position but aren't drawn."""
+    def occupants(self, obj):
+        """What a character's attachment positions hold, as (position, name, attachable or None for a
+        weapon). The object's own position properties are created first (CAttachments::ReadProp/Init),
+        then the template's DefaultAttachmentN = "Position, Name" unless UseDefaultAttachments is off
+        (CAIHuman InitialUpdate); a default for an occupied position is dropped (CAttachments::Attach)."""
         p = {q["k"].lower(): q for q in obj["props"]}
         t = self.templates.get(p["modeltemplate"]["s"].lower()) if "modeltemplate" in p else None
         if not t:
@@ -106,14 +105,31 @@ class Resolver:
         for pos, name in wanted:
             if pos.lower() not in POSITION_SET or pos.lower() in occupied or name.lower() == "<none>":
                 continue
-            if name.split(",")[0].strip().lower() in self.weapons:   # WeaponMgr::ReadWeapon "weapon,ammo"
+            weapon = name.split(",")[0].strip()   # WeaponMgr::ReadWeapon "weapon,ammo"
+            if weapon.lower() in self.weapons:
                 occupied.add(pos.lower())
-                self.skipped_weapons += 1
+                out.append((pos, weapon, None))
                 continue
             a = self.attachables.get(name.lower())
             if not a:
                 continue   # "Unmatched attable name": nothing is created
             occupied.add(pos.lower())
+            out.append((pos, name, a))
+        return out
+
+    def weapon_at(self, obj, position):
+        """The weapon a character holds at `position` (e.g. RightHand, its primary weapon), or None."""
+        return next((name for pos, name, a in self.occupants(obj)
+                     if a is None and pos.lower() == position.lower()), None)
+
+    def attachments(self, obj):
+        """A character's drawn attachments as (socket, model file, skins, render styles); the position
+        name is the parent model's socket. Weapons occupy their position but aren't drawn."""
+        out = []
+        for pos, _name, a in self.occupants(obj):
+            if a is None:
+                self.skipped_weapons += 1
+                continue
             # Type 0 is a Prop; type 1 creates its Class, which only draws the model if it's a Prop.
             if a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES:
                 self.undrawn_attachments[a.get("class")] = self.undrawn_attachments.get(a.get("class"), 0) + 1
