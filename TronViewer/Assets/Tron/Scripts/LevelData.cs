@@ -107,7 +107,7 @@ namespace Tron
     {
         public string name;
         public string[] targets;
-        public bool looping, alignToPath, ignoreOffsets, pushObjects;
+        public bool looping, alignToPath, ignoreOffsets;
         public float totalPathTime;
         public int wave;
         public string activeSound;

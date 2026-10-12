@@ -101,7 +101,7 @@ CLASS = "KeyFramer"
 def keyframers(objects, blind):
     """The level's keyframers that start active (StartActive, not StartPaused), for the viewer: name,
     targets (the ObjectName list; each name can match several objects), looping, alignToPath, ignoreOffsets,
-    pushObjects, totalPathTime (> 0: velocity mode), wave (index into waveform.NAMES), activeSound, soundRadius,
+    totalPathTime (> 0: velocity mode), wave (index into waveform.NAMES), activeSound, soundRadius,
     and keys: pos, pyr, time, bezPrev, bezNext and commands (self_commands of the key's command)."""
     out = []
     for o in objects:
@@ -117,10 +117,12 @@ def keyframers(objects, blind):
         keys = read_keys(blind[int(index)][1])
         if not targets or not keys or not base:
             continue
+        # PushObjects is left out: it moves the targets with MoveObject (pushing what's in the way) rather
+        # than SetObjectPos, which only matters to the player, and the viewer's keyframers don't push it.
         out.append({
             "name": name, "targets": targets,
             "looping": bool(p.get("Looping", False)), "alignToPath": bool(p.get("AlignToPath", False)),
-            "ignoreOffsets": bool(p.get("IgnoreOffsets", False)), "pushObjects": bool(p.get("PushObjects", False)),
+            "ignoreOffsets": bool(p.get("IgnoreOffsets", False)),
             "totalPathTime": float(p.get("TotalPathTime", 0.0)),
             "wave": waveform.index(p.get("Wavetype", "Linear")),
             "activeSound": p.get("ActiveSound", "").strip(), "soundRadius": float(p.get("SoundRadius", 1000.0)),
