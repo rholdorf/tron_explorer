@@ -41,15 +41,21 @@ namespace Tron
     [Serializable] public class SunJson { public float[] dir, color; public float toAmbient; }
     [Serializable] public class PieceStyleJson { public int style; public string[] tex; }
 
-    // A render style compiled for the model shader (tools/renderstyle.py compile_style).
+    // A render style compiled for the model shader (tools/renderstyle.py compile_style, export_models.Styles):
+    // its material and one draw per hardware pass, drawn in order.
     [Serializable] public class RenderStyleJson
     {
         public string name;
+        public RenderStyleMaterialJson material;
+        public RenderDrawJson[] draws;
+    }
+    // One draw of a piece: its states, the passes it evaluates (1, or 2 folded; none = glow only) and
+    // its glow-buffer passes (none = no glow; 2 = two alpha passes folded, premultiplied).
+    [Serializable] public class RenderDrawJson
+    {
         public int[] blend;          // Unity BlendMode src, dst
         public int zwrite, ztest, cull;
-        public RenderStyleMaterialJson material;
-        public RenderPassJson[] passes;
-        public RenderPassJson glow;
+        public RenderPassJson[] passes, glow;
     }
     [Serializable] public class RenderStyleMaterialJson { public float[] ambient, diffuse, emissive; }
     // stages: 2 stages x (colorOp, colorArg1, colorArg2, texture slot, alphaOp, alphaArg1, alphaArg2, uv set)
