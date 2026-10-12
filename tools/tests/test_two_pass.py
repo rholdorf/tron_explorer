@@ -78,8 +78,9 @@ def test_two_pass_glow_style_folds_into_one_premultiplied_glow_only_draw(styles)
 def test_foldable_styles_stay_one_draw(styles):
     (d,) = styles.compile("chars/rs/jet_rs.ltb")["draws"]
     assert len(d["passes"]) == 2 and d["passes"][1]["blendOver"] == 1 and len(d["glow"]) == 1
-    (d,) = styles.compile("chars/rs/kernel_shell.ltb")["draws"]   # glow over the model's own state, as before
-    assert len(d["passes"]) == 1 and len(d["glow"]) == 1
+    # Blended: its glow (Glow_Kernel) is a draw of its own, opaque with Z (ticket #17).
+    d, g = styles.compile("chars/rs/kernel_shell.ltb")["draws"]
+    assert len(d["passes"]) == 1 and d["glow"] == [] and g["passes"] == [] and len(g["glow"]) == 1
     (d,) = styles.compile("")["draws"]
     assert state(d) == ([ONE, ZERO], 1, LEQUAL, CULL_BACK)
 
