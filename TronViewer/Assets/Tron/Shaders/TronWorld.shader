@@ -8,9 +8,9 @@
 //            then the texture pass with blend DESTCOLOR/SRCCOLOR (= 2 * dst * src with Saturate) and
 //            fog color 0x808080, so fog = 2 * lerp(fog, lm, f) * lerp(0.5, tex, f); fullbright adds a
 //            SRCALPHA/INVSRCALPHA pass of the (grey-fogged) texture. Reproduced here in one pass.
-// plus D3D linear fog. Math is done in gamma space like the original, then converted
-// to linear with the exact sRGB curve, so the sRGB render target stores the gamma value unchanged
-// (textures are uploaded as linear = raw values).
+// plus D3D linear fog. Math is done in gamma space like the original (textures are uploaded as
+// linear = raw values). The project uses the Gamma color space so the GPU blends in gamma space like
+// D3D did; in Linear the result is converted with the exact sRGB curve instead (TargetColor).
 Shader "Tron/World"
 {
     Properties
@@ -50,6 +50,7 @@ Shader "Tron/World"
             #pragma fragment frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
+            #include "TronColor.hlsl"
 
             TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
             TEXTURE2D(_EnvTex); SAMPLER(sampler_EnvTex);
@@ -170,12 +171,12 @@ Shader "Tron/World"
                     float3 texPass = lerp(1 / sat, c, i.fog);
                     c = saturate(lm * texPass * sat);
                     if (_Fullbright > 0) c = lerp(c, lerp(1 / sat, tex.rgb, i.fog), tex.a);
-                    return float4(SRGBToLinear(c), a);
+                    return float4(TargetColor(c), a);
                 }
                 float3 lit = c * i.color.rgb * sat;
                 c = _Fullbright > 0 ? lerp(lit, tex.rgb, tex.a) : lit;
                 c = lerp(_LTFogColor.rgb, saturate(c), i.fog);
-                return float4(SRGBToLinear(c), a);
+                return float4(TargetColor(c), a);
             }
             ENDHLSL
         }

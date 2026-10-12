@@ -71,6 +71,7 @@ Shader "Tron/Model"
             #pragma fragment frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
+            #include "TronColor.hlsl"
 
             TEXTURE2D(_Tex1); SAMPLER(sampler_Tex1);
             TEXTURE2D(_Tex2); SAMPLER(sampler_Tex2);
@@ -206,7 +207,7 @@ Shader "Tron/Model"
                     if (AlphaPass(c1.a, _P1.z, _P1.w)) c.rgb = _P1.y > 0 ? lerp(c.rgb, c1.rgb, saturate(c1.a)) : c1.rgb;
                 }
                 c.rgb = lerp(_LTFogColor.rgb, saturate(c.rgb), i.fog);
-                return float4(SRGBToLinear(c.rgb), saturate(c.a));
+                return float4(TargetColor(c.rgb), saturate(c.a));
             }
             ENDHLSL
         }
