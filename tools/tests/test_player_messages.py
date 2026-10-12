@@ -134,3 +134,46 @@ def test_a_fade_shorter_than_a_tenth_of_a_second_and_fadein_5_are_not_fades(driv
     out = driver([("run", "msg player (fadeout 0.05); msg player fadein.5"), ("tick", 1), ("alpha",), ("report",)])
     assert out == [("alpha", "0"), ("unhandled", "MSG", "Player", "FADEIN.5", "1"),
                    ("unhandled", "MSG", "Player", "FADEOUT", "1")]
+
+
+# ---- Ramps and sines ----
+
+def test_a_ramp_moves_a_variable_linearly_then_holds_its_end(driver):
+    # FogB is an int: written as "%4.2f", read back truncated.
+    out = driver([("run", "msg player (rampconsolevar fogb 255 128 1)"), ("var", "FogB"),
+                  ("tick", 0.25), ("var", "FogB"), ("tick", 0.75), ("var", "FogB"), ("tick", 1), ("var", "FogB")])
+    assert values(out, "var") == [30, 223, 128, 128]
+
+
+def test_a_ramp_without_a_start_begins_at_the_current_value_rounded_to_two_decimals(driver):
+    out = driver([("run", "msg player (rampconsolevar FogNearZ 101 3)"), ("tick", 1), ("var", "fognearz"),
+                  ("run", "msg player (rampconsolevar fognearz 300.33 2)"), ("tick", 1), ("var", "fognearz")])
+    assert values(out, "var") == [100.33, 200.33]
+
+
+def test_a_variable_the_client_doesnt_have_is_ignored_and_a_bad_ramp_is_refused(driver):
+    out = driver([("run", "msg player (rampconsolevar fogb128 0 128 1); msg player (rampconsolevar fogr 5)"),
+                  ("tick", 1), ("var", "fogb128"), ("var", "fogr"), ("report",)])
+    assert out == [("var", "fogb128", "0"), ("var", "fogr", "10"),
+                   ("unhandled", "MSG", "Player", "RAMPCONSOLEVAR", "1")]
+
+
+def test_a_sine_swings_about_min_plus_half_max_until_stopped(driver):
+    # Tron's cshell.dll: center = min + max/2 = 3500, amplitude = (max - min)/2 = 500.
+    out = driver([("run", "msg player (sinconsolevar fogfarz 2000 3000 4)"),
+                  ("tick", 1), ("var", "fogfarz"), ("tick", 1), ("var", "fogfarz"), ("tick", 1), ("var", "fogfarz"),
+                  ("run", "msg player (sinconsolevar fogfarz off)"), ("tick", 1), ("var", "fogfarz")])
+    assert values(out, "var") == pytest.approx([4000, 3500, 3000, 3000], abs=0.01)
+
+
+def test_revert_puts_back_the_value_from_before_the_sine(driver):
+    out = driver([("run", "msg player (sinconsolevar fogr 0 100 4)"), ("tick", 1), ("var", "fogr"),
+                  ("run", "msg player (sinconsolevar fogr revert)"), ("var", "fogr"), ("tick", 1), ("var", "fogr")])
+    assert values(out, "var") == [100, 10, 10]
+
+
+def test_a_sine_replaces_a_ramp_on_the_same_variable(driver):
+    out = driver([("run", "msg player (rampconsolevar fogg 20 220 1)"), ("tick", 0.5),
+                  ("run", "msg player (sinconsolevar fogg 0 100 4)"), ("tick", 1), ("var", "fogg"),
+                  ("tick", 2), ("var", "fogg")])
+    assert values(out, "var") == [100, 0]
