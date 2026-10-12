@@ -245,6 +245,14 @@ namespace Tron
             });
         }
 
+        // MoveObjectToFloor (ltjs serverutilities.cpp), after a teleport: an object at y whose floor (the
+        // first one a 10,000-unit segment down hits) is farther than its half-height drops to stand 0.1 above
+        // it. It never rises. Teleport always does it, whatever the point's MoveToFloor.
+        public const float FloorCastDistance = 10000;
+
+        public static float DropToFloor(float y, float floorY, float halfHeight) =>
+            y - floorY > halfHeight ? floorY + halfHeight + 0.1f : y;
+
         static float Num(Message m, int i) => CommandMgr.Atof(m.Arg(i));
 
         static bool Word(Message m, int i, string word) => string.Equals(m.Arg(i), word, StringComparison.OrdinalIgnoreCase);

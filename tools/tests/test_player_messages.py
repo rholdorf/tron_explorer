@@ -9,6 +9,7 @@ Driver lines (tab-separated):
   run <command>        run a command string (no sender)
   tick <seconds>       one frame: pending commands, then the render variables and the fade
   var <name>           print "var <name> <value>"
+  drop <y> <floor y>   print "drop <y>", where a player (half-height 53) at y stands after a teleport
   alpha                print "alpha <fade alpha>"
   report               print the unhandled counts: "unhandled <verb> <class> <word> <count>"
 The level: the player ("player"), a WorldProperties named "WorldProperties0" seeded with FogR/G/B 10 20 30,
@@ -64,6 +65,9 @@ static class Driver
                     break;
                 }
                 case "var": Console.WriteLine("var\t" + a[1] + "\t" + vars[a[1]].ToString("0.####", inv)); break;
+                case "drop":
+                    Console.WriteLine("drop\t" + PlayerMessages.DropToFloor(float.Parse(a[1], inv), float.Parse(a[2], inv), 53).ToString("0.####", inv));
+                    break;
                 case "alpha": Console.WriteLine("alpha\t" + fade.Alpha.ToString("0.####", inv)); break;
                 case "report":
                     foreach (var u in mgr.Unhandled)
@@ -110,6 +114,12 @@ def test_teleport_asks_for_the_named_point(driver):
 def test_a_teleport_to_something_that_isnt_a_teleport_point_is_counted(driver):
     out = driver([("run", "msg player (teleport DS1.EndTP)"), ("report",)])
     assert out == [("teleport", "DS1.EndTP"), ("unhandled", "MSG", "Player", "TELEPORT", "1")]
+
+
+def test_a_teleported_player_drops_onto_the_floor_below_but_never_rises(driver):
+    # MoveObjectToFloor: if the floor is farther than the half-height, stand 0.1 above half-height over it.
+    out = driver([("drop", 500, 0), ("drop", 40, 0), ("drop", 53, 0)])
+    assert values(out, "drop") == pytest.approx([53.1, 40, 53])
 
 
 # ---- Fades ----
