@@ -20,6 +20,7 @@ namespace Tron
         public WorldModelJson[] worldModels;
         public SpinnerJson[] spinners;       // spinners live at start (tools/spinner.py)
         public SoundFXJson[] soundFX;        // SoundFX that start on (tools/ambient.py)
+        public SoundButeFXJson[] soundButeFX; // SoundButeFX that start on (tools/ambient.py)
         public KeyframerJson[] keyframers;   // keyframers live at start (tools/keyframer.py)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
@@ -93,6 +94,10 @@ namespace Tron
     // A SoundFX that starts on: the game's file path, radii (LT units), Volume 0-100, PitchShift, the
     // engine's Priority, ambient (unpanned) and loop as 0/1.
     [Serializable] public class SoundFXJson { public string name, file; public float[] pos; public float inner, outer, pitch; public int volume, priority, ambient, loop; }
+
+    // A SoundButeFX that starts on: the files its soundbute picks from (game paths), radii (LT units), the
+    // delay range (s) between sound starts, ambient (unpanned) as 0/1.
+    [Serializable] public class SoundButeFXJson { public string name; public string[] files; public float[] pos; public float inner, outer, minDelay, maxDelay; public int ambient; }
 
     // A KeyFramer live at start (tools/keyframer.py): the names of the objects it moves, its settings
     // (totalPathTime > 0: velocity mode; wave 0 Linear, 1 Sine, 2 SlowOff, 3 SlowOn), its ActiveSound

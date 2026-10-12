@@ -502,6 +502,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "worldModels": world_models,
         "spinners": spinner.spinners(w.objects),
         "soundFX": ambient.sound_fx(w.objects),
+        "soundButeFX": ambient.sound_bute_fx(w.objects, sounds.soundbutes(extracted)),
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "objects": objects,
         "models": models,

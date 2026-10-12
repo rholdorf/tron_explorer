@@ -1,4 +1,5 @@
-"""Ambient sounds live at start, as the viewer plays them: SoundFX that start on (ticket #24).
+"""Ambient sounds live at start, as the viewer plays them: SoundFX that start on (ticket #24) and
+SoundButeFX (ticket #25).
 
 Engine rules (ltjs serversoundfx.cpp SoundFX::PlaySound, checked against retail object.lto 0x1022f58b;
 docs/research/ambient-sound.md on branch research/ambient-sound):
@@ -10,6 +11,8 @@ docs/research/ambient-sound.md on branch research/ambient-sound):
 """
 
 CLASS = "SoundFX"
+BUTE_CLASS = "SoundButeFX"
+INNER_RADIUS_PERCENT = 0.25   # CGameSoundMgr SMGR_DEFAULT_INNERRADIUSPERCENT
 
 
 def sound_fx(objects):
@@ -26,4 +29,38 @@ def sound_fx(objects):
                     "volume": min(int(p.get("Volume", 100)), 100), "pitch": float(p.get("PitchShift", 1.0)),
                     "priority": int(p.get("Priority", 0)), "ambient": int(bool(p.get("Ambient", True))),
                     "loop": int(bool(p.get("Loop", True)))})
+    return out
+
+
+def sound_bute_fx(objects, soundbutes):
+    """SoundButeFX that start on, from a level's objects (dat85): name, position, the files its soundbute
+    picks from (extracted paths), radii, MinDelay/MaxDelay (s) and ambient (0/1).
+
+    Engine rules (ltjs soundbutefx.cpp SoundButeFX::Update, retail object.lto 0x1022c1d0; research §7):
+    the first sound plays at level start; the next one at max(start of the last + U(MinDelay, MaxDelay),
+    end of the last) (WaitUntilFinished, set on every one); each play a uniformly random PathN (no
+    Weight keys in Tron), not looping, at volume 100, pitch 1 and priority 0 whatever the soundbute says;
+    Ambient unpanned, else 3D. NumPlays is -1 (forever) on every one. Radii as PlaySoundFromPos takes
+    them: an outer radius with no inner one gets 0.25 x outer, and a radius left at -1 is the
+    soundbute's. A name that isn't a soundbute (none in the game data) or has no files ([None]) is
+    skipped.
+    """
+    out = []
+    for o in objects:
+        p = o["props"]
+        bute = p.get("SoundBute", "").strip()
+        if o["class"] != BUTE_CLASS or not p.get("StartOn", True) or not soundbutes.is_soundbute(bute):
+            continue
+        files = soundbutes.files(bute)
+        if not files:   # the empty [None] soundbute
+            continue
+        outer, inner = float(p.get("OuterRadius", -1.0)), float(p.get("InnerRadius", -1.0))
+        if outer > 0 and inner < 0:
+            inner = outer * INNER_RADIUS_PERCENT
+        out.append({"name": p.get("Name", ""), "pos": list(p.get("Pos", [0.0, 0.0, 0.0])),
+                    "files": files,
+                    "inner": inner if inner > -1 else float(soundbutes.get(bute, "innerradius", 0.0)),
+                    "outer": outer if outer > -1 else float(soundbutes.get(bute, "outerradius", 0.0)),
+                    "minDelay": float(p.get("MinDelay", 0.0)), "maxDelay": float(p.get("MaxDelay", 0.0)),
+                    "ambient": int(bool(p.get("Ambient", True)))})
     return out
