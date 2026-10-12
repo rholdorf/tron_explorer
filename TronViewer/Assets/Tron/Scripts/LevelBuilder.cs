@@ -534,16 +534,22 @@ namespace Tron
                     AddCollider(geom.transform, wm.collider, "collider");
             }
 
-            // Spinners that start on turn their world model; a solid one gets a kinematic body so PhysX
-            // treats its collider as moving rather than re-baking a static one every frame.
+            // Spinners that start on turn their world model.
             if (Data.spinners == null) return;
             foreach (var s in Data.spinners)
             {
                 if (!WorldModelObjects.TryGetValue(s.worldModel, out var go)) continue;
-                if (go.GetComponentInChildren<Collider>() != null)
-                    go.AddComponent<Rigidbody>().isKinematic = true;
+                MakeKinematic(go);
                 go.AddComponent<Spinner>().Init(s);
             }
+        }
+
+        // A world model the viewer moves gets a kinematic body when it has a collider, so PhysX treats the
+        // collider as moving rather than re-baking a static one every frame.
+        static void MakeKinematic(GameObject worldModel)
+        {
+            if (worldModel.GetComponentInChildren<Collider>() != null && !worldModel.GetComponent<Rigidbody>())
+                worldModel.AddComponent<Rigidbody>().isKinematic = true;
         }
 
         // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
@@ -582,9 +588,7 @@ namespace Tron
                         if ((SolidClasses.Contains(obj.cls) || HiddenClasses.Contains(obj.cls)) && worldModels.TryGetValue(obj.name, out var wm))
                         {
                             gos = new[] { wm.transform };
-                            // PhysX moves a kinematic body's collider instead of re-baking a static one.
-                            if (wm.GetComponentInChildren<Collider>() != null && !wm.GetComponent<Rigidbody>())
-                                wm.AddComponent<Rigidbody>().isKinematic = true;
+                            MakeKinematic(wm);
                         }
                         else if (modelObjects.TryGetValue(i, out var models))
                         {
