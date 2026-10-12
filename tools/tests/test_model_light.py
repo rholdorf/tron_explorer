@@ -132,17 +132,47 @@ def test_lights_whose_box_misses_the_model_box_are_not_considered():
 
 
 def test_a_spot_takes_the_brightest_sample_over_the_model_box():
-    # Pointing down +x from x=-45, 2.5 degree half-angle: only the model box corners near the axis see it.
-    spot = point((-45.0, 0.0, 0.0), (100.0, 100.0, 100.0), radius=1000.0, direction=(1.0, 0.0, 0.0),
-                 cos_fov=math.cos(math.radians(2.5)))
+    # Pointing down +x from x=-45, 15 degree half-angle.
+    cos_fov = math.cos(math.radians(15))
+    spot = point((-45.0, 0.0, 0.0), (100.0, 100.0, 100.0), radius=1000.0, direction=(1.0, 0.0, 0.0), cos_fov=cos_fov)
     out = modellight.model_lighting(GREY, (5.0, 30.0, 0.0), (1.0, 1.0, 1.0), 2000.0, [spot])
     assert out["lights"] == []     # center and corners all outside the cone: nothing to draw
-    out = modellight.model_lighting(GREY, (5.0, 1.0, 0.0), (1.0, 1.0, 1.0), 2000.0, [spot])
+    # The center (16.2 degrees off the axis) is outside; corner (6, 13.5, +-1) is inside (14.9 degrees).
+    out = modellight.model_lighting(GREY, (5.0, 14.5, 0.0), (1.0, 1.0, 1.0), 2000.0, [spot])
     [lt] = out["lights"]
-    # Corner (6, 0, ±1) is closest to the axis; quartic falloff from d^2 = 51^2 + 1.
-    d2, cos_fov = 51.0 ** 2 + 1.0, math.cos(math.radians(2.5))
+    d2 = 51.0 ** 2 + 13.5 ** 2 + 1.0
     expect = 100.0 * (1 - d2 / 1e6) ** 2 * (51.0 / math.sqrt(d2) - cos_fov) / (1 - cos_fov)
     assert lt["color"] == pytest.approx([expect] * 3, rel=1e-4)
+
+
+def test_a_narrow_spot_lights_models_as_a_directional_light():
+    # Retail Lithtech.exe StaticLightCB (0x54f2cb): cos(FOV/2) > 0.98 -> SetupDirLight(dir, color). The
+    # levels' far GlobalLightHigh/Medium/Low (FOV 5) light every model in reach this way.
+    far = point((80000.0, 0.0, 0.0), (159.0, 120.0, 90.0), radius=200000.0, direction=(0.0, -1.0, 0.0),
+                cos_fov=math.cos(math.radians(2.5)))
+    out = lit([far])
+    assert out["lights"] == [{"dir": [0.0, -1.0, 0.0], "color": pytest.approx([159.0, 120.0, 90.0])}]
+    assert out["ambient"] == (20, 30, 40)
+    # Out of the light's box (pos +- radius): not considered.
+    assert lit([dict(far, radius=1000.0)])["lights"] == []
+
+
+def test_m01_01_program_is_lit_by_the_three_global_lights_where_the_grid_is_black(world):
+    w = world("retailsingleplayer/m01-01")
+    program = next(o for o in w.objects if o["props"].get("Name") == "12073TP")
+    pos = program["props"]["Pos"]
+    lights = modellight.static_lights(w.objects, modellight.light_group_colors(w))
+    out = modellight.model_lighting(w.light_grid, pos, (24.0, 53.0, 24.0), 128.0, lights)
+    assert out["ambient"] == (0, 0, 0)
+    assert sorted(lt["color"][0] for lt in out["lights"]) == pytest.approx([116.0, 138.0, 159.0])
+    globals_ = sorted(lt["dir"] for lt in lights if lt["name"].startswith("GlobalLight"))
+    assert sorted(lt["dir"] for lt in out["lights"]) == globals_
+
+
+def test_a_spot_just_wider_than_the_directional_cutoff_stays_a_spot():
+    spot = point((80000.0, 0.0, 0.0), (159.0, 120.0, 90.0), radius=200000.0, direction=(0.0, -1.0, 0.0),
+                 cos_fov=0.979)
+    assert lit([spot])["lights"] == []
 
 
 def test_the_sun_is_a_directional_light_scaled_by_how_much_sky_the_model_sees():
