@@ -43,9 +43,9 @@ namespace Tron
         }
 
         // The software 3D path's volume scale (soundinstance.cpp C3DSoundInstance::UpdateOutput): up to 25%
-        // less when the sound is behind the listener. toListener: unit vector from the sound to the listener.
-        public static float Front(float listenerForwardDotToListener) =>
-            1 - 0.25f * Math.Max(0, listenerForwardDotToListener);
+        // less when the sound is behind the listener. behind: the listener's forward vector dotted with the
+        // unit vector from the sound to the listener (1 = straight behind).
+        public static float Front(float behind) => 1 - 0.25f * Math.Max(0, behind);
 
         // The engine's Priority (higher wins) as AudioSource.priority (0-256, lower wins): 0 -> 128,
         // 1 -> 96, 3 -> 32.
