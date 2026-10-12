@@ -48,7 +48,8 @@ def carry(tmp_path_factory):
     (d / "Driver.cs").write_text(DRIVER)
     exe = str(d / "driver.exe")
     r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
-                        os.path.join(SCRIPTS, "Riding.cs"), os.path.join(SCRIPTS, "KeyframerMotion.cs")],
+                        os.path.join(SCRIPTS, "Riding.cs"), os.path.join(SCRIPTS, "KeyframerMotion.cs"),
+                        os.path.join(SCRIPTS, "Commands.cs")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
 
