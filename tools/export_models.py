@@ -137,16 +137,6 @@ POSITION_SET = {x.lower() for x in ATTACHMENT_POSITIONS}
 MODEL_ATTACHMENT_CLASSES = {"PowerArmor", "ShellArmor"}
 
 
-# Character styles whose second pass needs a real second draw over the framebuffer (ticket #11). Until
-# then they draw pass 0 only; every other style the model shader can't draw still stops the export.
-PASS0_ONLY = {"chars/rs/thorn_body.ltb", "chars/rs/rector_cloak.ltb", "chars/rs/thorn_corruption.ltb",
-              "rs/alpha_transparent.ltb",
-              # Seeker (loads since #6): opaque alpha-tested pass, then an additive pass on the complement.
-              "chars/rs/seeker.ltb"}
-# Two-pass alpha-blended glow style (Thorn's cloak, ticket #11): the glow buffer gets GlowDefaultRS instead.
-GLOW_DEFAULT_INSTEAD = {"chars/rs/glow_thorncloak_rs.ltb"}
-
-
 class Styles:
     """Compiles the render styles a level's model pieces draw with (renderstyle.compile_style) into
     the level's style table. A style the model shader can't draw stops the export."""
@@ -159,8 +149,6 @@ class Styles:
                          for i in range(len(butes.indexed(glow, "glowmaprs")))}
         self.compiled = {}
         self.models = {}
-        self.pass0_only = {}     # PASS0_ONLY style -> {model file: pieces drawn with pass 0 only}
-        self.glow_fallbacks = set()   # (style, GLOW_DEFAULT_INSTEAD glow style it maps to)
 
     def model(self, rel):
         if rel not in self.models:
@@ -176,19 +164,31 @@ class Styles:
         if rel not in self.compiled:
             s = self._load(rel)
             name = rel if s else "<default>"
-            if s and rel in PASS0_ONLY:
-                s.passes = s.passes[:1]
-                self.pass0_only.setdefault(rel, {})
             c = renderstyle.compile_style(s or renderstyle.default_style(), name)
             glow = self.glow_map.get(rel, self.glow_default) if s else self.glow_default
-            if glow in GLOW_DEFAULT_INSTEAD:
-                self.glow_fallbacks.add((rel, glow))
-                glow = self.glow_default
-            g = self._load(glow)
-            if g is None:
-                raise ValueError(f"{name}: glow style {glow} not found")
-            # Mapped to itself: the glow buffer gets the style's own first pass, blend included.
-            c["glow"] = dict(c["passes"][0], blendOver=0) if glow == rel else renderstyle.compile_glow(g, glow)
+            draws = c["draws"]
+            for d in draws:
+                d["glow"] = []
+            if glow == rel:
+                # Mapped to itself: the glow buffer gets the style's own first pass, blend included.
+                draws[0]["glow"] = [dict(draws[0]["passes"][0], blendOver=0)]
+            else:
+                g = self._load(glow)
+                if g is None:
+                    raise ValueError(f"{name}: glow style {glow} not found")
+                g = renderstyle.compile_glow(g, glow)
+                if len(draws) == 1 and len(g["passes"]) == 1:
+                    draws[0]["glow"] = g["passes"]   # over the model's own state
+                else:
+                    # A draw of a multi-draw style that writes opaque with Z carries a one-pass glow;
+                    # otherwise the glow is a draw of its own with the glow style's state.
+                    d = next((d for d in draws if len(g["passes"]) == 1 and tuple(d["blend"]) == (1, 0)
+                              and d["zwrite"]), None)
+                    if d is None:
+                        d = {k: g[k] for k in ("blend", "zwrite", "ztest", "cull")}
+                        d["passes"] = []
+                        draws.append(d)
+                    d["glow"] = g["passes"]
             c["name"] = name
             self.compiled[rel] = c
         return self.compiled[rel]
@@ -203,8 +203,6 @@ class Styles:
                 continue
             name = styles[style] if 0 <= style < len(styles) else ""
             c = self.compile(name)
-            if name in self.pass0_only:
-                self.pass0_only[name][rel] = self.pass0_only[name].get(rel, 0) + 1
             if c["name"] not in index:
                 index[c["name"]] = len(table)
                 table.append(c)

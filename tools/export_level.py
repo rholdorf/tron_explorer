@@ -33,7 +33,7 @@ import export_models  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -472,11 +472,6 @@ def main():
         except Exception as e:  # noqa: BLE001 - report and keep exporting the rest
             print(f"model {rel}: {e}")
     print(f"{len(model_files)} models")
-    for rs, pieces in sorted(styles.pass0_only.items()):
-        print(f"two-pass style drawn with pass 0 only (#11): {rs}: "
-              + ", ".join(f"{f} x{n}" for f, n in sorted(pieces.items())))
-    for rs, glow in sorted(styles.glow_fallbacks):
-        print(f"two-pass glow style (#11) replaced by the default glow: {rs} -> {glow}")
     for (f, socket), n in sorted(resolver.missing_sockets.items()):
         print(f"attachment dropped, no socket {socket} on {f}: {n}")
     for cls, n in sorted(resolver.undrawn_attachments.items()):
