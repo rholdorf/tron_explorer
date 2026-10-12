@@ -28,8 +28,8 @@ def obj(name="rands_01", start_on=True, **props):
 
 def test_a_soundbutefx_plays_its_soundbutes_files_with_its_radii_and_delays(soundbutes):
     [s] = ambient.sound_bute_fx([obj(Ambient=True)], soundbutes)
-    assert s == {"name": "rands_01", "pos": [1.0, 2.0, 3.0], "files": ROUTER, "inner": 100.0,
-                 "outer": 8000.0, "minDelay": 3.0, "maxDelay": 10.0, "ambient": 1}
+    assert s == {"name": "rands_01", "obj": 0, "startOn": True, "pos": [1.0, 2.0, 3.0], "files": ROUTER,
+                 "inner": 100.0, "outer": 8000.0, "minDelay": 3.0, "maxDelay": 10.0, "ambient": 1}
 
 
 def test_radii_left_at_minus_one_come_from_the_soundbute_or_a_quarter_of_the_outer(soundbutes):
@@ -41,12 +41,14 @@ def test_radii_left_at_minus_one_come_from_the_soundbute_or_a_quarter_of_the_out
     assert (b["inner"], b["outer"]) == (1000.0, 4000.0)
 
 
-def test_only_soundbutefx_that_start_on_and_name_a_soundbute_with_files(soundbutes):
-    # "None" is the SoundBute prop's default and an empty [None] section in soundbutes.txt
+def test_soundbutefx_that_name_a_soundbute_with_files_on_or_off(soundbutes):
+    # "None" is the SoundBute prop's default and an empty [None] section in soundbutes.txt. One that starts
+    # off waits for ON (SoundButeFX::OnTrigger).
     others = [obj(name="off", start_on=False), obj(name="none", SoundBute="None"),
               obj(name="file", SoundBute="snd\\amb\\drone10.WAV"),
               dict(obj(name="sfx"), **{"class": "SoundFX"})]
-    assert [s["name"] for s in ambient.sound_bute_fx(others + [obj(name="on")], soundbutes)] == ["on"]
+    found = ambient.sound_bute_fx(others + [obj(name="on")], soundbutes)
+    assert [(s["name"], s["obj"], s["startOn"]) for s in found] == [("off", 0, False), ("on", 4, True)]
 
 
 def test_single_player_levels_have_38_live_soundbutefx_all_repeating_and_waiting(world, soundbutes):
@@ -77,6 +79,7 @@ def test_level_json_lists_the_live_soundbutefx(extracted, tmp_path):
     meta = json.loads((tmp_path / "level.json").read_text())
     assert meta["version"] >= 14   # SoundButeFX since format 14
     assert [s["name"] for s in meta["soundButeFX"]] == ["blips_01", "blips_02", "blips_03", "blips_04"]
-    assert meta["soundButeFX"][2] == {"name": "blips_03", "pos": [-5824.0, 512.0, -1184.0], "files": ROUTER,
-                                      "inner": 500.0, "outer": 8000.0, "minDelay": 0.0, "maxDelay": 0.0,
-                                      "ambient": 0}
+    s = meta["soundButeFX"][2]
+    assert meta["objects"][s["obj"]]["name"] == "blips_03"
+    assert s == {"name": "blips_03", "obj": s["obj"], "startOn": True, "pos": [-5824.0, 512.0, -1184.0],
+                 "files": ROUTER, "inner": 500.0, "outer": 8000.0, "minDelay": 0.0, "maxDelay": 0.0, "ambient": 0}

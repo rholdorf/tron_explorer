@@ -1,4 +1,4 @@
-"""Keyframers: KeyFramers that start active and move their target objects along a path of keys.
+"""Keyframers: KeyFramers, which move their target objects along a path of keys while they are active.
 
 Format (ltjs keyframer.cpp CreateKeyList, keydata.cpp KeyData::Copy; research note
 docs/research/keyframer-paths.md): a KeyFramer's KeyDataIndex (truncated) indexes a blind object data
@@ -6,76 +6,28 @@ chunk (dat85 KEYFRAMER_BLINDOBJECTID) holding u32 numKeys (used as u16), then pe
 u16 control (bit0 prev tangent, bit1 next tangent), u8 soundLen, u8 commandLen, f32 pos[3],
 f32 pitchYawRoll[3] (radians), f32 timeStamp (s since the previous key), f32 soundRadius,
 sound[soundLen], command[commandLen] (not NUL-terminated), then the tangents present (relative to pos).
+
+Every keyframer is exported, active at start or not (ticket #33): the viewer runs the messages it gets
+(ON, PAUSE, RESUME, GOTO...) and its keys' commands, as text (ADR 0001), in KeyframerMotion.cs.
 """
-import re
 import struct
 
-import commands
 import waveform
-
-# KeyFramer::OnTrigger verbs that run its own path (REVERSE is BACKWARD). MOVETO and the TARGET family
-# aren't sent by any live keyframer to itself.
-SELF_VERBS = {"ON": "ON", "OFF": "OFF", "PAUSE": "PAUSE", "RESUME": "RESUME", "FORWARD": "FORWARD",
-              "BACKWARD": "BACKWARD", "REVERSE": "BACKWARD", "TOGGLEDIR": "TOGGLEDIR", "GOTO": "GOTO"}
-
-
-def find_key(name, base_key_name, n_keys):
-    """KeyFramer::FindKey: the key index a key name stands for, or -1. The name is the keyframer's
-    BaseKeyName (any case) followed by "0", "01".."09", "10".. (the key's index)."""
-    if name[:len(base_key_name)].lower() != base_key_name.lower() or len(name) <= len(base_key_name):
-        return -1
-    ext = name[len(base_key_name):]
-    for i in range(n_keys):
-        if ext == (f"0{i}" if 0 < i < 10 else str(i)):
-            return i
-    return -1
-
-
-def self_commands(command, name, base_key_name, n_keys, delay=0.0):
-    """The messages a key command sends to its own keyframer `name`, in order: verb (SELF_VERBS'
-    values), delay (s, from `delay <t> (<command>)`) and key (GOTO's key index, else -1). Read with the
-    engine's grammar (commands.py): the string runs only if its first statement is a command, and each
-    message is split into statements again by the receiver."""
-    if not commands.is_valid(command):
-        return []
-    out = []
-    for words in commands.statements(command):
-        verb = words[0].upper() if commands.verb_count(words) else None
-        if verb == "DELAY":
-            out += self_commands(words[2], name, base_key_name, n_keys, delay + _atof(words[1]))
-        elif verb == "MSG" and words[1].lower() == name.lower():
-            for message in commands.statements(words[2]):
-                self_verb = SELF_VERBS.get(message[0].upper()) if message else None
-                if self_verb is None:
-                    continue
-                key = -1
-                if self_verb == "GOTO":
-                    key = find_key(message[1], base_key_name, n_keys) if len(message) > 1 else -1
-                    if key < 0:
-                        continue
-                out.append({"verb": self_verb, "delay": delay, "key": key})
-    return out
-
-
-def _atof(text):
-    """C atof: the longest leading number, 0 if none."""
-    m = re.match(r"\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?", text)
-    return float(m.group(0)) if m else 0.0
-
 
 CLASS = "KeyFramer"
 
 
 def keyframers(objects, blind):
-    """The level's keyframers that start active (StartActive, not StartPaused), for the viewer: name,
-    targets (the ObjectName list; each name can match several objects), looping, alignToPath, ignoreOffsets,
-    totalPathTime (> 0: velocity mode), wave (index into waveform.NAMES), activeSound, soundRadius,
-    and keys: pos, pyr, time, bezPrev, bezNext and commands (self_commands of the key's command)."""
+    """The level's keyframers, for the viewer: name, obj (its index in the level's objects, its
+    command-manager id), startActive, startPaused, baseKeyName (key names are it + "0", "01".."09",
+    "10"..), targets (the ObjectName list; each name can match several objects), looping, alignToPath,
+    ignoreOffsets, totalPathTime (> 0: velocity mode), wave (index into waveform.NAMES), activeSound,
+    soundRadius, and keys: pos, pyr, time, bezPrev, bezNext and command (the key's command string). One
+    without keys, targets or a base key name is left out: it can never move anything."""
     out = []
-    for o in objects:
+    for i, o in enumerate(objects):
         p = o["props"]
-        # Update's first pass: GoActive if StartActive, then Pause if StartPaused (nothing resumes it).
-        if o["class"] != CLASS or not p.get("StartActive", False) or p.get("StartPaused", False):
+        if o["class"] != CLASS:
             continue
         index = p.get("KeyDataIndex", -1.0)
         if index < 0 or int(index) >= len(blind):
@@ -88,15 +40,15 @@ def keyframers(objects, blind):
         # PushObjects is left out: it moves the targets with MoveObject (pushing what's in the way) rather
         # than SetObjectPos, which only matters to the player, and the viewer's keyframers don't push it.
         out.append({
-            "name": name, "targets": targets,
+            "name": name, "obj": i, "startActive": bool(p.get("StartActive", False)),
+            "startPaused": bool(p.get("StartPaused", False)), "baseKeyName": base, "targets": targets,
             "looping": bool(p.get("Looping", False)), "alignToPath": bool(p.get("AlignToPath", False)),
             "ignoreOffsets": bool(p.get("IgnoreOffsets", False)),
             "totalPathTime": float(p.get("TotalPathTime", 0.0)),
             "wave": waveform.index(p.get("Wavetype", "Linear")),
             "activeSound": p.get("ActiveSound", "").strip(), "soundRadius": float(p.get("SoundRadius", 1000.0)),
             "keys": [{"pos": k["pos"], "pyr": k["pyr"], "time": k["time"], "bezPrev": k["bezPrev"],
-                      "bezNext": k["bezNext"],
-                      "commands": self_commands(k["command"], name, base, len(keys))} for k in keys],
+                      "bezNext": k["bezNext"], "command": k["command"]} for k in keys],
         })
     return out
 
