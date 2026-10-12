@@ -310,12 +310,12 @@ def moves_to_floor(o, resolver):
     """Whether the object runs MoveToFloor when it spawns: CCharacter and Prop read the object's
     MoveToFloor (default TRUE, character.cpp / prop.cpp); a PropType (and Finder) takes its type's
     proptypes.txt entry. ArchiveBin / SecRezzer (Tron classes without source) aren't moved."""
-    p = {q["k"].lower(): q for q in o["props"]}
+    p = export_models.props(o)
     if o["cls"] in ("CAIHuman", "Prop", "Alarm"):
         q = p.get("movetofloor")
         return bool(q["v"][0]) if q and q["t"] == "b" and q["v"] else True
     if o["cls"] in ("PropType", "Finder"):
-        t = resolver.proptypes.get(p["type"]["s"].lower()) if "type" in p else None
+        t = resolver.proptypes.get(export_models.string(p, "type").lower())
         return bool(t.get("movetofloor", 1)) if t else False
     return False
 

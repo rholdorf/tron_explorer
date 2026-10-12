@@ -29,6 +29,17 @@ OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4
                        ("uv2", "<f4", 2)])
 
 
+def props(obj):
+    """A level object's properties by lowercase key."""
+    return {q["k"].lower(): q for q in obj["props"]}
+
+
+def string(p, key):
+    """The value of string property `key` (lowercase) in props(obj) `p`, or ""."""
+    q = p.get(key)
+    return q["s"] if q and q["t"] == "s" else ""
+
+
 def model_entry(section, model_key, prefix=""):
     """(model file, skins, render styles) of an attribute-file entry: its `model_key` and its
     <prefix>SkinN / <prefix>RenderStyleN slots, kept in position (empty slots too)."""
@@ -63,14 +74,13 @@ class Resolver:
     @staticmethod
     def bin_items(obj):
         """The berries an ArchiveBin shows as (socket, template), one per item (Type1..Type6 that names an
-        item type, in order), item k at Socket{k}. ArchiveBin (object.lto 0x1000f800) picks the template by the item type's index in the
-        list Subroutine, Procedural, Primitive, Permission Set, Email, Custom, HelpFile (0x10284410):
-        0 is SubroutineBerry, 3 PSetBerry, any other DocumentBerry."""
-        p = {q["k"].lower(): q for q in obj["props"]}
+        item type, in order), item k at Socket{k}. ArchiveBin (object.lto 0x1000f800) picks the template
+        by the item type's index in the list Subroutine, Procedural, Primitive, Permission Set, Email,
+        Custom, HelpFile (0x10284410): 0 is SubroutineBerry, 3 PSetBerry, any other DocumentBerry."""
+        p = props(obj)
         out = []
         for k in range(1, 7):
-            q = p.get(f"type{k}")
-            t = q["s"].strip().lower() if q and q["t"] == "s" else ""
+            t = string(p, f"type{k}").strip().lower()
             if t in BIN_ITEM_TYPES:
                 out.append((f"Socket{len(out) + 1}",
                             {0: "SubroutineBerry", 3: "PSetBerry"}.get(BIN_ITEM_TYPES.index(t), "DocumentBerry")))
@@ -83,9 +93,9 @@ class Resolver:
         update, puts itself at that object's ParentSocket: a socket attachment for a static frame. Aiming
         at its Target turns it from there (behavior). parents: object name (lowercase) -> (parent, its
         model's socket names, lowercase)."""
-        p = {q["k"].lower(): q["s"] for q in obj["props"] if q["t"] == "s"}
-        parent, sockets = parents.get(p.get("parent", "").strip().lower(), (None, set()))
-        socket = p.get("parentsocket", "")
+        p = props(obj)
+        parent, sockets = parents.get(string(p, "parent").strip().lower(), (None, set()))
+        socket = string(p, "parentsocket")
         return (parent, socket) if socket.lower() in sockets else None
 
     @staticmethod
@@ -140,15 +150,14 @@ class Resolver:
         weapon). The object's own position properties are created first (CAttachments::ReadProp/Init),
         then the template's DefaultAttachmentN = "Position, Name" unless UseDefaultAttachments is off
         (CAIHuman InitialUpdate); a default for an occupied position is dropped (CAttachments::Attach)."""
-        p = {q["k"].lower(): q for q in obj["props"]}
-        t = self.templates.get(p["modeltemplate"]["s"].lower()) if "modeltemplate" in p else None
+        p = props(obj)
+        t = self.templates.get(string(p, "modeltemplate").lower())
         if not t:
             return []
         wanted = []
         for pos in ATTACHMENT_POSITIONS:
-            q = p.get(pos.lower())
-            if q and q["t"] == "s" and q["s"].strip():
-                wanted.append((pos, q["s"].strip()))
+            if string(p, pos.lower()).strip():
+                wanted.append((pos, string(p, pos.lower()).strip()))
         use_defaults = p.get("usedefaultattachments")
         if not use_defaults or use_defaults["t"] != "b" or use_defaults["v"][0]:
             for d in butes.indexed(t, "defaultattachment"):
@@ -176,12 +185,11 @@ class Resolver:
     def holsters(p):
         """CAIHuman::ReadProp/InitialUpdate: HolsterWeapons with a RightHand or LeftHand set on the object
         (the holster string) detaches both hands after the defaults are attached. Tron's weapons have no
-        HolsterAttachment, so nothing takes their place. p: the object's props by lowercase key."""
+        HolsterAttachment, so nothing takes their place. p: props(obj)."""
         h = p.get("holsterweapons")
         if not (h and h["t"] == "b" and h["v"] and h["v"][0]):
             return False
-        return any(q and q["t"] == "s" and q["s"].strip() and q["s"].strip().lower() != "<none>"
-                   for q in (p.get("righthand"), p.get("lefthand")))
+        return any(string(p, k).strip().lower() not in ("", "<none>") for k in ("righthand", "lefthand"))
 
     def weapon_at(self, obj, position):
         """The weapon a character holds at `position` (e.g. RightHand, its primary weapon), or None."""
