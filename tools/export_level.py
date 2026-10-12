@@ -1,6 +1,6 @@
 """Export a DAT v85 world to the viewer's runtime format.
 
-<out>/level.json  metadata (materials, meshes, colliders, world models, spinners, objects)
+<out>/level.json  metadata (materials, meshes, colliders, world models, spinners, keyframers, objects)
 <out>/level.bin   binary payload:
     char[4] 'TRLV', u32 version,
     u32 nVerts, u32 nIdx, u32 nColVerts, u32 nColIdx, u32 lmWidth, u32 lmHeight,
@@ -31,12 +31,13 @@ import animation  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
 import floor  # noqa: E402
+import keyframer  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 import sounds  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 12
+FORMAT_VERSION = 14
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -499,6 +500,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "blockerCollider": blocker_collider,
         "worldModels": world_models,
         "spinners": spinner.spinners(w.objects),
+        "keyframers": keyframer.keyframers(w.objects, w.blind),
         "objects": objects,
         "models": models,
         "renderStyles": render_styles,

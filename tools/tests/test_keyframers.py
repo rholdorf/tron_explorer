@@ -137,6 +137,21 @@ def test_single_player_levels_have_138_live_keyframers(world):
     assert len(selfish) == 34
 
 
+def test_level_json_lists_the_live_keyframers(extracted, tmp_path):
+    import json
+    import export_level
+    import export_models
+    name = "retailsingleplayer/m05-02"
+    export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
+                        export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
+    meta = json.loads((tmp_path / "level.json").read_text())
+    assert meta["version"] == export_level.FORMAT_VERSION == 14
+    kfs = {k["name"]: k for k in meta["keyframers"]}
+    assert "target01kf" in kfs
+    world_models = {wm["name"] for wm in meta["worldModels"]}
+    assert set(kfs["target01kf"]["targets"]) <= world_models
+
+
 def test_messages_the_keyframer_does_not_handle_are_left_out():
     import keyframer
     assert keyframer.self_commands("msg K TRIGGER; msg K (hidden 1); ", "K", "k", 3) == []
