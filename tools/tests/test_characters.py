@@ -149,16 +149,6 @@ def test_attachment_sits_on_the_body_at_its_socket(extracted, tmp_path):
     assert nearest.mean() < 4   # armor shell hugs the foot (it would float ~45 units off at its bind pose)
 
 
-def test_two_pass_character_styles_draw_their_first_pass_until_ticket_11(extracted):
-    st = export_models.Styles(extracted)
-    for rel, blend in [("chars/rs/thorn_body.ltb", [3, 2]), ("chars/rs/rector_cloak.ltb", [3, 2]),
-                       ("chars/rs/thorn_corruption.ltb", [3, 6]), ("rs/alpha_transparent.ltb", [1, 0])]:
-        c = st.compile(rel)
-        assert len(c["passes"]) == 1 and list(c["blend"]) == blend
-    assert set(st.pass0_only) == {"chars/rs/thorn_body.ltb", "chars/rs/rector_cloak.ltb",
-                                  "chars/rs/thorn_corruption.ltb", "rs/alpha_transparent.ltb"}
-
-
 def test_other_unsupported_styles_still_stop_the_export(extracted):
     st = export_models.Styles(extracted)
     try:

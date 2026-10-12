@@ -6,13 +6,17 @@
 //         6 BLENDFACTORALPHA, 7 ADD, 8 BLENDTEXTUREALPHA
 //   args: 0 CURRENT, 1 DIFFUSE, 2 TEXTURE, 3 TFACTOR; texture slot 1..2 = the piece's texture list
 //   uv set: 0 = model UVs, 1 = camera-space reflection vector xy (D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR)
-// A second pass that blends over an opaque first pass is folded in (exact, fog included). Each draw is
-// fogged with the world fog color before blending, like D3D fixed-function fog on every model pass.
+// A second pass that blends over an opaque first pass is folded in (exact, fog included); one that needs
+// the framebuffer is a later draw of the piece with its own material (LevelBuilder.CreateModelMaterials).
+// Each draw is fogged with the world fog color before blending, like D3D fixed-function fog on every
+// model pass. A draw with no main pass (_P0.x < 0) only draws into the glow buffer, one with no glow
+// pass (_PG.x < 0) only into the frame.
 // Diffuse is the D3D fixed-function lighting result for lit passes and white for unlit ones, per vertex:
 // emissive + material ambient * ambient light + sum of material diffuse * light * max(0, N.L), saturated.
 // The ambient light and up to 4 directional lights are per instance (ModelLighting.cs, set through a
 // MaterialPropertyBlock): the light grid sample, the static object lights and the sun.
-// The glow buffer draws the style's [GlowRSMap] replacement pass (black when unmapped).
+// The glow buffer draws the style's [GlowRSMap] replacement pass (black when unmapped); two alpha-blended
+// glow passes fold into one premultiplied draw (_PG.y = 2, second pass in _H*, Blend One OneMinusSrcAlpha).
 Shader "Tron/Model"
 {
     Properties
@@ -31,12 +35,18 @@ Shader "Tron/Model"
         _G0b ("Glow stage 0 alpha", Vector) = (0,0,0,0)
         _G1a ("Glow stage 1 color", Vector) = (0,0,0,0)
         _G1b ("Glow stage 1 alpha", Vector) = (0,0,0,0)
+        _H0a ("Glow pass 1 stage 0 color", Vector) = (0,0,0,0)
+        _H0b ("Glow pass 1 stage 0 alpha", Vector) = (0,0,0,0)
+        _H1a ("Glow pass 1 stage 1 color", Vector) = (0,0,0,0)
+        _H1b ("Glow pass 1 stage 1 alpha", Vector) = (0,0,0,0)
         _TF0 ("Pass 0 texture factor", Vector) = (0.5,0.5,0.5,0.5)
         _TF1 ("Pass 1 texture factor", Vector) = (0.5,0.5,0.5,0.5)
         _TFG ("Glow texture factor", Vector) = (0,0,0,0)
-        _P0 ("Pass 0 (lit, -, alpha test func, alpha ref)", Vector) = (1,0,0,0.5)
+        _TFH ("Glow pass 1 texture factor", Vector) = (0,0,0,0)
+        _P0 ("Pass 0 (lit, -, alpha test func, alpha ref; lit < 0 = glow only)", Vector) = (1,0,0,0.5)
         _P1 ("Pass 1 (lit, blend over, alpha test func, alpha ref; lit < 0 = no pass)", Vector) = (-1,0,0,0.5)
-        _PG ("Glow (lit, premultiply, alpha test func, alpha ref)", Vector) = (0,0,0,0.5)
+        _PG ("Glow (lit, 1 premultiply / 2 two passes, alpha test func, alpha ref; lit < 0 = no glow)", Vector) = (0,0,0,0.5)
+        _PH ("Glow pass 1 (lit, -, alpha test func, alpha ref)", Vector) = (0,0,0,0.5)
         _MatDiffuse ("Material diffuse", Vector) = (1,1,1,1)
         _MatEmissive ("Material emissive", Vector) = (0,0,0,1)
         _MatAmbient ("Material ambient", Vector) = (0,0,0,1)
@@ -67,8 +77,8 @@ Shader "Tron/Model"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _Tex1_ST, _Tex2_ST;
-                float4 _S0a, _S0b, _S1a, _S1b, _T0a, _T0b, _T1a, _T1b, _G0a, _G0b, _G1a, _G1b;
-                float4 _TF0, _TF1, _TFG, _P0, _P1, _PG;
+                float4 _S0a, _S0b, _S1a, _S1b, _T0a, _T0b, _T1a, _T1b, _G0a, _G0b, _G1a, _G1b, _H0a, _H0b, _H1a, _H1b;
+                float4 _TF0, _TF1, _TFG, _TFH, _P0, _P1, _PG, _PH;
                 float4 _MatDiffuse, _MatEmissive, _MatAmbient;
                 float _SrcBlend, _DstBlend, _ZWrite, _ZTest, _Cull;
             CBUFFER_END
@@ -171,11 +181,23 @@ Shader "Tron/Model"
             {
                 if (_LTGlowPass > 0)
                 {
+                    if (_PG.x < 0) discard;
                     float4 g = EvalPass(_G0a, _G0b, _G1a, _G1b, _TFG, _PG.x, i);
-                    if (!AlphaPass(g.a, _PG.z, _PG.w)) discard;
+                    bool pass0 = AlphaPass(g.a, _PG.z, _PG.w);
+                    if (_PG.y == 2)
+                    {
+                        // over(over(dst, g, a0), g1, a1) = g1 a1 + (1 - a1) a0 g + (1 - a0)(1 - a1) dst
+                        float4 g1 = EvalPass(_H0a, _H0b, _H1a, _H1b, _TFH, _PH.x, i);
+                        bool pass1 = AlphaPass(g1.a, _PH.z, _PH.w);
+                        if (!pass0 && !pass1) discard;
+                        float a0 = pass0 ? saturate(g.a) : 0, a1 = pass1 ? saturate(g1.a) : 0;
+                        return float4(lerp(g.rgb * a0, g1.rgb, a1), 1 - (1 - a0) * (1 - a1));
+                    }
+                    if (!pass0) discard;
                     if (_PG.y > 0) g = float4(g.rgb * g.a, 1);
                     return g;
                 }
+                if (_P0.x < 0) discard;
                 float4 c = EvalPass(_S0a, _S0b, _S1a, _S1b, _TF0, _P0.x, i);
                 if (!AlphaPass(c.a, _P0.z, _P0.w)) discard;
                 if (_P1.x >= 0)
