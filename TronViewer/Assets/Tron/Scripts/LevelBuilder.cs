@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 11;
+        public const int FormatVersion = 12;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -525,6 +525,17 @@ namespace Tron
                 }
                 if (wm.collider >= 0 && SolidClasses.Contains(cls) && obj.Bool("Solid", true))
                     AddCollider(geom.transform, wm.collider, "collider");
+            }
+
+            // Spinners that start on turn their world model; a solid one gets a kinematic body so PhysX
+            // treats its collider as moving rather than re-baking a static one every frame.
+            if (Data.spinners == null) return;
+            foreach (var s in Data.spinners)
+            {
+                if (!WorldModelObjects.TryGetValue(s.worldModel, out var go)) continue;
+                if (go.GetComponentInChildren<Collider>() != null)
+                    go.AddComponent<Rigidbody>().isKinematic = true;
+                go.AddComponent<Spinner>().Init(s);
             }
         }
 
