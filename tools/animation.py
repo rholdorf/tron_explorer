@@ -239,6 +239,9 @@ class IdleSelector:
         if table is None:
             return None
         weapon = self.resolver.weapon_at(obj, "RightHand")
+        holster = p.get("holsterweapons")
+        if holster and holster["t"] == "b" and holster["v"] and holster["v"][0]:
+            weapon = None   # HolsterWeapons: the hand weapons are detached at init (CAIHuman)
         w = self.WEAPON_PROP.get(self.weapon_type.get(weapon.lower(), 0) if weapon else 0, "weapon3")
         request = table.props(["Stand", "Down", w])
         if self.human_type.get(str(t.get("ainame", "")).lower()) == "Hovering":   # CAIHuman::SetAIType

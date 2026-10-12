@@ -150,6 +150,13 @@ def test_idle_animation_follows_the_animation_table(idle, template, props, expec
     assert {n.lower() for n in names} == {e.lower() for e in expected}
 
 
+def test_holstered_weapons_leave_the_hands_empty(idle):
+    # HolsterWeapons: CAIHuman detaches the hand weapons at init (aihuman.cpp), so no primary weapon.
+    obj = human("IC_Shield", RightHand="RiotShield")
+    obj["props"].append({"k": "HolsterWeapons", "t": "b", "s": "", "v": [1.0]})
+    assert idle.idle(obj, 3) == "IC_ShieldIdle1"
+
+
 def test_right_hand_weapon_comes_from_the_level_object(extracted):
     import export_models
     r = export_models.Resolver(extracted)
