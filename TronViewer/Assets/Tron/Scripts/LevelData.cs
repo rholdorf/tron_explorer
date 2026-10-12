@@ -22,6 +22,7 @@ namespace Tron
         public SoundFXJson[] soundFX;        // SoundFX that start on (tools/ambient.py)
         public SoundButeFXJson[] soundButeFX; // SoundButeFX that start on (tools/ambient.py)
         public KeyframerJson[] keyframers;   // keyframers live at start (tools/keyframer.py)
+        public ActivateTypeJson[] activateTypes; // the use prompts its objects name (tools/activate.py)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public RenderStyleJson[] renderStyles;
@@ -144,6 +145,9 @@ namespace Tron
     }
     // verb: ON, OFF, PAUSE, RESUME, FORWARD, BACKWARD, TOGGLEDIR or GOTO (key: its key index); delay in s.
     [Serializable] public class KeyCommandJson { public string verb; public float delay; public int key; }
+
+    // An ActivateType: the use prompt shown while its object is on / off ("" for none).
+    [Serializable] public class ActivateTypeJson { public string name, on, off; }
 
     [Serializable] public class PropJson { public string k, t, s; public float[] v; }
 
