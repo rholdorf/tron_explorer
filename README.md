@@ -60,7 +60,10 @@ G screen glow · R respawn · T next start/teleport point · Tab/Esc level menu 
   section, and the BSP of each solid world model (`Solid` property).
 - **Movement**: `attributes/serverbutes.txt [Player]` (Run 280, Walk 115, Jump 700 u/s),
   player dims 24×53×24. 1 LithTech unit = 0.017 m (`LT.Scale`).
-- Texture effects: `UVPan` scrolling implemented; `UVRotate`/`UVWarble` not yet.
+- **Texture effects**: the compiled texture scripts (`tex/texfx/*.tfs`) run in a port of the engine's
+  bytecode interpreter (`texturescriptinterpreter.cpp`), so every effect group (`.tfg`): pan,
+  rotate, warble, world-position env panning… builds the same per-frame texture matrix as in game,
+  on the base texture or env map channel.
 - Animated `.spr` sprites cycle at their frame rate.
 
 ## Not yet (behavior phase)

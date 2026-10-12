@@ -47,6 +47,7 @@ namespace Tron
             SetupCameras();
             SetupGlow();
             Shader.SetGlobalFloat("_LTSaturate", 2); // autoexec.cfg: "Saturate" "1"
+            Shader.SetGlobalFloat("_LTScale", LT.Scale);
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 
             var auto = GetArg("-level");

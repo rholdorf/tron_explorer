@@ -26,7 +26,7 @@ Shader "Tron/World"
         _DetailScale ("Detail scale/angle (sx, sy, cos, sin)", Vector) = (1,1,1,0)
         _Cutoff ("Alpha ref (0 = off)", Float) = 0
         _Alpha ("Object alpha", Float) = 1
-        _UVScroll ("UV scroll (u/s, v/s)", Vector) = (0,0,0,0)
+        _TexFxModes ("Texture script modes (base input+1, base proj, env input+1, env proj)", Vector) = (0,0,0,0)
         _Fullbright ("DTX fullbright (alpha = self-illum/glow mask)", Float) = 0
         _SrcBlend ("Src", Float) = 1
         _DstBlend ("Dst", Float) = 0
@@ -59,7 +59,8 @@ Shader "Tron/World"
             // Every material property lives in UnityPerMaterial so the SRP Batcher can batch draws.
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST;
-                float4 _DetailScale, _UVScroll;
+                float4 _DetailScale, _TexFxModes;
+                float4x4 _TexFxBase, _TexFxEnv;
                 float _UseEnv, _EnvAlpha, _UseDetail, _Cutoff, _Alpha, _Fullbright, _NoFog, _UseLightmap;
                 float _SrcBlend, _DstBlend, _ZWrite, _ZTest, _Cull;
             CBUFFER_END
@@ -69,6 +70,31 @@ Shader "Tron/World"
             float4 _LTFogParams;
             float _LTSaturate;   // 1 or 2 (console var "Saturate")
             float _LTGlowPass;   // 1 while rendering the screen-glow buffer
+            float _LTScale;      // meters per LithTech unit
+
+            // Texture script stage (texturescriptinstance.cpp): the input selected by D3DTSS_TEXCOORDINDEX,
+            // in LithTech units and camera axes (x right, y up, z forward), times the script matrix,
+            // optionally projected. Input = TSINPUT_* + 1.
+            float2 TexFx(float input, float proj, float4x4 m, float2 uv, float3 wpos, float3 wn, float3 wr)
+            {
+                float4 v;
+                if (input == 7) v = float4(uv, 1, 0);                                    // UV
+                else
+                {
+                    bool world = input >= 4;
+                    float kind = world ? input - 4 : input - 1;                         // 0 normal, 1 pos, 2 reflection
+                    float3 x = kind == 1 ? wpos / _LTScale : kind == 0 ? wn : wr;
+                    if (!world)
+                    {
+                        x = mul((float3x3)UNITY_MATRIX_V, x);
+                        if (kind == 1) x += UNITY_MATRIX_V._m03_m13_m23 / _LTScale;
+                        x.z = -x.z;                                                     // Unity view looks down -z
+                    }
+                    v = float4(x, 1);
+                }
+                float4 r = mul(m, v);
+                return proj == 3 ? r.xy / r.z : proj == 4 ? r.xy / r.w : r.xy;
+            }
 
             struct appdata
             {
@@ -95,14 +121,17 @@ Shader "Tron/World"
                 v2f o;
                 float3 wpos = TransformObjectToWorld(v.vertex.xyz);
                 o.pos = TransformWorldToHClip(wpos);
-                o.uv = v.uv + _UVScroll.xy * _Time.y;
+                float3 wn = TransformObjectToWorldNormal(v.normal);
+                o.uv = _TexFxModes.x > 0 ? TexFx(_TexFxModes.x, _TexFxModes.y, _TexFxBase, v.uv, wpos, wn, 0) : v.uv;
                 float2 d = v.uv * _DetailScale.xy;
                 o.detuv = float2(d.x * _DetailScale.z - d.y * _DetailScale.w, d.x * _DetailScale.w + d.y * _DetailScale.z);
                 // d3d_SetEnvMapTransform: per-vertex D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR, rotated to
                 // world space by m_mWorldEnvMap (camera basis), then uv = R.xy * (-0.5 / EnvScale) + 0.5
                 // with EnvScale 1. Level geometry is in LithTech world axes, so Unity world space matches.
-                float3 r = reflect(normalize(wpos - GetCameraPositionWS()), TransformObjectToWorldNormal(v.normal));
+                float3 r = reflect(normalize(wpos - GetCameraPositionWS()), wn);
                 o.envuv = r.xy * -0.5 + 0.5;
+                // A texture script on the env map channel replaces that transform.
+                if (_TexFxModes.z > 0) o.envuv = TexFx(_TexFxModes.z, _TexFxModes.w, _TexFxEnv, v.uv, wpos, wn, r);
                 float3 viewPos = TransformWorldToView(wpos);
                 // Fog is computed in LithTech units: distance is divided by the world scale.
                 float dist = -viewPos.z / _LTFogParams.w;

@@ -162,6 +162,8 @@ namespace Tron
             if (blendedMaterials.TryGetValue(key, out var m)) return m;
             m = new Material(materials[index]);
             owned.Add(m);
+            TextureEffects.RegisterClone(materials[index], m);
+            SpriteAnimator.RegisterClone(materials[index], m);
             if (noFog) m.SetFloat("_NoFog", 1);
             if (blendMode != "None")
             {
