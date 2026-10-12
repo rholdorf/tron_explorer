@@ -45,11 +45,11 @@ def test_character_gets_its_template_default_attachments(extracted):
 def test_level_attachments_take_their_position_before_the_defaults(extracted):
     r = export_models.Resolver(extracted)
     # Head = SoftHat from the level; IC_Shield's default Head attachment (IC_L2_Head) is then skipped
-    # (CAttachments::Attach: position already occupied). A weapon only occupies its position.
+    # (CAttachments::Attach: position already occupied). A weapon takes its position too.
     atts = r.attachments(human("IC_Shield", Head="SoftHat", RightHand2="ICRegularDisc", LeftHand="<none>"))
     by_pos = {a[0]: a[1] for a in atts}
     assert by_pos["Head"] == "attachments/models/softhat.ltb"
-    assert "RightHand2" not in by_pos
+    assert by_pos["RightHand2"] == "weapons/disc/models_hh/ic_disk_hh.ltb"
     assert by_pos["LeftHand2"] == r.attachments(human("IC_Shield"))[15][1]
 
 
@@ -201,3 +201,59 @@ def test_spawner_template_props_are_never_created(extracted):
             "props": [{"k": "Filename", "t": "s", "s": "props/models/chair.ltb", "v": []},
                       {"k": "Template", "t": "b", "s": "", "v": [1.0]}]}
     assert r.resolve(prop) is None
+
+
+def test_hand_held_weapon_is_drawn_at_its_position(extracted):
+    # CAttachments::CreateWeaponAttachment: a CHHWeaponModel with the weapon's HHModel, HHSkinN and
+    # HHRenderStyleN, attached at the position's socket with no offset (HHModelScale isn't used).
+    r = export_models.Resolver(extracted)
+    by_pos = {a[0]: a[1:] for a in r.attachments(human("IC_Regular", RightHand="ICRegularDisc"))}
+    assert by_pos["RightHand"] == ("weapons/disc/models_hh/ic_disk_hh.ltb", ["weapons/disc/skins_hh/disc_red.dtx"],
+                                   ["chars/rs/ic_rs.ltb"])
+
+
+def test_weapon_without_hand_held_model_is_hidden(extracted):
+    # DiscSmack has HHModel = "": CHHWeaponModel::Setup hides the weapon (HideWeapon(true)).
+    r = export_models.Resolver(extracted)
+    assert "LeftHand" not in {a[0] for a in r.attachments(human("IC_Regular", LeftHand="DiscSmack"))}
+
+
+def holstered(template, **props):
+    obj = human(template, **props)
+    obj["props"].append({"k": "HolsterWeapons", "t": "b", "s": "", "v": [1.0]})
+    return obj
+
+
+def test_holster_weapons_empties_both_hands(extracted):
+    # CAIHuman::InitialUpdate: with HolsterWeapons and a RightHand/LeftHand weapon set on the object,
+    # both hand positions are detached (KEY_DETACH RIGHTHAND/LEFTHAND, whatever they hold). Tron's
+    # weapons have no HolsterAttachment, so nothing is attached in their place.
+    r = export_models.Resolver(extracted)
+    positions = {a[0] for a in r.attachments(holstered("IC_Regular", RightHand="ICRegularDisc", LeftHand="Ball"))}
+    assert not positions & {"RightHand", "LeftHand"}
+    assert "RightHand2" in positions   # other positions keep theirs
+
+
+def test_level_lists_hand_held_weapons_on_their_socket(extracted):
+    # The weapons placed characters hold: disc (IC_RS), suffusion rod (Jet_RS), ball (HH_Ball_Glow).
+    import export_level
+    objects = [human("IC_Regular", RightHand="ICRegularDisc", LeftHand="Ball"),
+               human("ResourceHog", RightHand="HogSuffusion")]
+    models, styles = export_level.model_instances(objects, export_models.Resolver(extracted),
+                                                  export_models.Styles(extracted), extracted)
+    weapons = {(m["obj"], m["socket"]): m for m in models if m["file"].startswith("weapons/")}
+    assert {k: m["file"] for k, m in weapons.items()} == {
+        (0, "RightHand"): "weapons/disc/models_hh/ic_disk_hh.ltb",
+        (0, "LeftHand"): "weapons/ball/models_hh/ball_hh.ltb",
+        (1, "RightHand"): "weapons/rod/models_hh/suffusion_hh.ltb"}
+    assert all(m["parent"] >= 0 and m["skinned"] == 1 and m["scale"] == [1, 1, 1] for m in weapons.values())
+    assert {styles[p["style"]]["name"] for m in weapons.values() for p in m["pieces"]} == {
+        "chars/rs/ic_rs.ltb", "weapons/ball/rs/hh_ball_glow.ltb", "chars/rs/jet_rs.ltb"}
+
+
+def test_holster_weapons_without_hand_weapons_on_the_object_does_nothing(extracted):
+    # The holster string is built only from the object's RightHand/LeftHand properties; empty, nothing
+    # is detached (a template default in a hand stays).
+    r = export_models.Resolver(extracted)
+    assert r.attachments(holstered("IC_Regular", RightHand="<none>")) == r.attachments(human("IC_Regular"))
+    assert r.weapon_at(holstered("IC_Regular", RightHand2="ICRegularDisc"), "RightHand2") == "ICRegularDisc"
