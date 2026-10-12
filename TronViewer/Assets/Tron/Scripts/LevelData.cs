@@ -18,6 +18,7 @@ namespace Tron
         public int worldCollider;
         public int blockerCollider;
         public WorldModelJson[] worldModels;
+        public SpinnerJson[] spinners;       // spinners live at start (tools/spinner.py)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public RenderStyleJson[] renderStyles;
@@ -82,6 +83,10 @@ namespace Tron
     }
 
     [Serializable] public class WorldModelJson { public string name; public int flags, mesh, collider; }
+
+    // A SpinningWorldModel that starts on: its world model, final angular velocity per axis (rad/s, pitch
+    // yaw roll in its own frame), the spin-up time (s) and its curve (0 Linear, 1 Sine, 2 SlowOff, 3 SlowOn).
+    [Serializable] public class SpinnerJson { public string worldModel; public float[] velocity; public float powerOnTime; public int waveform; }
 
     [Serializable] public class PropJson { public string k, t, s; public float[] v; }
 
