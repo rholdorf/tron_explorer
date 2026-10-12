@@ -19,6 +19,7 @@ import numpy as np
 
 import animation
 import butes
+from butes import norm
 import ltb
 import renderstyle
 
@@ -26,10 +27,6 @@ FORMAT_VERSION = 3
 
 OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4), ("uv", "<f4", 2),
                        ("uv2", "<f4", 2)])
-
-
-def norm(path):
-    return path.replace("\\", "/").strip().lower()
 
 
 class Resolver:
@@ -66,6 +63,10 @@ class Resolver:
             q = p.get(key)
             return bool(q["v"][0]) if q and q["t"] == "b" and q["v"] else default
 
+        # GameBase::ReadProp: a Template object is saved as a spawner template and never created;
+        # in single player an object with SinglePlayer off isn't created either.
+        if b("Template", False) or not b("SinglePlayer"):
+            return None
         if not b("Visible") or b("StartHidden", False):
             return None
         cls = obj["cls"]
@@ -168,6 +169,7 @@ class Styles:
                          for i in range(len(butes.indexed(glow, "glowmaprs")))}
         self.compiled = {}
         self.models = {}
+        self.missing = set()   # style paths set on a piece whose file doesn't exist (default style used)
 
     def model(self, rel):
         if rel not in self.models:
@@ -182,6 +184,8 @@ class Styles:
         """rel = '' or a missing file: the engine's backup style (CD3DRenderStyle::SetDefaults)."""
         if rel not in self.compiled:
             s = self._load(rel)
+            if rel and s is None:
+                self.missing.add(rel)
             name = rel if s else "<default>"
             c = renderstyle.compile_style(s or renderstyle.default_style(), name)
             glow = self.glow_map.get(rel, self.glow_default) if s else self.glow_default
@@ -323,7 +327,7 @@ def export_model(extracted, rel, out_root, anims=(), load=None):
         uv = mesh.field("uv")
         if uv is not None:
             out["uv"] = uv[:, 0]
-        out["rgba"] = (128, 128, 128, 255)  # unused: Tron/Model lights from the material (D3D lighting)
+        out["rgba"] = (128, 128, 128, 255)  # unused: Tron/Model lights from the style's lighting (D3D lighting)
         tris = mesh.indices.astype(np.uint32).reshape(-1)
         pieces.append({"name": p.name, "textures": textures, "style": style, "kind": mesh.kind,
                        "bone": mesh.bone, "vtxOffset": nv, "vtxCount": int(len(out)), "idxOffset": ni,

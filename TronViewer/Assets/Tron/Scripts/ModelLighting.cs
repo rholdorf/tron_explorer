@@ -12,19 +12,24 @@ namespace Tron
     {
         public const int MaxLights = 4;   // MaxModelLights console variable default
         const float DirectionalCosFov = 0.98f;   // retail StaticLightCB, [0x58d9e4]
+        // A static light with cosFov above it is a spot, else omni (world_shared_bsp.cpp static lights;
+        // modellight.SPOT_COS_FOV).
+        const float SpotCosFov = -0.99f;
 
-        // CLightTable::GetLightVal as ltjs reads: Y lerps from the y+1 node to the y node. Off = textbook
-        // order, which fits the baked vertex colors better (docs/research/light-grid.md §2.1).
-        public static bool LtjsGridOrder;
 
         readonly byte[] grid;   // dims x*y*z RGB, x fastest (level.bin after the lightmap atlas)
         readonly Vector3 origin, cell;
         readonly int dx, dy, dz;
         readonly StaticLightJson[] lights;
         readonly SunJson sun;
+        readonly bool ltjsGridOrder;
 
-        public ModelLighting(LevelJson data, byte[] grid)
+        // ltjsGridOrder: CLightTable::GetLightVal as ltjs reads, Y lerps from the y+1 node to the y node
+        // (modellight.sample_grid's ltjs_order). Off = textbook order, which fits the baked vertex colors
+        // better (docs/research/light-grid.md §2.1).
+        public ModelLighting(LevelJson data, byte[] grid, bool ltjsGridOrder)
         {
+            this.ltjsGridOrder = ltjsGridOrder;
             var g = data.lightGrid;
             this.grid = grid;
             origin = V(g.origin);
@@ -53,7 +58,7 @@ namespace Tron
             Vector3 YLerp(int nx, int nz)
             {
                 Vector3 lo = Node(nx, y, nz), hi = Node(nx, y + oy, nz);
-                return LtjsGridOrder ? Vector3.LerpUnclamped(hi, lo, ty) : Vector3.LerpUnclamped(lo, hi, ty);
+                return ltjsGridOrder ? Vector3.LerpUnclamped(hi, lo, ty) : Vector3.LerpUnclamped(lo, hi, ty);
             }
             var near = Vector3.LerpUnclamped(YLerp(x, z), YLerp(x + ox, z), tx);
             var far = Vector3.LerpUnclamped(YLerp(x, z + oz), YLerp(x + ox, z + oz), tx);
@@ -71,7 +76,7 @@ namespace Tron
             if (string.Equals(lt.att, "Quartic", StringComparison.OrdinalIgnoreCase)) { k = 1 - d2 / (r * r); k *= k; }
             else if (string.Equals(lt.att, "Linear", StringComparison.OrdinalIgnoreCase)) k = 1 - d / r;
             else k = 1 / (lt.attCoefs[0] + lt.attCoefs[1] * d + lt.attCoefs[2] * d2);
-            if (lt.cosFov > -0.99f)
+            if (lt.cosFov > SpotCosFov)
             {
                 if (d == 0) return Vector3.zero;
                 float dot = Vector3.Dot(v, V(lt.dir)) / d;
@@ -154,7 +159,7 @@ namespace Tron
         static void DeviceLight(StaticLightJson lt, float keep, Vector3 pos, Vector3 dims, out Vector3 dir, out Vector3 color)
         {
             color = Sample(lt, pos);
-            if (lt.cosFov > -0.99f)
+            if (lt.cosFov > SpotCosFov)
             {
                 float best = color.sqrMagnitude;
                 for (int sx = -1; sx <= 1; sx += 2)

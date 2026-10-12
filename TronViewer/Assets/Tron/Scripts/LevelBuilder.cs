@@ -12,10 +12,11 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 9;
+        public const int FormatVersion = 10;
         const int HeaderSize = 32, VertexSize = 44;
 
-        // World model classes that collide like solid brushes (WorldModel family).
+        // World model classes that collide like solid brushes (WorldModel family). Kept in step with
+        // tools/floor.py SOLID_CLASSES / HIDDEN_CLASSES (the exporter's MoveToFloor caster).
         static readonly HashSet<string> SolidClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "WorldModel", "SlidingDoor", "RotatingDoor", "Door", "SlidingWorldModel", "RotatingWorldModel",
@@ -54,7 +55,7 @@ namespace Tron
         byte[] bin;
         int vtxBase, idxBase, cvtxBase, cidxBase;
 
-        public void Build(string levelDir, Shader worldShader, Shader modelShader, string exportRoot)
+        public void Build(string levelDir, Shader worldShader, Shader modelShader, string exportRoot, bool ltjsGridOrder)
         {
             shader = worldShader;
             this.modelShader = modelShader;
@@ -70,7 +71,7 @@ namespace Tron
             cidxBase = cvtxBase + ncv * 12;
             int lmW = BitConverter.ToInt32(bin, 24), lmH = BitConverter.ToInt32(bin, 28);
             LoadLightmapAtlas(lmW, lmH, cidxBase + nci * 4);
-            LoadLightGrid(cidxBase + nci * 4 + lmW * lmH * 4);
+            LoadLightGrid(cidxBase + nci * 4 + lmW * lmH * 4, ltjsGridOrder);
 
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
@@ -108,13 +109,13 @@ namespace Tron
         }
 
         // The light grid follows the lightmap atlas (tools/export_level.py); models are lit from it.
-        void LoadLightGrid(int offset)
+        void LoadLightGrid(int offset, bool ltjsGridOrder)
         {
             var d = Data.lightGrid.dims;
             var grid = new byte[d[0] * d[1] * d[2] * 3];
             if (offset + grid.Length > bin.Length) throw new Exception("level.bin: light grid truncated");
             Buffer.BlockCopy(bin, offset, grid, 0, grid.Length);
-            lighting = new ModelLighting(Data, grid);
+            lighting = new ModelLighting(Data, grid, ltjsGridOrder);
         }
 
         // Section shaders whose texture pass is multiplied over a lightmap (d3d_renderblock.cpp).
@@ -224,10 +225,10 @@ namespace Tron
                 for (int i = 0; i < mats.Length; i++)
                 {
                     var p = inst.pieces[i];
-                    string t1 = p.tex != null && p.tex.Length > 0 ? p.tex[0] : "", t2 = p.tex != null && p.tex.Length > 1 ? p.tex[1] : "";
-                    var key = (p.style, t1, t2);
+                    string tex1 = p.tex != null && p.tex.Length > 0 ? p.tex[0] : "", tex2 = p.tex != null && p.tex.Length > 1 ? p.tex[1] : "";
+                    var key = (p.style, tex1, tex2);
                     if (!styleMaterials.TryGetValue(key, out var m))
-                        styleMaterials[key] = m = CreateModelMaterials(Data.renderStyles[p.style], t1, t2);
+                        styleMaterials[key] = m = CreateModelMaterials(Data.renderStyles[p.style], tex1, tex2);
                     mats[i] = m[0];
                     for (int d = 1; d < m.Length; d++)
                     {
@@ -378,9 +379,9 @@ namespace Tron
                 if (draw.glow.Length > 0) SetPass(m, "_G", draw.glow[0], "_TFG", "_PG");
                 else m.SetVector("_PG", new Vector4(-1, 0, 0, 0));
                 if (draw.glow.Length > 1) SetPass(m, "_H", draw.glow[1], "_TFH", "_PH");
-                m.SetVector("_MatDiffuse", Vec(rs.material.diffuse));
-                m.SetVector("_MatEmissive", Vec(rs.material.emissive));
-                m.SetVector("_MatAmbient", Vec(rs.material.ambient));
+                m.SetVector("_MatDiffuse", Vec(rs.lighting.diffuse));
+                m.SetVector("_MatEmissive", Vec(rs.lighting.emissive));
+                m.SetVector("_MatAmbient", Vec(rs.lighting.ambient));
                 m.SetFloat("_SrcBlend", draw.blend[0]);
                 m.SetFloat("_DstBlend", draw.blend[1]);
                 m.SetFloat("_ZWrite", draw.zwrite);

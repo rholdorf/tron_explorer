@@ -7,6 +7,10 @@ import math
 
 import numpy as np
 
+# A static light with cosFov above it is a spot, else omni (world_shared_bsp.cpp static lights;
+# ModelLighting.SpotCosFov in the viewer).
+SPOT_COS_FOV = -0.99
+
 
 def is_black(color):
     """SLightGroup::IsBlack: any channel below 1/255 counts as off."""
@@ -151,9 +155,9 @@ class SkyCaster:
             flags = int(bsp.surfaces[surf]["flags"])
             if not flags & dat85.SURF_SOLID or flags & dat85.SURF_NONEXISTENT:
                 continue
-            for k in range(1, len(vs) - 1):
-                tris.append((vs[0], vs[k], vs[k + 1]))
-                sky.append(bool(flags & dat85.SURF_SKY))
+            t = dat85.fan(vs)
+            tris.extend(t)
+            sky.extend([bool(flags & dat85.SURF_SKY)] * len(t))
         idx = np.array(tris, np.int64).reshape(-1, 3)
         return cls(np.asarray(bsp.points, np.float64)[idx], np.array(sky, bool))
 
@@ -242,7 +246,7 @@ def light_sample(lt, pos):
     else:
         a = lt["attCoefs"]
         k = 1.0 / (a[0] + a[1] * d + a[2] * d2)
-    if lt["cosFov"] > -0.99:  # spot (StaticLightCB)
+    if lt["cosFov"] > SPOT_COS_FOV:
         if d == 0:
             return [0.0, 0.0, 0.0]
         dot = (v[0] * lt["dir"][0] + v[1] * lt["dir"][1] + v[2] * lt["dir"][2]) / d
@@ -261,7 +265,7 @@ def _device_light(lt, pos, dims):
     if lt.get("directional"):
         return lt["dir"], lt["color"]
     color = light_sample(lt, pos)
-    if lt["cosFov"] > -0.99:
+    if lt["cosFov"] > SPOT_COS_FOV:
         best = sum(c * c for c in color)
         for sx in (-1, 1):
             for sy in (-1, 1):

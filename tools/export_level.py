@@ -35,7 +35,7 @@ import floor  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 
-FORMAT_VERSION = 9
+FORMAT_VERSION = 10
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -288,8 +288,7 @@ def polys_to_tris(polys):
     for _plane, verts in polys:
         b = len(pts)
         pts.extend(verts.tolist())
-        for k in range(1, len(verts) - 1):
-            tris.append((b, b + k, b + k + 1))
+        tris.extend(dat85.fan(range(b, b + len(verts))))
     return np.array(pts, np.float32).reshape(-1, 3), np.array(tris, np.uint32).reshape(-1, 3)
 
 
@@ -307,8 +306,8 @@ def template_model(resolver, name):
     """(model file, skins, render styles) of a modelbutes.txt template, as the game's
     CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
     t = resolver.templates[name.lower()]
-    return export_models.norm(t["modelfile"]), [export_models.norm(x) for x in butes.indexed(t, "skin")], \
-        [export_models.norm(x) for x in butes.indexed(t, "renderstyle")]
+    return butes.norm(t["modelfile"]), [butes.norm(x) for x in butes.indexed(t, "skin")], \
+        [butes.norm(x) for x in butes.indexed(t, "renderstyle")]
 
 
 def moves_to_floor(o, resolver):
@@ -527,6 +526,8 @@ def main():
         print(f"idle animation {name} not in {f} or its child models, animation 0 instead: {n}")
     for (f, socket), n in sorted(resolver.missing_sockets.items()):
         print(f"attachment dropped, no socket {socket} on {f}: {n}")
+    for rel in sorted(styles.missing):
+        print(f"render style {rel} not found, default style instead")
     for cls, n in sorted(resolver.undrawn_attachments.items()):
         print(f"{n} {cls} attachments not drawn (not a model object)")
     if resolver.skipped_weapons:

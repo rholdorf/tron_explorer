@@ -72,3 +72,9 @@ def indexed(section, prefix):
     while f"{prefix}{len(out)}" in section:
         out.append(section[f"{prefix}{len(out)}"])
     return out
+
+
+def norm(path):
+    """A resource path as written in attribute files and level properties, as the extracted tree names
+    it: forward slashes, lower case."""
+    return path.replace("\\", "/").strip().lower()

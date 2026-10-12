@@ -9,7 +9,8 @@ import numpy as np
 import dat85
 
 DROP = 10000.0
-# World model classes that collide like solid brushes (LevelBuilder.SolidClasses in the viewer).
+# World model classes that collide like solid brushes, and brush volumes (never drawn, never solid).
+# Kept in step with LevelBuilder.SolidClasses / HiddenClasses in the viewer.
 SOLID_CLASSES = {c.lower() for c in (
     "WorldModel", "SlidingDoor", "RotatingDoor", "Door", "SlidingWorldModel", "RotatingWorldModel",
     "SpinningWorldModel", "SlidingSwitch", "RotatingSwitch", "Breakable", "DemoSkyWorldModel")}
@@ -36,9 +37,7 @@ class FloorCaster:
                 flags = int(b.surfaces[surf]["flags"])
                 if not flags & dat85.SURF_SOLID or flags & dat85.SURF_NONEXISTENT or b.planes[plane][1] <= 0:
                     continue
-                pts = b.points[list(vs)]
-                for k in range(1, len(vs) - 1):
-                    tris.append((pts[0], pts[k], pts[k + 1]))
+                tris.extend(dat85.fan(b.points[list(vs)]))
         return cls(np.array(tris, np.float64).reshape(-1, 3, 3))
 
     @classmethod

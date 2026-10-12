@@ -183,14 +183,14 @@ def _check(s, name):
 
 def compile_style(s, name):
     """The shader description of a style, or ValueError when the model shader can't draw it: the
-    material and one or two draws, each with its hardware state and the passes it evaluates.
+    lighting (its LightingMaterial) and one or two draws, each with its hardware state and the passes it evaluates.
     A second pass is folded into the first draw when that's exact: pass 0 opaque, pass 1 alpha-blended
     or opaque with the same Z and cull states (its alpha test then selects instead of discarding).
     Otherwise it needs the framebuffer and is a draw of its own after the first, with its own states
     (rendermodelpiecelist.cpp draws each pass of a piece in turn); each draw is fogged on its own."""
     _check(s, name)
     p0 = s.passes[0]
-    out = {"material": {"ambient": list(s.ambient), "diffuse": list(s.diffuse), "emissive": list(s.emissive)}}
+    out = {"lighting": {"ambient": list(s.ambient), "diffuse": list(s.diffuse), "emissive": list(s.emissive)}}
     draw = dict(_state(p0), passes=[_pass(p0, f"{name} pass 0")])
     out["draws"] = [draw]
     if len(s.passes) == 2:
