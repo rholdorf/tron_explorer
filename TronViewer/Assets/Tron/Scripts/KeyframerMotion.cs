@@ -4,26 +4,33 @@ using System.Collections.Generic;
 namespace Tron
 {
     // A keyframer's path as the engine runs it (ltjs keyframer.cpp, docs/research/keyframer-paths.md):
-    // a port of KeyFramer's Update / ProcessCurrentKey / CalcCurPos / UpdateObjects and the self-commands
-    // its keys send it, in LithTech units and LithTech quaternions. Plain C# (System only), so it compiles
-    // outside Unity and tools/tests/test_keyframer_motion.py checks it with Mono; Keyframer.cs applies the
-    // targets' poses to their GameObjects.
+    // a port of KeyFramer's Update / ProcessCurrentKey / CalcCurPos / UpdateObjects and OnTrigger, in
+    // LithTech units and LithTech quaternions. Plain C# (System only), so it compiles outside Unity and
+    // tools/tests/test_keyframer_motion.py checks it with Mono; Keyframer.cs applies the targets' poses to
+    // their GameObjects.
     //
-    // One Update is one server frame. The first one only goes active (CreateKeyList + GoActive, nothing
-    // moves). Then: process every key reached (time mode: key time <= current time; velocity mode: the
-    // current position is exactly on the key), wrap to the first key at the end of the list (a
-    // non-looping path then stops), move the targets, advance the time. Delayed self-commands
-    // (`delay <s> (msg <self> ...)`) count down after the keyframer's own update, like the command manager.
+    // One Update is one server frame. The first one only goes active if StartActive or StartPaused
+    // (CreateKeyList + GoActive, nothing moves), pauses if StartPaused, then handles the messages that
+    // came before it (DeferCommand). Then: process every key reached (time mode: key time <= current time;
+    // velocity mode: the current position is exactly on the key), wrap to the first key at the end of the
+    // list (a non-looping path then stops), move the targets, advance the time. Processing a key runs its
+    // command (RunCommand, through the level's command manager with the keyframer as sender and active
+    // target), which can message the keyframer itself (PAUSE, GOTO...) right away or after a delay.
+    //
+    // Messages (OnMessage, KeyFramer::OnTrigger): ON (from the first key; before the first update it only
+    // sets StartActive), OFF, PAUSE / RESUME (OFF isn't a pause: RESUME won't restart it, ON will),
+    // FORWARD, BACKWARD / REVERSE, TOGGLEDIR, GOTO <key>, MOVETO <key> [<command>] (travel to the key, then
+    // pause and run the command). PAUSE, GOTO and MOVETO before the first update wait for it. Key names:
+    // BaseKeyName (any case) then "0", "01".."09", "10".. by index. TARGET / CLEARTARGET / TARGETOFFSET
+    // (turn the targets to face an object) aren't handled.
     public sealed class KeyframerMotion
     {
-        public struct Command { public string Verb; public float Delay; public int Key; }
-
         public sealed class Key
         {
             public LTVec Pos, PYR, BezPrev, BezNext;
             public bool HasPrev, HasNext;      // BEZPREV_KEY, BEZNEXT_KEY
             public float Time;                 // running sum of the time stamps (m_fRealTime)
-            public Command[] Commands = Array.Empty<Command>();
+            public string Command = "";        // run when the key is reached
             internal LTQuat Rot;
             internal float DistToLast;
         }
@@ -43,12 +50,19 @@ namespace Tron
         readonly int wave;
         float velocity, totalDistance;
         public readonly List<Target> Targets = new List<Target>();
-        readonly List<(float left, Command cmd)> delayed = new List<(float, Command)>();
+
+        public string BaseKeyName = "";
+        public bool StartActive, StartPaused;
+        // Runs a key's (or MOVETO's) command string; set by whoever joins the keyframer to the level.
+        public Action<string> RunCommand = _ => { };
 
         int curKey = -1, pos1 = -1, pos2 = -1;   // indices into keys, -1 = none
+        int destKey = -1;                        // MOVETO's destination
+        string destCommand;
         float curTime, keyPercent, frameTime;
         LTVec curPos;
         bool forward = true, paused, finished, firstUpdate = true;
+        readonly List<Message> deferred = new List<Message>();
 
         public bool Active { get; private set; }
         // Bumped by each GoActive: the ActiveSound (re)starts from the beginning then, and stops when
@@ -87,23 +101,14 @@ namespace Tron
         public void Update(float dt)
         {
             frameTime = dt;
-            UpdateKeyframer(dt);
-            for (int i = 0; i < delayed.Count; i++)
-            {
-                var d = delayed[i];
-                d.left -= dt;
-                if (d.left > 0) { delayed[i] = d; continue; }
-                delayed.RemoveAt(i--);
-                Execute(d.cmd);
-            }
-        }
-
-        void UpdateKeyframer(float dt)
-        {
             if (firstUpdate)
             {
                 firstUpdate = false;
-                GoActive(true);
+                if (StartActive || StartPaused) GoActive(true);
+                if (StartPaused) Pause();
+                var messages = deferred.ToArray();
+                deferred.Clear();
+                foreach (var m in messages) OnMessage(m);
                 return;
             }
             if (!Active) return;
@@ -152,29 +157,97 @@ namespace Tron
             if (forward) { pos1 = old; pos2 = Next(old); }
             else { pos2 = old; pos1 = old - 1; }
             curKey = forward ? Next(old) : old - 1;
-            foreach (var c in keys[old].Commands)
-            {
-                if (c.Delay > 0) delayed.Add((c.Delay, c));
-                else Execute(c);
-            }
+            if (!string.IsNullOrEmpty(keys[old].Command)) RunCommand(keys[old].Command);
+            if (destKey >= 0 && old == destKey) ReachedDestination();
         }
 
         int Next(int i) => i + 1 < keys.Length ? i + 1 : -1;
 
-        // KeyFramer::OnTrigger for the verbs its keys send it.
-        void Execute(Command c)
+        // KeyFramer::OnTrigger: true if the message is one of the keyframer's.
+        public bool OnMessage(Message m)
         {
-            switch (c.Verb)
+            if (m.Is("ON"))
             {
-                case "ON": paused = false; GoActive(true); break;
-                case "OFF": GoInActive(); break;
-                case "PAUSE": if (Active && !paused) { paused = true; GoInActive(); } break;
-                case "RESUME": Resume(); break;
-                case "FORWARD": Forward(); break;
-                case "BACKWARD": Backward(); break;
-                case "TOGGLEDIR": if (forward) Backward(); else Forward(); break;
-                case "GOTO": if (c.Key >= 0 && c.Key < keys.Length) GoToKey(c.Key); break;
+                paused = false;
+                if (firstUpdate) StartActive = true;
+                else GoActive(true);
             }
+            else if (m.Is("OFF")) GoInActive();
+            else if (m.Is("PAUSE")) { if (firstUpdate) deferred.Add(m); else Pause(); }
+            else if (m.Is("RESUME")) Resume();
+            else if (m.Is("FORWARD")) Forward();
+            else if (m.Is("BACKWARD") || m.Is("REVERSE")) Backward();
+            else if (m.Is("TOGGLEDIR")) ToggleDir();
+            else if (m.Is("GOTO"))
+            {
+                if (firstUpdate) deferred.Add(m);
+                else if (m.ArgCount > 0)
+                {
+                    int key = FindKey(m.Arg(0), -1, out _);
+                    if (key >= 0) GoToKey(key);
+                }
+            }
+            else if (m.Is("MOVETO")) { if (firstUpdate) deferred.Add(m); else MoveToKey(m); }
+            else return false;
+            return true;
+        }
+
+        void Pause()
+        {
+            if (!Active || paused) return;
+            paused = true;
+            GoInActive();
+        }
+
+        void ToggleDir()
+        {
+            if (forward) Backward();
+            else Forward();
+        }
+
+        // KeyFramer::FindKey: the key a name stands for, or -1. atOrBefore: whether key `test` comes at or
+        // before it in the list.
+        int FindKey(string name, int test, out bool atOrBefore)
+        {
+            atOrBefore = false;
+            if (string.IsNullOrEmpty(BaseKeyName) || name.Length <= BaseKeyName.Length ||
+                !name.StartsWith(BaseKeyName, StringComparison.OrdinalIgnoreCase))
+                return -1;
+            var ext = name.Substring(BaseKeyName.Length);
+            if (ext.Length > 10) return -1;
+            for (int i = 0; i < keys.Length; i++)
+            {
+                if (i == test) atOrBefore = true;
+                if (ext == (i > 0 && i < 10 ? "0" + i : i.ToString())) return i;
+            }
+            return -1;
+        }
+
+        // KeyFramer::MoveToKey: travel to a key (turning around if it lies behind), then ReachedDestination.
+        void MoveToKey(Message m)
+        {
+            if (m.ArgCount < 1) return;
+            if (m.ArgCount > 1) destCommand = m.Arg(1);
+            int cur = forward ? pos1 : pos2;
+            destKey = FindKey(m.Arg(0), cur, out bool atOrBefore);
+            if (destKey < 0) return;
+            Resume();
+            if (destKey == cur)
+            {
+                if (curPos == keys[cur].Pos) ProcessCurrentKey();
+                else ToggleDir();
+            }
+            else if (atOrBefore ? !forward : forward)
+                ToggleDir();
+        }
+
+        void ReachedDestination()
+        {
+            Pause();
+            if (destCommand == null) return;
+            var cmd = destCommand;
+            destCommand = null;
+            RunCommand(cmd);
         }
 
         void Resume()
