@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 15;
+        public const int FormatVersion = 18;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
