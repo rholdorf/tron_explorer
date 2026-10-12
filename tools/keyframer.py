@@ -12,6 +12,8 @@ Every keyframer is exported, active at start or not (ticket #33): the viewer run
 """
 import struct
 
+import numpy as np
+
 import waveform
 
 CLASS = "KeyFramer"
@@ -47,10 +49,25 @@ def keyframers(objects, blind):
             "totalPathTime": float(p.get("TotalPathTime", 0.0)),
             "wave": waveform.index(p.get("Wavetype", "Linear")),
             "activeSound": p.get("ActiveSound", "").strip(), "soundRadius": float(p.get("SoundRadius", 1000.0)),
-            "keys": [{"pos": k["pos"], "pyr": k["pyr"], "time": k["time"], "bezPrev": k["bezPrev"],
-                      "bezNext": k["bezNext"], "command": k["command"]} for k in keys],
+            "keys": [export_key(k) for k in keys],
         })
     return out
+
+
+def export_key(k):
+    """A key for level.json: pos, pyr, time and, when present, bezPrev, bezNext and command. Numbers are
+    written as the shortest decimal that reads back as the same float32 (what the viewer keeps)."""
+    out = {"pos": _f32(k["pos"]), "pyr": _f32(k["pyr"]), "time": _f32([k["time"]])[0]}
+    for name in ("bezPrev", "bezNext"):
+        if k[name]:
+            out[name] = _f32(k[name])
+    if k["command"]:
+        out["command"] = k["command"]
+    return out
+
+
+def _f32(values):
+    return [float(np.format_float_positional(np.float32(v), unique=True, trim="0")) for v in values]
 
 
 def read_keys(blob):

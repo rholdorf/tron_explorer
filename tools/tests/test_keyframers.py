@@ -67,8 +67,24 @@ def test_keyframers_carry_their_settings_targets_and_keys_with_their_commands_as
     assert len(kf["keys"]) == 13
     assert kf["keys"][0]["command"] == "msg target01kf forward"
     assert kf["keys"][12]["command"] == "msg target01kf reverse"
-    assert kf["keys"][5]["command"] == ""
-    assert set(kf["keys"][0]) == {"pos", "pyr", "time", "bezPrev", "bezNext", "command"}
+    # Empty parts are left out (m07-02 alone has 79,102 keys): no command, no Bezier controls.
+    assert set(kf["keys"][5]) == {"pos", "pyr", "time"}
+    assert set(kf["keys"][0]) == {"pos", "pyr", "time", "command"}
+
+
+def test_key_numbers_are_the_shortest_text_that_reads_back_as_the_same_float32(world):
+    # The keys' f32 values and the running time (summed in f32 by the viewer's reading) are written as the
+    # shortest decimal that parses back to the same float32, e.g. -1.29878 rather than -1.2987799644470215.
+    import struct
+    import keyframer
+    w = world("retailsingleplayer/m07-02")
+    kfs = keyframer.keyframers(w.objects, w.blind)
+    raw = keyframer.read_keys(w.blind[int(w.objects[kfs[0]["obj"]]["props"]["KeyDataIndex"])][1])
+    f32 = lambda v: struct.unpack("<f", struct.pack("<f", v))[0]   # noqa: E731
+    for k, r in zip(kfs[0]["keys"], raw):
+        assert [f32(v) for v in k["pos"] + k["pyr"]] == [f32(v) for v in r["pos"] + r["pyr"]]
+        assert f32(k["time"]) == f32(r["time"])
+        assert all(len(repr(v)) <= 15 for v in k["pos"] + k["pyr"])
 
 
 def test_wavetype_and_active_sound(world):

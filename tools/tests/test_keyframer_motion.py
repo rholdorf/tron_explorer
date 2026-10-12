@@ -366,10 +366,10 @@ def test_every_keyframer_in_the_levels_runs_its_path_and_key_commands(driver, wo
                       "start %d %d" % (kf["startActive"], kf["startPaused"]), "base " + kf["baseKeyName"]]
             for k in kf["keys"]:
                 lines.append("key %r %r %r %r %r %r %r" % (k["time"], *k["pos"], *k["pyr"]))
-                if k["bezPrev"] or k["bezNext"]:
+                if k.get("bezPrev") or k.get("bezNext"):
                     lines.append("bez " + " ".join("%r %r %r" % tuple(c) if c else "-"
-                                                   for c in (k["bezPrev"], k["bezNext"])))
-                if k["command"]:
+                                                   for c in (k.get("bezPrev"), k.get("bezNext"))))
+                if k.get("command"):
                     lines.append("cmd64 " + base64.b64encode(k["command"].encode("latin-1")).decode())
             lines.append("target %r %r %r" % tuple(kf["keys"][0]["pos"]))
             if not kf["startActive"]:
