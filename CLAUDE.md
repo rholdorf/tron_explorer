@@ -1,3 +1,7 @@
+## Workflow
+
+Export, tests, driving the Unity viewer, build, benchmarks and known pitfalls: `docs/agents/workflow.md`. Read it before changing `tools/` or `TronViewer/`.
+
 ## Agent skills
 
 ### Issue tracker
