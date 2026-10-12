@@ -530,8 +530,8 @@ def main():
         print(f"render style {rel} not found, default style instead")
     for cls, n in sorted(resolver.undrawn_attachments.items()):
         print(f"{n} {cls} attachments not drawn (not a model object)")
-    if resolver.skipped_weapons:
-        print(f"{resolver.skipped_weapons} weapon attachments not drawn (weapons.txt hand-held models)")
+    if resolver.hidden_weapons:
+        print(f"{resolver.hidden_weapons} weapon attachments not drawn (no hand-held model)")
     if not only:
         with open(os.path.join(out_root, "levels.json"), "w") as f:
             json.dump({"levels": index}, f, indent=1)

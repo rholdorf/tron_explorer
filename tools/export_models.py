@@ -42,9 +42,9 @@ class Resolver:
                           if "type" in s}
         self.attachables = {s["name"].lower(): s for s in butes.load(os.path.join(a, "attachments.txt")).values()
                             if "name" in s}
-        self.weapons = {s["name"].lower() for s in butes.load(os.path.join(a, "weapons.txt")).values()
+        self.weapons = {s["name"].lower(): s for s in butes.load(os.path.join(a, "weapons.txt")).values()
                         if "name" in s}
-        self.skipped_weapons = 0   # weapon attachments (weapons.txt hand-held models) are not drawn yet
+        self.hidden_weapons = 0    # weapon attachments without a hand-held model (HHModel empty)
         self.missing_sockets = {}  # (character model, position) -> attachments dropped for want of a socket
         self.undrawn_attachments = {}   # object attachment class without a model -> count
 
@@ -119,7 +119,20 @@ class Resolver:
                 continue   # "Unmatched attable name": nothing is created
             occupied.add(pos.lower())
             out.append((pos, name, a))
+        if self.holsters(p):
+            out = [o for o in out if o[0].lower() not in ("righthand", "lefthand")]
         return out
+
+    @staticmethod
+    def holsters(p):
+        """CAIHuman::ReadProp/InitialUpdate: HolsterWeapons with a RightHand or LeftHand set on the object
+        (the holster string) detaches both hands after the defaults are attached. Tron's weapons have no
+        HolsterAttachment, so nothing takes their place. p: the object's props by lowercase key."""
+        h = p.get("holsterweapons")
+        if not (h and h["t"] == "b" and h["v"] and h["v"][0]):
+            return False
+        return any(q and q["t"] == "s" and q["s"].strip() and q["s"].strip().lower() != "<none>"
+                   for q in (p.get("righthand"), p.get("lefthand")))
 
     def weapon_at(self, obj, position):
         """The weapon a character holds at `position` (e.g. RightHand, its primary weapon), or None."""
@@ -128,11 +141,18 @@ class Resolver:
 
     def attachments(self, obj):
         """A character's drawn attachments as (socket, model file, skins, render styles); the position
-        name is the parent model's socket. Weapons occupy their position but aren't drawn."""
+        name is the parent model's socket. A weapon draws its hand-held model (CreateWeaponAttachment:
+        HHModel, HHSkinN, HHRenderStyleN, no offset; HHModelScale is for powerups only); without one
+        CHHWeaponModel::Setup hides it."""
         out = []
-        for pos, _name, a in self.occupants(obj):
+        for pos, name, a in self.occupants(obj):
             if a is None:
-                self.skipped_weapons += 1
+                w = self.weapons[name.lower()]
+                if not w.get("hhmodel"):
+                    self.hidden_weapons += 1
+                    continue
+                out.append((pos, norm(w["hhmodel"]), [norm(x) for x in butes.indexed(w, "hhskin") if x],
+                            [norm(x) for x in butes.indexed(w, "hhrenderstyle") if x]))
                 continue
             # Type 0 is a Prop; type 1 creates its Class, which only draws the model if it's a Prop.
             if a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES:
