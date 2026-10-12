@@ -27,8 +27,10 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
+import butes  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
+import ltb  # noqa: E402
 import modellight  # noqa: E402
 
 FORMAT_VERSION = 6
@@ -299,6 +301,14 @@ def encode_prop(k, v):
     return {"k": k, "t": "n", "s": "", "v": [float(v)]}
 
 
+def template_model(resolver, name):
+    """(model file, skins, render styles) of a modelbutes.txt template, as the game's
+    CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
+    t = resolver.templates[name.lower()]
+    return export_models.norm(t["modelfile"]), [export_models.norm(x) for x in butes.indexed(t, "skin")], \
+        [export_models.norm(x) for x in butes.indexed(t, "renderstyle")]
+
+
 def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
     w = dat85.load(dat_path)
     wr = Writer()
@@ -346,21 +356,35 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
 
     # Model instances: objects that show an .ltb the exporter can find (see export_models.Resolver).
     models, render_styles, style_index = [], [], {}
+
+    def add_model(i, r, scale):
+        if not r or not os.path.isfile(os.path.join(extracted, r[0])):
+            return
+        try:
+            styles.model(r[0])
+        except ltb.Unsupported:  # the engine refuses it too: the game draws nothing there
+            return
+        except Exception as e:  # noqa: BLE001 - report and leave the instance out
+            print(f"model {r[0]}: {e}")
+            return
+        pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
+        m, o = styles.model(r[0]), objects[i]
+        dims = [d * s for d, s in zip(export_models.model_dims(m), scale)]
+        sun_amount = sky.sun_amount(o["pos"], sun["dir"], modellight.euler_right(o["rot"]),
+                                    float(np.linalg.norm(dims))) if sky else 0.0
+        models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
+                       "pieces": pieces, "dims": dims, "visRadius": m.vis_radius, "sunAmount": sun_amount})
+
     for i, o in enumerate(objects):
         r = resolver.resolve(o)
-        if r and os.path.isfile(os.path.join(extracted, r[0])):
-            try:
-                styles.model(r[0])
-            except Exception:  # noqa: BLE001 - the model doesn't parse (reported when exporting models)
-                continue
-            pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
-            scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
-            m = styles.model(r[0])
-            dims = [d * s for d, s in zip(export_models.model_dims(m), scale)]
-            sun_amount = sky.sun_amount(o["pos"], sun["dir"], modellight.euler_right(o["rot"]),
-                                        float(np.linalg.norm(dims))) if sky else 0.0
-            models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
-                           "pieces": pieces, "dims": dims, "visRadius": m.vis_radius, "sunAmount": sun_amount})
+        scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
+        add_model(i, r, scale)
+        # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
+        # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
+        # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
+        # border the game shows around the bin's glass.
+        if r and o["cls"] == "ArchiveBin":
+            add_model(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1])
 
     meta = {
         "version": FORMAT_VERSION,

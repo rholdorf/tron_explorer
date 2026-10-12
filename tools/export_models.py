@@ -74,13 +74,6 @@ class Resolver:
         return None
 
 
-# Render styles the game evidently doesn't draw as the file reads. props/rs/archivecube.ltb (ArchiveBin
-# slot 0) is additive and alpha-tests away the texture's dark border, so it can't darken what's behind;
-# the game shows a dark frame over translucent glass, which is the bin's slot 1 style, alpha_chrome.
-# Why the game ends up there (ArchiveBin code, or the engine rejecting ColorOp 19) is still open.
-STYLE_OVERRIDES = {"props/rs/archivecube.ltb": "rs/alpha_chrome.ltb"}
-
-
 class Styles:
     """Compiles the render styles a level's model pieces draw with (renderstyle.compile_style) into
     the level's style table. A style the model shader can't draw stops the export."""
@@ -128,7 +121,6 @@ class Styles:
             if mesh.indices is None or not mesh.streams or mesh.field("pos") is None:
                 continue
             name = styles[style] if 0 <= style < len(styles) else ""
-            name = STYLE_OVERRIDES.get(name, name)
             c = self.compile(name)
             if c["name"] not in index:
                 index[c["name"]] = len(table)
