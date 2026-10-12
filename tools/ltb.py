@@ -214,7 +214,10 @@ def load(path):
     m.command = r.str()
     m.vis_radius = r.f32()
     n_obb = r.u32()
-    r.p += n_obb * (64 if m.version >= 24 else 60)  # oriented bounding boxes (hit detection)
+    # Oriented bounding boxes (hit detection): pos, size, basis[3], u32 node. Built without MODEL_OBB the
+    # engine skips sizeof(ModelOBB) (64 bytes) per box whatever the version (Model::Load); seeker,
+    # m0204_jet and pv_energyclaw are v23 files laid out that way.
+    r.p += n_obb * 64
     m.pieces = []
     for _ in range(r.u32()):
         p = Piece()
