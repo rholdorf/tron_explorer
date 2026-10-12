@@ -17,6 +17,7 @@
 // MaterialPropertyBlock): the light grid sample, the static object lights and the sun.
 // The glow buffer draws the style's [GlowRSMap] replacement pass (black when unmapped); two alpha-blended
 // glow passes fold into one premultiplied draw (_PG.y = 2, second pass in _H*, Blend One OneMinusSrcAlpha).
+// Glow draws are fogged towards black with the glow fog (_LTFogParams holds ScreenGlowFog* then).
 Shader "Tron/Model"
 {
     Properties
@@ -192,11 +193,11 @@ Shader "Tron/Model"
                         bool pass1 = AlphaPass(g1.a, _PH.z, _PH.w);
                         if (!pass0 && !pass1) discard;
                         float a0 = pass0 ? saturate(g.a) : 0, a1 = pass1 ? saturate(g1.a) : 0;
-                        return float4(lerp(g.rgb * a0, g1.rgb, a1), 1 - (1 - a0) * (1 - a1));
+                        return float4(lerp(g.rgb * a0, g1.rgb, a1) * i.fog, 1 - (1 - a0) * (1 - a1));
                     }
                     if (!pass0) discard;
                     if (_PG.y > 0) g = float4(g.rgb * g.a, 1);
-                    return g;
+                    return float4(g.rgb * i.fog, g.a);
                 }
                 if (_P0.x < 0) discard;
                 float4 c = EvalPass(_S0a, _S0b, _S1a, _S1b, _TF0, _P0.x, i);

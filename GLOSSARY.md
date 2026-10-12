@@ -126,6 +126,10 @@ _Avoid_: logic object, controller
 A `CommandObject`: a timeline that runs its commands at set times after it is started.
 _Avoid_: sequence, cutscene (cutscenes also need cameras and dialogue)
 
+**Event counter**:
+An `EventCounter`: a count that `inc` and `dec` messages step, running the command set for each value it reaches; Tron's `reset` puts it back to its starting value.
+_Avoid_: counter variable (the command language's variables are something else)
+
 **Door**:
 A `SlidingDoor` or `RotatingDoor`: a world model that opens and closes on use or on messages, playing a sound and running a command as it starts and finishes each move. Lifts are doors.
 _Avoid_: gate, elevator (an elevator is a door that moves up)
@@ -141,3 +145,15 @@ _Avoid_: activate (that is also a message), interact
 **Permission set**:
 One of eight keys (`Key1`..`Key8`) a door, switch or other object can require; the player gets them from archive bins or scripts. The viewer grants all of them.
 _Avoid_: keycard, access level
+
+**Teleport**:
+The player's move to a `TeleportPoint` on a `teleport` message: on its next update, facing the point's pitch and yaw, dropped to the floor, stopped.
+_Avoid_: warp, respawn (the viewer's R/T keys pick a start point, not a teleport)
+
+**Screen fade**:
+The black overlay `fadein`/`fadeout` ease over a time; after a fade-out the screen stays black until a fade-in.
+_Avoid_: blackout, transition
+
+**Render variable**:
+A client console variable the renderer reads every frame (fog color and distances, FarZ, sky and glow fog, glow filter). Ramps and sines move it; a WorldProperties message copies every world variable back from the level's values.
+_Avoid_: cvar alone (most console variables aren't render variables), world property (that's the server's copy)

@@ -1,7 +1,8 @@
 // Reproduces the LithTech Jupiter fixed-function world shaders (d3d_rendershader_gouraud.cpp):
 //   base    = texture * vertexColor * 2          (Saturate=1 -> D3DTOP_MODULATE2X; vertex color = baked lighting)
 //   fullbright DTX: lerp(lit, texture, texture.a) (d3d_rendershader_gouraud_fullbright.cpp)
-//   glow pass (_LTGlowPass): fullbright -> texture.rgb * texture.a, everything else black
+//   glow pass (_LTGlowPass): fullbright -> texture.rgb * texture.a, everything else black; fogged towards
+//            black with the glow fog (_LTFogParams holds ScreenGlowFog* while the glow camera draws)
 //   envmap  = (texture ADDSIGNED env) * diffuse  (EnvMapAdd=1; EnvMapAlpha masks env by texture alpha)
 //   detail  = (texture ADDSIGNED detail) * diffuse
 //   lightmap (shader lightmap_texture, d3d_rendershader_lightmap.cpp): the game draws the lightmap,
@@ -159,9 +160,9 @@ Shader "Tron/World"
                 float a = tex.a * i.color.a * _Alpha;
                 if (_LTGlowPass > 0)
                 {
-                    // Glow buffer is kept in gamma space; fogged towards black like ScreenGlowFog.
+                    // Glow buffer is kept in gamma space; fogged towards black (screenglowmgr.cpp).
                     float3 g = _Fullbright > 0 ? tex.rgb * tex.a : 0;
-                    return float4(g, a);
+                    return float4(g * i.fog, a);
                 }
                 float sat = max(_LTSaturate, 1);
                 if (_UseLightmap > 0)
