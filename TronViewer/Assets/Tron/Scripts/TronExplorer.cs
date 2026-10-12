@@ -288,6 +288,10 @@ namespace Tron
         // The level's command-manager id of the player (handlers: level.Commands.Handle(PlayerId, ...)).
         public int PlayerId { get; private set; } = -1;
 
+        // The loaded level's command manager (null before a load), e.g. to run a command by hand:
+        // FindFirstObjectByType<TronExplorer>().Commands.Run("msg player (fadeout 1)").
+        public CommandMgr Commands => level?.Commands;
+
         // The console report of the commands and messages nobody handled in this level so far.
         void LogCommandReport()
         {
