@@ -33,11 +33,11 @@ namespace Tron
         }
 
         // AudioSource.volume for a sound `distance` LT units from the listener. Silent beyond earshot
-        // (1.5 x OuterRadius, where the engine gives it no voice), at Volume 0, and at the curve's
-        // -100 dB floor (DSBVOLUME_MIN).
+        // (1.5 x OuterRadius, where the engine gives it no voice, even inside a larger InnerRadius), at
+        // Volume 0, and at the curve's -100 dB floor (DSBVOLUME_MIN).
         public static float Gain(int volume, float inner, float outer, float distance, float master, float front = 1)
         {
-            if (volume <= 0 || distance > 1.5f * outer && distance > inner) return 0;
+            if (volume <= 0 || distance > 1.5f * outer) return 0;
             double db = Decibels(volume, Falloff(distance, inner, outer) * front, master);
             return db <= -100 ? 0 : (float)Math.Pow(10, db / 20);
         }
