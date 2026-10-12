@@ -42,6 +42,6 @@ def test_no_retail_world_has_a_dual_texture_section_with_a_second_texture(extrac
         for rw in [w.render] + list(w.render.world_models):
             for b in rw.blocks:
                 for s in b.sections:
-                    if s.shader in (8, 9):
+                    if s.shader in export_level.DUAL_TEXTURE_SHADERS:
                         found.setdefault(os.path.basename(f), set()).add((s.shader, s.textures[1]))
     assert found == {"intro.dat": {(8, "")}, "m01-01.dat": {(8, "")}}
