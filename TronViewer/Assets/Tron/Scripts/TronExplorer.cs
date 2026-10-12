@@ -238,6 +238,7 @@ namespace Tron
             var match = levels.FirstOrDefault(l => l == name) ?? levels.FirstOrDefault(l => l.EndsWith(name));
             if (match == null) { status = $"Fase {name} não encontrada"; return; }
             var sw = Stopwatch.StartNew();
+            LogCommandReport();
             level?.Destroy();
             DtxLoader.ClearCache();
             if (testSound) Destroy(testSound.gameObject);
@@ -253,6 +254,8 @@ namespace Tron
                 status = $"Erro ao carregar {match}: {e.Message}";
                 return;
             }
+            // The player answers to "player" (and "ActivePlayer"); its messages count as class Player.
+            PlayerId = level.Commands.Join("player", "Player");
             ApplyWorldProperties();
             Spawn();
             status = $"{match}: {sw.ElapsedMilliseconds} ms, {level.MissingTextures.Count} texturas ausentes";
@@ -261,6 +264,17 @@ namespace Tron
                 Debug.LogWarning($"{match}: {SoundLoader.Missing.Count} sons ausentes\n" + string.Join("\n", SoundLoader.Missing));
             menuOpen = false;
         }
+
+        // The level's command-manager id of the player (handlers: level.Commands.Handle(PlayerId, ...)).
+        public int PlayerId { get; private set; } = -1;
+
+        // The console report of the commands and messages nobody handled in this level so far.
+        void LogCommandReport()
+        {
+            if (level?.Commands != null) Debug.Log(level.Commands.Report(level.Data.name));
+        }
+
+        void OnApplicationQuit() => LogCommandReport();
 
         void ApplyWorldProperties()
         {
@@ -325,6 +339,7 @@ namespace Tron
                 UpdateUiScaleInput(kb);
                 if (kb.rKey.wasPressedThisFrame && level != null && !menuOpen) Spawn();
                 if (kb.tKey.wasPressedThisFrame && level != null && !menuOpen) Spawn(spawnIndex + 1);
+                if (kb.lKey.wasPressedThisFrame && level != null && !menuOpen) LogCommandReport();
             }
             bool playing = !menuOpen && level != null;
             Cursor.lockState = playing ? CursorLockMode.Locked : CursorLockMode.None;
@@ -439,7 +454,7 @@ namespace Tron
             if (showHelp)
             {
                 var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · " +
-                                          "G glow · M som · R reiniciar · T próximo ponto · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
+                                          "G glow · M som · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }
