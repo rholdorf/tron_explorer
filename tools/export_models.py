@@ -82,8 +82,7 @@ class Resolver:
         for k in range(1, 7):
             t = string(p, f"type{k}").strip().lower()
             if t in BIN_ITEM_TYPES:
-                out.append((f"Socket{len(out) + 1}",
-                            {0: "SubroutineBerry", 3: "PSetBerry"}.get(BIN_ITEM_TYPES.index(t), "DocumentBerry")))
+                out.append((f"Socket{len(out) + 1}", BERRY_TEMPLATES.get(BIN_ITEM_TYPES.index(t), "DocumentBerry")))
         return out
 
     @staticmethod
@@ -220,6 +219,8 @@ class Resolver:
 
 
 BIN_ITEM_TYPES = ["subroutine", "procedural", "primitive", "permission set", "email", "custom", "helpfile"]
+# Bin item type (index in BIN_ITEM_TYPES) -> the berry's modelbutes.txt template; any other is DocumentBerry.
+BERRY_TEMPLATES = {0: "SubroutineBerry", 3: "PSetBerry"}
 
 
 # CHumanAttachments' positions (attachments.cpp), plus Tron's rod positions (CAIHuman level properties).
