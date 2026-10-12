@@ -19,6 +19,7 @@ namespace Tron
         public int blockerCollider;
         public WorldModelJson[] worldModels;
         public SpinnerJson[] spinners;       // spinners live at start (tools/spinner.py)
+        public SoundFXJson[] soundFX;        // SoundFX that start on (tools/ambient.py)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public RenderStyleJson[] renderStyles;
@@ -87,6 +88,10 @@ namespace Tron
     // A SpinningWorldModel that starts on: its world model, final angular velocity per axis (rad/s, pitch
     // yaw roll in its own frame), the spin-up time (s) and its curve (0 Linear, 1 Sine, 2 SlowOff, 3 SlowOn).
     [Serializable] public class SpinnerJson { public string worldModel; public float[] velocity; public float powerOnTime; public int waveform; }
+
+    // A SoundFX that starts on: the game's file path, radii (LT units), Volume 0-100, PitchShift, the
+    // engine's Priority, ambient (unpanned) and loop as 0/1.
+    [Serializable] public class SoundFXJson { public string name, file; public float[] pos; public float inner, outer, pitch; public int volume, priority, ambient, loop; }
 
     [Serializable] public class PropJson { public string k, t, s; public float[] v; }
 

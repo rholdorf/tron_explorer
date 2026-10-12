@@ -257,6 +257,8 @@ namespace Tron
             Spawn();
             status = $"{match}: {sw.ElapsedMilliseconds} ms, {level.MissingTextures.Count} texturas ausentes";
             Debug.Log(status + (level.MissingTextures.Count > 0 ? "\n" + string.Join("\n", level.MissingTextures.Take(30)) : ""));
+            if (SoundLoader.Missing.Count > 0)
+                Debug.LogWarning($"{match}: {SoundLoader.Missing.Count} sons ausentes\n" + string.Join("\n", SoundLoader.Missing));
             menuOpen = false;
         }
 

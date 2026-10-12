@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 12;
+        public const int FormatVersion = 13;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -89,6 +89,7 @@ namespace Tron
             BuildWorldModels();
             bin = null;
             BuildModels(exportRoot);
+            BuildSoundFX();
         }
 
         // One RGBA atlas of all section lightmaps (see tools/export_level.py); raw values, like the DTX path.
@@ -536,6 +537,25 @@ namespace Tron
                 if (go.GetComponentInChildren<Collider>() != null)
                     go.AddComponent<Rigidbody>().isKinematic = true;
                 go.AddComponent<Spinner>().Init(s);
+            }
+        }
+
+        // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
+        // engine's falloff and volume (AmbientSound). A file missing from the export is skipped and listed
+        // in SoundLoader.Missing.
+        void BuildSoundFX()
+        {
+            if (Data.soundFX == null || Data.soundFX.Length == 0) return;
+            var parent = new GameObject("SoundFX");
+            parent.transform.SetParent(Root.transform, false);
+            foreach (var s in Data.soundFX)
+            {
+                var clip = SoundLoader.Load(s.file);
+                if (!clip) continue;
+                var go = new GameObject(s.name);
+                go.transform.SetParent(parent.transform, false);
+                go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
+                AmbientSound.Add(go, s.inner, s.outer, s.volume, s.ambient != 0, s.priority).Play(clip, s.loop != 0, s.pitch);
             }
         }
 
