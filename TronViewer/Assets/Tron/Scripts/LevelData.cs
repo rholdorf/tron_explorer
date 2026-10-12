@@ -20,10 +20,27 @@ namespace Tron
         public WorldModelJson[] worldModels;
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
+        public RenderStyleJson[] renderStyles;
     }
 
-    // A level object that shows a model: object index, model file, skin and render style slots.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; }
+    // A level object that shows a model: object index, model file, skin and render style slots,
+    // and per exported piece its render style (index into renderStyles) and texture list.
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; }
+    [Serializable] public class PieceStyleJson { public int style; public string[] tex; }
+
+    // A render style compiled for the model shader (tools/renderstyle.py compile_style).
+    [Serializable] public class RenderStyleJson
+    {
+        public string name;
+        public int[] blend;          // Unity BlendMode src, dst
+        public int zwrite, ztest, cull;
+        public RenderStyleMaterialJson material;
+        public RenderPassJson[] passes;
+        public RenderPassJson glow;
+    }
+    [Serializable] public class RenderStyleMaterialJson { public float[] ambient, diffuse, emissive; }
+    // stages: 2 stages x (colorOp, colorArg1, colorArg2, texture slot, alphaOp, alphaArg1, alphaArg2, uv set)
+    [Serializable] public class RenderPassJson { public float[] stages, tfactor, alphaTest; public int lit, blendOver; }
 
     [Serializable] public class MaterialJson { public string tex, tex2, effect; public int shader; }
     [Serializable] public class SubMeshJson { public int mat, start, count; }

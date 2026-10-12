@@ -15,6 +15,7 @@ import numpy as np
 
 import butes
 import ltb
+import renderstyle
 
 FORMAT_VERSION = 1
 
@@ -71,6 +72,70 @@ class Resolver:
         if cls in ("Prop", "Alarm") and s("Filename"):
             return norm(s("Filename")), self._skins(s("Skin")), []
         return None
+
+
+# Render styles the game evidently doesn't draw as the file reads. props/rs/archivecube.ltb (ArchiveBin
+# slot 0) is additive and alpha-tests away the texture's dark border, so it can't darken what's behind;
+# the game shows a dark frame over translucent glass, which is the bin's slot 1 style, alpha_chrome.
+# Why the game ends up there (ArchiveBin code, or the engine rejecting ColorOp 19) is still open.
+STYLE_OVERRIDES = {"props/rs/archivecube.ltb": "rs/alpha_chrome.ltb"}
+
+
+class Styles:
+    """Compiles the render styles a level's model pieces draw with (renderstyle.compile_style) into
+    the level's style table. A style the model shader can't draw stops the export."""
+
+    def __init__(self, extracted):
+        self.extracted = extracted
+        glow = butes.load(os.path.join(extracted, "attributes", "clientbutes.txt"))["GlowRSMap"]
+        self.glow_default = norm(glow["glowdefaultrs"])
+        self.glow_map = {norm(glow[f"glowmaprs{i}"]): norm(glow[f"glowmaprsto{i}"])
+                         for i in range(len(butes.indexed(glow, "glowmaprs")))}
+        self.compiled = {}
+        self.models = {}
+
+    def model(self, rel):
+        if rel not in self.models:
+            self.models[rel] = ltb.load(os.path.join(self.extracted, rel))
+        return self.models[rel]
+
+    def _load(self, rel):
+        path = os.path.join(self.extracted, rel)
+        return renderstyle.load(path) if rel and os.path.isfile(path) else None
+
+    def compile(self, rel):
+        """rel = '' or a missing file: the engine's backup style (CD3DRenderStyle::SetDefaults)."""
+        if rel not in self.compiled:
+            s = self._load(rel)
+            name = rel if s else "<default>"
+            c = renderstyle.compile_style(s or renderstyle.default_style(), name)
+            glow = self.glow_map.get(rel, self.glow_default) if s else self.glow_default
+            g = self._load(glow)
+            if g is None:
+                raise ValueError(f"{name}: glow style {glow} not found")
+            # Mapped to itself: the glow buffer gets the style's own first pass, blend included.
+            c["glow"] = dict(c["passes"][0], blendOver=0) if glow == rel else renderstyle.compile_glow(g, glow)
+            c["name"] = name
+            self.compiled[rel] = c
+        return self.compiled[rel]
+
+    def instance_pieces(self, rel, skins, styles, table, index):
+        """Per exported piece of the model: its style (index into `table`) and its texture list
+        (ModelPiece::m_iTextures -> instance skins; QueuePiece)."""
+        out = []
+        for p in self.model(rel).pieces:
+            textures, style, _prio, mesh, _used = p.lods[0]
+            if mesh.indices is None or not mesh.streams or mesh.field("pos") is None:
+                continue
+            name = styles[style] if 0 <= style < len(styles) else ""
+            name = STYLE_OVERRIDES.get(name, name)
+            c = self.compile(name)
+            if c["name"] not in index:
+                index[c["name"]] = len(table)
+                table.append(c)
+            out.append({"style": index[c["name"]],
+                        "tex": [skins[t] if 0 <= t < len(skins) else "" for t in textures]})
+        return out
 
 
 def export_model(extracted, rel, out_root):

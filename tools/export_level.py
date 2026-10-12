@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import dat85  # noqa: E402
 import export_models  # noqa: E402
 
-FORMAT_VERSION = 4
+FORMAT_VERSION = 5
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -294,7 +294,7 @@ def encode_prop(k, v):
     return {"k": k, "t": "n", "s": "", "v": [float(v)]}
 
 
-def export(dat_path, out_dir, rel_name, resolver, extracted):
+def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
     w = dat85.load(dat_path)
     wr = Writer()
 
@@ -332,12 +332,18 @@ def export(dat_path, out_dir, rel_name, resolver, extracted):
         })
 
     # Model instances: objects that show an .ltb the exporter can find (see export_models.Resolver).
-    models = []
+    models, render_styles, style_index = [], [], {}
     for i, o in enumerate(objects):
         r = resolver.resolve(o)
         if r and os.path.isfile(os.path.join(extracted, r[0])):
+            try:
+                styles.model(r[0])
+            except Exception:  # noqa: BLE001 - the model doesn't parse (reported when exporting models)
+                continue
+            pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
             scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
-            models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale})
+            models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
+                           "pieces": pieces})
 
     meta = {
         "version": FORMAT_VERSION,
@@ -353,6 +359,7 @@ def export(dat_path, out_dir, rel_name, resolver, extracted):
         "worldModels": world_models,
         "objects": objects,
         "models": models,
+        "renderStyles": render_styles,
     }
     wr.finish_lightmaps()
     meta["lightmap"] = list(wr.lm_atlas.shape[1::-1]) if wr.lm_atlas is not None else [0, 0]
@@ -370,13 +377,14 @@ def main():
     only = sys.argv[3:]
     index = []
     resolver = export_models.Resolver(root)
+    styles = export_models.Styles(root)
     model_files = set()
     worlds_dir = os.path.join(root, "worlds")
     for dat in sorted(glob.glob(os.path.join(worlds_dir, "**", "*.dat"), recursive=True)):
         rel = os.path.relpath(dat, worlds_dir)[:-4]
         if only and not any(s in rel for s in only):
             continue
-        meta = export(dat, os.path.join(out_root, "levels", rel), rel, resolver, root)
+        meta = export(dat, os.path.join(out_root, "levels", rel), rel, resolver, styles, root)
         tris = sum(s["count"] for m in meta["meshes"] for s in m["subs"]) // 3
         print(f"{rel:45} meshes={len(meta['meshes']):4} tris={tris:7} colliders={len(meta['colliders']):4} "
               f"objects={len(meta['objects'])} models={len(meta['models'])}")

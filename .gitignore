@@ -48,3 +48,7 @@ crashlytics-build.properties
 
 # macOS
 .DS_Store
+
+# Real-game reference screenshots: copyrighted, never commit
+/reference/
+/.claude/worktrees/

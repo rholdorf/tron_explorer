@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 4;
+        public const int FormatVersion = 5;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family).
@@ -48,14 +48,15 @@ namespace Tron
         Material[] materials;
         readonly Dictionary<(int, string, float, int, bool), Material> blendedMaterials = new Dictionary<(int, string, float, int, bool), Material>();
         readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
-        Shader shader;
+        Shader shader, modelShader;
         Texture2D lightmapAtlas;
         byte[] bin;
         int vtxBase, idxBase, cvtxBase, cidxBase;
 
-        public void Build(string levelDir, Shader worldShader, string exportRoot)
+        public void Build(string levelDir, Shader worldShader, Shader modelShader, string exportRoot)
         {
             shader = worldShader;
+            this.modelShader = modelShader;
             Data = JsonUtility.FromJson<LevelJson>(File.ReadAllText(Path.Combine(levelDir, "level.json")));
             if (Data.version != FormatVersion) throw new Exception($"level format v{Data.version}, expected v{FormatVersion}: re-run tools/export_level.py");
             bin = File.ReadAllBytes(Path.Combine(levelDir, "level.bin"));
@@ -164,12 +165,17 @@ namespace Tron
             if (Data.models == null || Data.models.Length == 0) return;
             var root = new GameObject("Models");
             root.transform.SetParent(Root.transform, false);
-            var skinMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
+            var styleMaterials = new Dictionary<(int, string, string), Material>();
             var models = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
             foreach (var inst in Data.models)
             {
                 var model = ModelLibrary.Load(exportRoot, inst.file, models, owned);
                 if (model == null) continue;
+                if (inst.pieces == null || inst.pieces.Length != model.data.pieces.Length)
+                {
+                    Debug.LogWarning($"Model {inst.file}: {inst.pieces?.Length ?? 0} piece styles for {model.data.pieces.Length} pieces");
+                    continue;
+                }
                 var obj = Data.objects[inst.obj];
                 var go = new GameObject($"{obj.name} [{obj.cls}: {inst.file}]");
                 go.transform.SetParent(root.transform, false);
@@ -177,15 +183,14 @@ namespace Tron
                 go.transform.localRotation = obj.Rotation;
                 if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
                 go.AddComponent<MeshFilter>().sharedMesh = model.mesh;
-                var mats = new Material[model.data.pieces.Length];
+                var mats = new Material[inst.pieces.Length];
                 for (int i = 0; i < mats.Length; i++)
                 {
-                    // Texture stage 0 names the skin slot (ModelPiece::m_iTextures).
-                    var t = model.data.pieces[i].textures;
-                    int slot = t != null && t.Length > 0 ? t[0] : 0;
-                    string skin = inst.skins != null && slot >= 0 && slot < inst.skins.Length ? inst.skins[slot] : "";
-                    if (!skinMaterials.TryGetValue(skin, out var m))
-                        skinMaterials[skin] = m = CreateMaterial(skin);
+                    var p = inst.pieces[i];
+                    string t1 = p.tex != null && p.tex.Length > 0 ? p.tex[0] : "", t2 = p.tex != null && p.tex.Length > 1 ? p.tex[1] : "";
+                    var key = (p.style, t1, t2);
+                    if (!styleMaterials.TryGetValue(key, out var m))
+                        styleMaterials[key] = m = CreateModelMaterial(Data.renderStyles[p.style], t1, t2);
                     mats[i] = m;
                 }
                 var mr = go.AddComponent<MeshRenderer>();
@@ -196,6 +201,48 @@ namespace Tron
                 mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
             }
         }
+
+        // A Tron/Model material for one compiled render style and the piece's texture list.
+        Material CreateModelMaterial(RenderStyleJson rs, string tex1, string tex2)
+        {
+            var m = new Material(modelShader) { name = $"{rs.name} {tex1}" };
+            owned.Add(m);
+            foreach (var (prop, tex) in new[] { ("_Tex1", tex1), ("_Tex2", tex2) })
+            {
+                if (string.IsNullOrEmpty(tex)) continue;
+                var t = DtxLoader.Load(tex);
+                if (t != null) m.SetTexture(prop, t.tex);
+                else MissingTextures.Add(tex);
+            }
+            SetPass(m, "_S", rs.passes[0], "_TF0", "_P0");
+            if (rs.passes.Length > 1) SetPass(m, "_T", rs.passes[1], "_TF1", "_P1");
+            SetPass(m, "_G", rs.glow, "_TFG", "_PG");
+            m.SetVector("_MatDiffuse", Vec(rs.material.diffuse));
+            m.SetVector("_MatEmissive", Vec(rs.material.emissive));
+            m.SetVector("_MatAmbient", Vec(rs.material.ambient));
+            m.SetFloat("_SrcBlend", rs.blend[0]);
+            m.SetFloat("_DstBlend", rs.blend[1]);
+            m.SetFloat("_ZWrite", rs.zwrite);
+            m.SetFloat("_ZTest", rs.ztest);
+            m.SetFloat("_Cull", rs.cull);
+            // Blended styles draw after the opaque world, like the engine's translucent model list.
+            if (rs.blend[0] != (int)BlendMode.One || rs.blend[1] != (int)BlendMode.Zero) m.renderQueue = (int)RenderQueue.Transparent;
+            else if (rs.passes[0].alphaTest[0] != 0) m.renderQueue = (int)RenderQueue.AlphaTest;
+            return m;
+        }
+
+        static void SetPass(Material m, string stagePrefix, RenderPassJson p, string tf, string flags)
+        {
+            var s = p.stages;
+            m.SetVector(stagePrefix + "0a", new Vector4(s[0], s[1], s[2], s[3]));
+            m.SetVector(stagePrefix + "0b", new Vector4(s[4], s[5], s[6], s[7]));
+            m.SetVector(stagePrefix + "1a", new Vector4(s[8], s[9], s[10], s[11]));
+            m.SetVector(stagePrefix + "1b", new Vector4(s[12], s[13], s[14], s[15]));
+            m.SetVector(tf, Vec(p.tfactor));
+            m.SetVector(flags, new Vector4(p.lit, p.blendOver, p.alphaTest[0], p.alphaTest[1]));
+        }
+
+        static Vector4 Vec(float[] v) => new Vector4(v[0], v[1], v[2], v[3]);
 
         // skySlot >= 0: sky object drawn painter-style in SkyPointer.Index order with no Z buffer
         // (d3d_drawsky.cpp disables Z read/write for the whole sky pass).

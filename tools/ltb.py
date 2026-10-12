@@ -167,7 +167,7 @@ class Piece:
     def __init__(self):
         self.name = ""
         self.lod_dists = []
-        self.lods = []         # (textures[4], renderStyle, renderPriority, Mesh, usedNodes)
+        self.lods = []         # (textures[nTextures], renderStyle, renderPriority, Mesh, usedNodes)
 
 
 class Node:
@@ -223,8 +223,8 @@ def load(path):
         p.lod_dists = list(r.fmt(f"<{n_lods}f"))
         r.p += 8
         for _ in range(n_lods):
-            _n_tex = r.u32()
-            textures = list(r.fmt("<4i"))
+            n_tex = r.u32()
+            textures = list(r.fmt("<4i"))[:n_tex]   # skin slots of the piece's texture list
             style = r.i32()
             priority = r.u8()
             kind = r.u32()

@@ -13,7 +13,7 @@ namespace Tron
     // Entry point: level menu, loading, sky/world cameras, fog, HUD.
     public class TronExplorer : MonoBehaviour
     {
-        public Shader worldShader, glowBlurShader, glowCompositeShader;
+        public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader;
 
         string extractedRoot, exportRoot;
         string[] levels = Array.Empty<string>();
@@ -33,6 +33,7 @@ namespace Tron
         void Start()
         {
             if (!worldShader) worldShader = Shader.Find("Tron/World");
+            if (!modelShader) modelShader = Shader.Find("Tron/Model");
             uiAdjust = PlayerPrefs.GetFloat(UiScalePref, 1f);
             ResolveRoots();
             DtxLoader.Root = extractedRoot;
@@ -217,7 +218,7 @@ namespace Tron
             level = new LevelBuilder();
             try
             {
-                level.Build(Path.Combine(exportRoot, "levels", match), worldShader, exportRoot);
+                level.Build(Path.Combine(exportRoot, "levels", match), worldShader, modelShader, exportRoot);
             }
             catch (Exception e)
             {

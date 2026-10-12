@@ -149,6 +149,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Tron.TronExplorer
   worldShader: {fileID: 4800000, guid: 8f55e19c522444efc95dadeb005a7006, type: 3}
+  modelShader: {fileID: 4800000, guid: 24dcb9a7a1f44b6c93bcc20fd49ee6d6, type: 3}
   glowBlurShader: {fileID: 4800000, guid: 52761ce732de3448ea2e4ebf46891e1f, type: 3}
   glowCompositeShader: {fileID: 4800000, guid: a5425a5cf1e094c7b99e386d535e8d44, type: 3}
 --- !u!4 &1700072705
