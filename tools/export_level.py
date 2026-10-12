@@ -27,6 +27,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
+import ambient  # noqa: E402
 import animation  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
@@ -34,7 +35,6 @@ import floor  # noqa: E402
 import keyframer  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
-import ambient  # noqa: E402
 import sounds  # noqa: E402
 import spinner  # noqa: E402
 
