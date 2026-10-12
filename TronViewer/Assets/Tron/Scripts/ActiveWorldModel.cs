@@ -104,7 +104,7 @@ namespace Tron
 
         public readonly Settings S;
         readonly IHost host;
-        readonly int self, player;
+        readonly int self;
         readonly LTQuat initRot;
         readonly LTVec moveDir, initOnAngles, initRotDir, rotPtOffset;
         LTVec originalPos, offPos, onPos, pausePos, rotationPt;
@@ -120,6 +120,7 @@ namespace Tron
         public bool Locked { get; private set; }
         public int Activator { get; private set; } = -1;   // m_hActivateObj
         public ActiveWorldModel Link;                       // DoorLink, resolved by the host
+        public int Player { get; set; }                     // the player's command-manager id
         // The use prompt's state (ActivateTypeHandler): on while on or powering on.
         public bool PromptOn => Current == State.On || Current == State.PowerOn || (Current == State.Pause && (lastState == State.PowerOn));
 
@@ -130,7 +131,7 @@ namespace Tron
             S = s;
             this.host = host;
             this.self = self;
-            this.player = player;
+            Player = player;
             Locked = s.Locked;
             Pos = originalPos = offPos = pos;
             initRot = LTQuat.FromEuler(pyr.x, pyr.y, pyr.z);
@@ -195,7 +196,7 @@ namespace Tron
         // PlayerActivate. Tron's permission-set gate always passes: the viewer grants every set.
         public void Activate(int obj)
         {
-            if (obj < 0 || obj != player || !S.PlayerActivate) return;
+            if (obj < 0 || obj != Player || !S.PlayerActivate) return;
             Activator = obj;
             HandleTriggerMsg();
         }
@@ -459,11 +460,11 @@ namespace Tron
         // Rotating: a player it would turn away from (the activator's case) doesn't count.
         bool HitsPlayer(LTVec pos, LTQuat rot, bool activatorOnly)
         {
-            if (activatorOnly && Activator != player) return false;
+            if (activatorOnly && Activator != Player) return false;
             if (!host.PlayerInside(pos, rot)) return false;
             if (S.Type != Kind.Rotating) return true;
-            if (!activatorOnly && Activator != player) return true;
-            var p = host.PositionOf(player) ?? pos;
+            if (!activatorOnly && Activator != Player) return true;
+            var p = host.PositionOf(Player) ?? pos;
             return !(Dist2(p, Pos) <= Dist2(p, pos));
         }
 

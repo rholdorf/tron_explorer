@@ -9,7 +9,7 @@ namespace Tron
 {
     // Builds a Unity hierarchy from an exported level (level.json + level.bin).
     // Geometry stays in LithTech units under a root scaled by LT.Scale.
-    public class LevelBuilder
+    public partial class LevelBuilder
     {
         public const int SkyLayer = 30;
         public const int FormatVersion = 18;
@@ -91,6 +91,7 @@ namespace Tron
             if (Data.blockerCollider >= 0) AddCollider(world.transform, Data.blockerCollider, "Blockers");
 
             BuildWorldModels();
+            BuildActiveWorldModels();   // LevelBuilderDoors.cs
             bin = null;
             BuildModels(exportRoot);
             BuildSoundFX();
