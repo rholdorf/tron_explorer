@@ -93,7 +93,7 @@ A `SpinningWorldModel`: a world model that keeps rotating at set speeds per axis
 _Avoid_: rotator (`RotatingWorldModel` is a different class, rotated on command)
 
 **Keyframer**:
-A `KeyFramer`: an object that moves its target world models along a path of keys.
+A `KeyFramer`: an object that moves its target objects (world models, props, characters) along a path of keys. Its keys can send it commands (pause, resume, reverse, go to a key), which is how a path waits or ping-pongs.
 _Avoid_: animation (that is for models), mover, path follower
 
 **Startup command**:
