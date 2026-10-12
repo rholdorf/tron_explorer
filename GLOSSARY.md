@@ -29,6 +29,22 @@ A model carried at a socket of a character, such as a weapon or a disc.
 A model whose animations another model borrows (for example, a character's base animation set).
 _Avoid_: animation file, anim pack
 
+**Socket**:
+A named point on a model's node where an attachment hangs.
+_Avoid_: mount point, bone (a socket rides on a node but isn't one)
+
+**Animation**:
+A named, keyframed set of node transforms stored in a model or borrowed from a child model; a character's **idle** is the animation it plays when standing.
+_Avoid_: clip (that is the viewer's container for it), anim pack
+
+**Spawner template**:
+A level object with `Template` set: kept only as a pattern for spawners and never created in the level itself.
+_Avoid_: prefab, archetype
+
+**MoveToFloor**:
+The engine rule that drops an object straight down onto the floor below it when it starts higher than its own half-height.
+_Avoid_: snapping, grounding
+
 **Render style**:
 A type-5 `.ltb` that describes how a model piece is drawn: blending, fullbright, environment (chrome) and passes.
 _Avoid_: material, shader (those are the viewer's side)
