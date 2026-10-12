@@ -69,3 +69,29 @@ _Avoid_: dynamic light (that is a runtime light object, such as a muzzle flash)
 
 **Sun**:
 The level's `StaticSunLight`: a directional light on models, scaled by how much sky each model sees toward it.
+
+### Living level
+
+**Live at start**:
+What a level does on its own from the moment it loads, with nothing from the player and no command: objects that start on (`StartOn`, `StartActive`).
+_Avoid_: autoplay, idle (idle is a character animation)
+
+**Ambient sound**:
+A sound placed in a level that is live at start: a `SoundFX` that starts on, a `SoundButeFX`, or the sound of an active keyframer.
+_Avoid_: background music (music is separate), SFX (too broad)
+
+**World model**:
+A piece of level geometry that belongs to an object instead of the static world, so it can move: doors, spinners, keyframer targets.
+_Avoid_: model (that is an `.ltb`), brush
+
+**Spinner**:
+A `SpinningWorldModel`: a world model that keeps rotating at set speeds per axis.
+_Avoid_: rotator (`RotatingWorldModel` is a different class, rotated on command)
+
+**Keyframer**:
+A `KeyFramer`: an object that moves its target world models along a path of keys.
+_Avoid_: animation (that is for models), mover, path follower
+
+**Startup command**:
+The command a level runs when it loads (`StartupCommand`). It goes through the command language, so it is behavior, not live at start.
+_Avoid_: init script, level script
