@@ -23,7 +23,15 @@ The named entry in the model attribute file that says which model, skins, render
 _Avoid_: model bute, character definition
 
 **Attachment**:
-A model carried at a socket of a character, such as a weapon or a disc.
+A model carried at a socket of a character or a prop: a character's weapon or disc, an archive bin's berries, a tank's turret.
+
+**Hand-held model**:
+The model a weapon shows in a character's hand (the weapon's `HHModel`, with its own skins and render styles); a weapon without one is hidden.
+_Avoid_: weapon model, HH model, world model (that is level geometry)
+
+**Berry**:
+The model an archive bin shows for each item it holds, attached at one of the bin's item sockets; its look says the item's type (subroutine, permission set, or any other as a document).
+_Avoid_: item (that is what the berry stands for), cube
 
 **Child model**:
 A model whose animations another model borrows (for example, a character's base animation set).

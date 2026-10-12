@@ -37,3 +37,29 @@ def test_mapped_alpha_style_draws_its_glow_style_opaque(styles):
 def test_self_mapped_additive_style_keeps_its_own_blend_in_the_glow(styles):
     (d,) = styles.compile("rs/alpha_additive_wglow.ltb")["draws"]
     assert state(d)[0] == [SRC_ALPHA, ONE] and len(d["glow"]) == 1
+
+
+def draw(blend, zwrite, ztest=LEQUAL, cull=CULL_BACK):
+    return {"blend": blend, "zwrite": zwrite, "ztest": ztest, "cull": cull, "passes": [{}], "glow": []}
+
+
+@pytest.mark.parametrize("glow_state", [
+    {"zwrite": 0},                  # an opaque glow style that doesn't write Z
+    {"blend": (SRC_ALPHA, ONE)},    # a blended one
+])
+def test_one_pass_glow_rides_only_when_it_is_opaque_with_z(glow_state):
+    """The glow pass draws with the glow style's state, so it rides on the opaque Z-writing draw only
+    when it writes opaque with Z too; otherwise it is a draw of its own."""
+    d = draw((ONE, ZERO), 1)
+    g = dict(draw((ONE, ZERO), 1), passes=[{"glow": True}], **glow_state)
+    draws = [d]
+    export_models.place_glow(draws, g)
+    assert d["glow"] == [] and len(draws) == 2
+    assert state(draws[1]) == state(g) and draws[1]["passes"] == [] and draws[1]["glow"] == [{"glow": True}]
+
+
+def test_opaque_z_writing_one_pass_glow_rides_on_the_opaque_draw():
+    d = draw((ONE, ZERO), 1, cull=0)   # the cull stays the draw's, as before
+    draws = [d]
+    export_models.place_glow(draws, dict(draw((ONE, ZERO), 1), passes=[{"glow": True}]))
+    assert draws == [d] and d["glow"] == [{"glow": True}]

@@ -87,3 +87,21 @@ def test_every_turret_in_the_single_player_levels_has_its_tank(extracted, tools,
                                                                    "TronTurret")]
     assert len(turrets) == 14
     assert all(t["parent"] >= 0 for t in turrets)
+
+
+def bin_object(template, *types):
+    ps = [{"k": "ModelTemplate", "t": "s", "s": template, "v": []}]
+    ps += [{"k": f"Type{k}", "t": "s", "s": t, "v": []} for k, t in enumerate(types, 1)]
+    return {"cls": "ArchiveBin", "name": "bin", "pos": [0, 0, 0], "rot": [0, 0, 0], "props": ps}
+
+
+def test_bin_items_go_only_to_the_bin_models_item_sockets(extracted):
+    # The game deals the items to the model's item sockets (Socket1..SocketN-1; Frame is last). A bin
+    # model without them (ArchiveBin_Frame.ltb has no sockets) gets no berries, and they are reported
+    # like other attachments dropped for want of a socket.
+    r, s = export_models.Resolver(extracted), export_models.Styles(extracted)
+    models, _ = export_level.model_instances([bin_object("ArchiveBin_Frame", "Subroutine", "Email")], r, s,
+                                             extracted)
+    assert [m["parent"] for m in models] == [-1, -1]   # the bin and its frame, no berries
+    assert r.missing_sockets == {("props/models/archivebin_frame.ltb", "Socket1"): 1,
+                                 ("props/models/archivebin_frame.ltb", "Socket2"): 1}

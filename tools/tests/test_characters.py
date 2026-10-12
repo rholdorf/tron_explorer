@@ -212,6 +212,13 @@ def test_hand_held_weapon_is_drawn_at_its_position(extracted):
                                    ["chars/rs/ic_rs.ltb"])
 
 
+def test_hand_held_skin_slots_keep_their_positions(extracted):
+    # SeekerBlaster's HHSkin0 = "": slot 0 stays, empty (CopySkinFilenames copies each slot as it is).
+    r = export_models.Resolver(extracted)
+    by_pos = {a[0]: a[1:] for a in r.attachments(human("IC_Regular", RightHand="SeekerBlaster"))}
+    assert by_pos["RightHand"] == ("weapons/mesh/models_hh/seekerblaster_hh.ltb", [""], [])
+
+
 def test_weapon_without_hand_held_model_is_hidden(extracted):
     # DiscSmack has HHModel = "": CHHWeaponModel::Setup hides the weapon (HideWeapon(true)).
     r = export_models.Resolver(extracted)
