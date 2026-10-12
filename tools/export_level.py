@@ -28,7 +28,6 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 import animation  # noqa: E402
-import butes  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
 import floor  # noqa: E402
@@ -307,14 +306,6 @@ def encode_prop(k, v):
     return {"k": k, "t": "n", "s": "", "v": [float(v)]}
 
 
-def template_model(resolver, name):
-    """(model file, skins, render styles) of a modelbutes.txt template, as the game's
-    CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
-    t = resolver.templates[name.lower()]
-    return butes.norm(t["modelfile"]), [butes.norm(x) for x in butes.indexed(t, "skin")], \
-        [butes.norm(x) for x in butes.indexed(t, "renderstyle")]
-
-
 def moves_to_floor(o, resolver):
     """Whether the object runs MoveToFloor when it spawns: CCharacter and Prop read the object's
     MoveToFloor (default TRUE, character.cpp / prop.cpp); a PropType (and Finder) takes its type's
@@ -383,7 +374,13 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
         # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
         # border the game shows around the bin's glass.
         if o["cls"] == "ArchiveBin":
-            add(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
+            bin_index = len(models) - 1
+            add(i, resolver.template("ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
+            # Then (0x1000f800) one "Berry" object per item, from the item type's template, attached to an
+            # item socket. The game deals the items to Socket1..SocketN-1 in a random order (rand() shuffle,
+            # 0x1000f730); the exporter keeps item order: item k at Socket{k}.
+            for k, berry in enumerate(resolver.bin_items(o), 1):
+                add(i, resolver.template(berry), [1, 1, 1], False, bin_index, f"Socket{k}", pos=placed)
         if not character:
             continue
         parent = len(models) - 1

@@ -56,6 +56,21 @@ class Resolver:
             [norm(x) for x in butes.indexed(t, "renderstyle")]
 
     @staticmethod
+    def bin_items(obj):
+        """The berry templates an ArchiveBin shows, one per item (Type1..Type6 that names an item type, in
+        order). ArchiveBin (object.lto 0x1000f800) picks the template by the item type's index in the
+        list Subroutine, Procedural, Primitive, Permission Set, Email, Custom, HelpFile (0x10284410):
+        0 is SubroutineBerry, 3 PSetBerry, any other DocumentBerry."""
+        p = {q["k"].lower(): q for q in obj["props"]}
+        out = []
+        for k in range(1, 7):
+            q = p.get(f"type{k}")
+            t = q["s"].strip().lower() if q and q["t"] == "s" else ""
+            if t in BIN_ITEM_TYPES:
+                out.append({0: "SubroutineBerry", 3: "PSetBerry"}.get(BIN_ITEM_TYPES.index(t), "DocumentBerry"))
+        return out
+
+    @staticmethod
     def _skins(value):
         return [norm(s) for s in value.split(";") if s.strip()] if value else []
 
@@ -179,6 +194,9 @@ class Resolver:
                 out.append((pos, norm(a["model"]), [norm(x) for x in butes.indexed(a, "skin")],
                             [norm(x) for x in butes.indexed(a, "renderstyle")]))
         return out
+
+
+BIN_ITEM_TYPES = ["subroutine", "procedural", "primitive", "permission set", "email", "custom", "helpfile"]
 
 
 # CHumanAttachments' positions (attachments.cpp), plus Tron's rod positions (CAIHuman level properties).

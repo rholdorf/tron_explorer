@@ -38,3 +38,31 @@ def test_optimizer_shows_its_template_with_the_on_skins(extracted, tools, tmp_pa
     assert opt["file"] == "props/models/optimizer.ltb"
     assert opt["skins"] == ["props/skins/optimizer_1.dtx", "props/skins/optimizer_2.dtx", "tex/chrome.dtx"]
     assert opt["styles"] == ["chars/rs/jet_rs.ltb"]
+
+
+def prop(obj, key):
+    return next((q["s"] for q in obj["props"] if q["k"] == key), "")
+
+
+BERRIES = {"Subroutine": "SubroutineBerry", "Permission Set": "PSetBerry", "Email": "DocumentBerry",
+           "Custom": "DocumentBerry", "Primitive": "DocumentBerry", "Procedural": "DocumentBerry"}
+BERRY_SKIN = {"SubroutineBerry": "props/skins/archive_cubeinternal.dtx",
+              "PSetBerry": "props/skins/archive_cubeinternal_blue.dtx",
+              "DocumentBerry": "props/skins/archive_cubeinternal_green.dtx"}
+
+
+def test_each_bin_item_is_a_berry_at_a_bin_socket(extracted, tools, tmp_path):
+    meta = export(extracted, tools, tmp_path, "m01-02")
+    checked = 0
+    for b, m in enumerate(meta["models"]):
+        o = meta["objects"][m["obj"]]
+        if o["cls"] != "ArchiveBin" or m["file"] != "props/models/archivebin.ltb":
+            continue
+        items = [prop(o, f"Type{k}") for k in range(1, 7)]
+        items = [BERRIES[t] for t in items if t and t != "<none>"]
+        berries = [x for x in meta["models"] if x["parent"] == b]
+        assert [x["skins"][0] for x in berries] == [BERRY_SKIN[t] for t in items]
+        assert all(x["file"] == "props/models/archiveobject.ltb" and x["skinned"] == 0 for x in berries)
+        assert [x["socket"] for x in berries] == [f"Socket{k}" for k in range(1, len(items) + 1)]
+        checked += len(items)
+    assert checked > 0
