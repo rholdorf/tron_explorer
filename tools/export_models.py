@@ -185,8 +185,8 @@ class Resolver:
                 if not w.get("hhmodel"):
                     self.hidden_weapons += 1
                     continue
-                out.append((pos, norm(w["hhmodel"]), [norm(x) for x in butes.indexed(w, "hhskin") if x],
-                            [norm(x) for x in butes.indexed(w, "hhrenderstyle") if x]))
+                out.append((pos, norm(w["hhmodel"]), [norm(x) for x in butes.indexed(w, "hhskin")],
+                            [norm(x) for x in butes.indexed(w, "hhrenderstyle")]))
                 continue
             # Type 0 is a Prop; type 1 creates its Class, which only draws the model if it's a Prop.
             if a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES:
