@@ -3,7 +3,7 @@
 Sections (offsets from header):
   world info + extents + world tree + world models (BSPs: physics, vis, doors...)
   objects        (class name + typed properties)
-  blind objects  (skipped)
+  blind objects  (chunks of opaque object data: keyframer paths, see keyframer.py)
   light grid     (RGB samples for model lighting)
   blockers       (SURF_PHYSICSBLOCKER polys: invisible player blockers)
   particle blockers
@@ -368,6 +368,21 @@ def read_polys_section(r):
     return polys
 
 
+# ---------------------------------------------------------------- blind object data
+
+KEYFRAMER_BLINDOBJECTID = 0x6aaf0884
+
+
+def read_blind_objects(r):
+    """CWorldBlindObjectData::Load: [(id, bytes)] in file order; a KeyFramer's KeyDataIndex indexes it."""
+    chunks = []
+    for _ in range(r.u32()):
+        size = r.u32()
+        cid = r.u32()
+        chunks.append((cid, r.raw(size)))
+    return chunks
+
+
 # ---------------------------------------------------------------- world
 
 class World:
@@ -395,6 +410,10 @@ def load(path):
         r.u32()  # dummy
         w.bsps.append(read_world_bsp(r))
     w.objects = read_objects(Reader(data, obj_pos))
+    br = Reader(data, blind_pos)
+    w.blind = read_blind_objects(br)
+    if br.p != lgrid_pos:
+        raise ValueError(f"blind object data ends at {br.p}, light grid starts at {lgrid_pos}")
     w.light_grid = read_light_grid(Reader(data, lgrid_pos))
     w.blockers = read_polys_section(Reader(data, coll_pos))
     w.particle_blockers = read_polys_section(Reader(data, pblock_pos))

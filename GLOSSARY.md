@@ -80,6 +80,10 @@ _Avoid_: autoplay, idle (idle is a character animation)
 A sound placed in a level that is live at start: a `SoundFX` that starts on, a `SoundButeFX`, or the sound of an active keyframer.
 _Avoid_: background music (music is separate), SFX (too broad)
 
+**Soundbute**:
+A named entry in `attributes/soundbutes.txt` listing sound files (`Path0..N`), one picked at random per play. A sound name in a level is a soundbute if one has that name, else a file path.
+_Avoid_: sound set, sound group
+
 **World model**:
 A piece of level geometry that belongs to an object instead of the static world, so it can move: doors, spinners, keyframer targets.
 _Avoid_: model (that is an `.ltb`), brush
@@ -89,7 +93,7 @@ A `SpinningWorldModel`: a world model that keeps rotating at set speeds per axis
 _Avoid_: rotator (`RotatingWorldModel` is a different class, rotated on command)
 
 **Keyframer**:
-A `KeyFramer`: an object that moves its target world models along a path of keys.
+A `KeyFramer`: an object that moves its target objects (world models, props, characters) along a path of keys. Its keys can send it commands (pause, resume, reverse, go to a key), which is how a path waits or ping-pongs.
 _Avoid_: animation (that is for models), mover, path follower
 
 **Startup command**:

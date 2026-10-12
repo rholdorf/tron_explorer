@@ -1,6 +1,6 @@
 """Export a DAT v85 world to the viewer's runtime format.
 
-<out>/level.json  metadata (materials, meshes, colliders, world models, objects)
+<out>/level.json  metadata (materials, meshes, colliders, world models, spinners, SoundFX, keyframers, objects)
 <out>/level.bin   binary payload:
     char[4] 'TRLV', u32 version,
     u32 nVerts, u32 nIdx, u32 nColVerts, u32 nColIdx, u32 lmWidth, u32 lmHeight,
@@ -27,14 +27,18 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
+import ambient  # noqa: E402
 import animation  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
 import floor  # noqa: E402
+import keyframer  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
+import sounds  # noqa: E402
+import spinner  # noqa: E402
 
-FORMAT_VERSION = 11
+FORMAT_VERSION = 15
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -496,6 +500,10 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "worldCollider": world_collider,
         "blockerCollider": blocker_collider,
         "worldModels": world_models,
+        "spinners": spinner.spinners(w.objects),
+        "soundFX": ambient.sound_fx(w.objects),
+        "soundButeFX": ambient.sound_bute_fx(w.objects, sounds.soundbutes(extracted)),
+        "keyframers": keyframer.keyframers(w.objects, w.blind),
         "objects": objects,
         "models": models,
         "renderStyles": render_styles,
@@ -523,6 +531,7 @@ def main():
     styles = export_models.Styles(root)
     idle = animation.IdleSelector(root, resolver)
     model_files = {}   # model file -> the animations its instances play
+    level_objects = {}  # level -> its objects, for the sound files they name
     worlds_dir = os.path.join(root, "worlds")
     for dat in sorted(glob.glob(os.path.join(worlds_dir, "**", "*.dat"), recursive=True)):
         rel = os.path.relpath(dat, worlds_dir)[:-4]
@@ -533,6 +542,7 @@ def main():
         print(f"{rel:45} meshes={len(meta['meshes']):4} tris={tris:7} colliders={len(meta['colliders']):4} "
               f"objects={len(meta['objects'])} models={len(meta['models'])}")
         index.append(rel)
+        level_objects[rel] = meta["objects"]
         for m in meta["models"]:
             anims = model_files.setdefault(m["file"], set())
             if m["anim"]:
@@ -553,6 +563,10 @@ def main():
         print(f"{n} {cls} attachments not drawn (not a model object)")
     if resolver.hidden_weapons:
         print(f"{resolver.hidden_weapons} weapon attachments not drawn (no hand-held model)")
+    exported, missing = sounds.export_sounds(root, level_objects, out_root)
+    print(f"{len(exported)} sound files")
+    for rel, users in missing.items():
+        print(f"sound file {rel} not found, named in {', '.join(users)}")
     if not only:
         with open(os.path.join(out_root, "levels.json"), "w") as f:
             json.dump({"levels": index}, f, indent=1)

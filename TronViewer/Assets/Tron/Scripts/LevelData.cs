@@ -18,6 +18,10 @@ namespace Tron
         public int worldCollider;
         public int blockerCollider;
         public WorldModelJson[] worldModels;
+        public SpinnerJson[] spinners;       // spinners live at start (tools/spinner.py)
+        public SoundFXJson[] soundFX;        // SoundFX that start on (tools/ambient.py)
+        public SoundButeFXJson[] soundButeFX; // SoundButeFX that start on (tools/ambient.py)
+        public KeyframerJson[] keyframers;   // keyframers live at start (tools/keyframer.py)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public RenderStyleJson[] renderStyles;
@@ -82,6 +86,64 @@ namespace Tron
     }
 
     [Serializable] public class WorldModelJson { public string name; public int flags, mesh, collider; }
+
+    // A SpinningWorldModel that starts on: its world model, final angular velocity per axis (rad/s, pitch
+    // yaw roll in its own frame), the spin-up time (s) and its wave (tools/waveform.py: 0 Linear, 1 Sine,
+    // 2 SlowOff, 3 SlowOn).
+    [Serializable] public class SpinnerJson { public string worldModel; public float[] velocity; public float powerOnTime; public int waveform; }
+
+    // A SoundFX that starts on: the game's file path, radii (LT units), Volume 0-100, PitchShift, the
+    // engine's Priority, ambient (unpanned) and loop as 0/1.
+    [Serializable] public class SoundFXJson { public string name, file; public float[] pos; public float inner, outer, pitch; public int volume, priority, ambient, loop; }
+
+    // A SoundButeFX that starts on: the files its soundbute picks from (game paths), radii (LT units), the
+    // delay range (s) between sound starts, ambient (unpanned) as 0/1.
+    [Serializable] public class SoundButeFXJson { public string name; public string[] files; public float[] pos; public float inner, outer, minDelay, maxDelay; public int ambient; }
+
+    // A KeyFramer live at start (tools/keyframer.py): the names of the objects it moves, its settings
+    // (totalPathTime > 0: velocity mode) and wave (tools/waveform.py: 0 Linear, 1 Sine, 2 SlowOff,
+    // 3 SlowOn), its ActiveSound ("" for none) and its keys.
+    [Serializable] public class KeyframerJson
+    {
+        public string name;
+        public string[] targets;
+        public bool looping, alignToPath, ignoreOffsets;
+        public float totalPathTime;
+        public int wave;
+        public string activeSound;
+        public float soundRadius;
+        public KeyJson[] keys;
+
+        // The keyframer's motion, with no targets yet.
+        public KeyframerMotion Motion() =>
+            new KeyframerMotion(Array.ConvertAll(keys, k => k.MotionKey()), looping, totalPathTime, wave, alignToPath, ignoreOffsets);
+    }
+    // A path key: position (LT units), pitch/yaw/roll (radians), running time (s), absolute Bezier
+    // controls (empty when absent) and the messages it sends its own keyframer.
+    [Serializable] public class KeyJson
+    {
+        public float[] pos, pyr, bezPrev, bezNext;
+        public float time;
+        public KeyCommandJson[] commands;
+
+        public KeyframerMotion.Key MotionKey()
+        {
+            var key = new KeyframerMotion.Key
+            {
+                Pos = LTV(pos), PYR = LTV(pyr), Time = time,
+                Commands = Array.ConvertAll(commands ?? new KeyCommandJson[0],
+                    c => new KeyframerMotion.Command { Verb = c.verb, Delay = c.delay, Key = c.key }),
+                HasPrev = bezPrev != null && bezPrev.Length >= 3, HasNext = bezNext != null && bezNext.Length >= 3,
+            };
+            if (key.HasPrev) key.BezPrev = LTV(bezPrev);
+            if (key.HasNext) key.BezNext = LTV(bezNext);
+            return key;
+        }
+
+        static LTVec LTV(float[] v) => new LTVec(v[0], v[1], v[2]);
+    }
+    // verb: ON, OFF, PAUSE, RESUME, FORWARD, BACKWARD, TOGGLEDIR or GOTO (key: its key index); delay in s.
+    [Serializable] public class KeyCommandJson { public string verb; public float delay; public int key; }
 
     [Serializable] public class PropJson { public string k, t, s; public float[] v; }
 
