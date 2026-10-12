@@ -8,6 +8,6 @@ receiver splits its message into statements again, and a group rebuilds a messag
 sends the new text on. A pre-parsed form would have to reproduce each of these re-parses, so it would
 be no simpler and it would need a level format change.
 
-`tools/commands.py` is the same tokenizer in Python, for the exporter's own reading of commands (keyframer
-self-commands) and for the tests, which check that both tokenizers give the same result for every
-command string in the levels.
+`tools/commands.py` is the same tokenizer in Python, for the tests, which check that both tokenizers give
+the same result for every command string in the levels. Keyframer key commands ship as text too (since
+#33): the viewer runs them when a key is reached, so the exporter no longer reads them.

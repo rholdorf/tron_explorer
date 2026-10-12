@@ -1,7 +1,7 @@
 """The command language's grammar (docs/research/command-language.md): the engine's tokenizer and the
 command manager's verb table. The viewer runs commands itself (TronViewer/.../Commands.cs, the same
-tokenizer); this copy serves the exporter's reading of commands (keyframer.py's key commands) and the
-tests that check both against every command string in the levels.
+tokenizer, keyframer key commands included); this copy serves the tests that check both against every
+command string in the levels.
 
 Tokenizer: ConParse (ltjs conparse.cpp cp_GetNextToken / cp_Parse, the same loop in Tron's Lithtech.exe).
 """

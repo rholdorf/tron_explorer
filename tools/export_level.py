@@ -502,7 +502,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "blockerCollider": blocker_collider,
         "worldModels": world_models,
         "spinners": spinner.spinners(w.objects),
-        "soundFX": ambient.sound_fx(w.objects),
+        "soundFX": ambient.sound_fx(w.objects, sounds.soundbutes(extracted)),
         "soundButeFX": ambient.sound_bute_fx(w.objects, sounds.soundbutes(extracted)),
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "activateTypes": activate.level_types(w.objects, extracted),

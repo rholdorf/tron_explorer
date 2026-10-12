@@ -32,16 +32,31 @@ def test_waveform_names_match_in_any_case_like_the_engine():
     assert [spinner.spinners([obj(wave=w)])[0]["waveform"] for w in ("slowoff", "SINE", "Bogus")] == [2, 1, 0]
 
 
-def test_only_spinners_that_start_on():
+def test_spinners_that_start_off_are_exported_too_waiting_for_on():
+    # A command can turn one on later (ActiveWorldModel ON), so every spinner is exported with startOn.
     others = [obj(name="off", start_on=False), dict(obj(name="door"), **{"class": "RotatingWorldModel"})]
-    assert [s["worldModel"] for s in spinner.spinners(others + [obj(name="on")])] == ["on"]
+    found = spinner.spinners(others + [obj(name="on")])
+    assert [(s["worldModel"], s["obj"], s["startOn"]) for s in found] == [("off", 0, False), ("on", 2, True)]
+
+
+def test_the_on_off_state_machine_props():
+    # ActiveWorldModel::ReadProps / PostReadProp: PowerOffTime 0 takes PowerOnTime.
+    props = {"PowerOffTime": 0.0, "TriggerOff": False, "Locked": True, "ForceMove": False, "ForceMoveOn": True,
+             "ForceMoveOff": False, "MoveDelay": 0.5, "OnWaitTime": 1.0, "OffWaitTime": 2.0}
+    o = obj(power_on=3.0)
+    o["props"].update(props)
+    [s] = spinner.spinners([o])
+    assert (s["powerOffTime"], s["triggerOff"], s["locked"], s["forceMove"], s["forceMoveOn"], s["forceMoveOff"],
+            s["moveDelay"], s["onWaitTime"], s["offWaitTime"]) == (3.0, False, True, False, True, False, 0.5, 1.0, 2.0)
+    o["props"]["PowerOffTime"] = 4.0
+    assert spinner.spinners([o])[0]["powerOffTime"] == 4.0
 
 
 def test_a_spinner_with_no_speed_is_left_out():
     assert spinner.spinners([obj(angles=(0.0, 0.0, 0.0))]) == []
 
 
-def test_single_player_levels_have_271_live_spinners(world):
+def test_single_player_levels_have_305_spinners_271_live(world):
     import glob
     import os
     from conftest import EXTRACTED
@@ -51,14 +66,15 @@ def test_single_player_levels_have_271_live_spinners(world):
     for path in levels:
         w = world(os.path.relpath(path, root)[:-4])
         found[os.path.basename(path)[:-4]] = spinner.spinners(w.objects)
-    assert sum(len(v) for v in found.values()) == 271
+    assert sum(len(v) for v in found.values()) == 305
+    assert sum(s["startOn"] for v in found.values() for s in v) == 271
     assert len(found["m09-02"]) == 155
     m02 = {s["worldModel"]: s for s in found["m02-04"]}
     assert m02["SpinningWorldModel0"]["velocity"] == pytest.approx([0, 2 * math.pi / 10, 0])
     assert m02["SpinningWorldModel0"]["powerOnTime"] == 1.0
 
 
-def test_level_json_lists_the_live_spinners_by_world_model(extracted, tmp_path):
+def test_level_json_lists_the_spinners_by_world_model(extracted, tmp_path):
     import json
     import os
     import export_level
