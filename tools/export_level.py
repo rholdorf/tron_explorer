@@ -28,6 +28,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 import dat85  # noqa: E402
 import export_models  # noqa: E402
+import ltb  # noqa: E402
 
 FORMAT_VERSION = 5
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
@@ -338,7 +339,10 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
         if r and os.path.isfile(os.path.join(extracted, r[0])):
             try:
                 styles.model(r[0])
-            except Exception:  # noqa: BLE001 - the model doesn't parse (reported when exporting models)
+            except ltb.Unsupported:  # the engine refuses it too: the game draws nothing there
+                continue
+            except Exception as e:  # noqa: BLE001 - report and leave the instance out
+                print(f"model {r[0]}: {e}")
                 continue
             pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
             scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
