@@ -217,7 +217,7 @@ namespace Tron
             level = new LevelBuilder();
             try
             {
-                level.Build(Path.Combine(exportRoot, "levels", match), worldShader);
+                level.Build(Path.Combine(exportRoot, "levels", match), worldShader, exportRoot);
             }
             catch (Exception e)
             {

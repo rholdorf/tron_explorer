@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 3;
+        public const int FormatVersion = 4;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family).
@@ -53,7 +53,7 @@ namespace Tron
         byte[] bin;
         int vtxBase, idxBase, cvtxBase, cidxBase;
 
-        public void Build(string levelDir, Shader worldShader)
+        public void Build(string levelDir, Shader worldShader, string exportRoot)
         {
             shader = worldShader;
             Data = JsonUtility.FromJson<LevelJson>(File.ReadAllText(Path.Combine(levelDir, "level.json")));
@@ -83,6 +83,7 @@ namespace Tron
 
             BuildWorldModels();
             bin = null;
+            BuildModels(exportRoot);
         }
 
         // One RGBA atlas of all section lightmaps (see tools/export_level.py); raw values, like the DTX path.
@@ -111,37 +112,7 @@ namespace Tron
             for (int i = 0; i < materials.Length; i++)
             {
                 var mj = Data.materials[i];
-                var m = new Material(shader) { name = mj.tex };
-                owned.Add(m);
-                var t = DtxLoader.Load(mj.tex);
-                if (t == null)
-                {
-                    if (!string.IsNullOrEmpty(mj.tex)) MissingTextures.Add(mj.tex);
-                }
-                else
-                {
-                    m.SetTexture("_MainTex", t.tex);
-                    if (t.uvScale != 1) m.SetTextureScale("_MainTex", Vector2.one * t.uvScale);
-                    if (t.alphaRef > 0) m.SetFloat("_Cutoff", t.alphaRef / 255f);
-                    if (t.fullbright) m.SetFloat("_Fullbright", 1);
-                    var env = string.IsNullOrEmpty(t.envMap) ? null : DtxLoader.Load(t.envMap);
-                    if (env != null)
-                    {
-                        m.SetTexture("_EnvTex", env.tex);
-                        m.SetFloat("_UseEnv", 1);
-                        m.SetFloat("_EnvAlpha", t.envMapAlpha ? 1 : 0);
-                    }
-                    var det = string.IsNullOrEmpty(t.detailTex) ? null : DtxLoader.Load(t.detailTex);
-                    if (det != null)
-                    {
-                        float rad = t.detailAngle * Mathf.Deg2Rad;
-                        m.SetTexture("_DetailTex", det.tex);
-                        m.SetFloat("_UseDetail", 1);
-                        m.SetVector("_DetailScale", new Vector4(t.detailScale, t.detailScale, Mathf.Cos(rad), Mathf.Sin(rad)));
-                    }
-                    if (t.frames != null && t.frames.Length > 1)
-                        SpriteAnimator.Register(m, t.frames, t.frameRate);
-                }
+                var m = CreateMaterial(mj.tex);
                 if (IsLightmapped(mj.shader) && lightmapAtlas)
                 {
                     m.SetTexture("_LightmapTex", lightmapAtlas);
@@ -149,6 +120,80 @@ namespace Tron
                 }
                 TextureEffects.Apply(m, mj.effect);
                 materials[i] = m;
+            }
+        }
+
+        // A world-shader material for one LithTech texture, honoring its DTX command string.
+        Material CreateMaterial(string tex)
+        {
+            var m = new Material(shader) { name = tex };
+            owned.Add(m);
+            var t = DtxLoader.Load(tex);
+            if (t == null)
+            {
+                if (!string.IsNullOrEmpty(tex)) MissingTextures.Add(tex);
+                return m;
+            }
+            m.SetTexture("_MainTex", t.tex);
+            if (t.uvScale != 1) m.SetTextureScale("_MainTex", Vector2.one * t.uvScale);
+            if (t.alphaRef > 0) m.SetFloat("_Cutoff", t.alphaRef / 255f);
+            if (t.fullbright) m.SetFloat("_Fullbright", 1);
+            var env = string.IsNullOrEmpty(t.envMap) ? null : DtxLoader.Load(t.envMap);
+            if (env != null)
+            {
+                m.SetTexture("_EnvTex", env.tex);
+                m.SetFloat("_UseEnv", 1);
+                m.SetFloat("_EnvAlpha", t.envMapAlpha ? 1 : 0);
+            }
+            var det = string.IsNullOrEmpty(t.detailTex) ? null : DtxLoader.Load(t.detailTex);
+            if (det != null)
+            {
+                float rad = t.detailAngle * Mathf.Deg2Rad;
+                m.SetTexture("_DetailTex", det.tex);
+                m.SetFloat("_UseDetail", 1);
+                m.SetVector("_DetailScale", new Vector4(t.detailScale, t.detailScale, Mathf.Cos(rad), Mathf.Sin(rad)));
+            }
+            if (t.frames != null && t.frames.Length > 1)
+                SpriteAnimator.Register(m, t.frames, t.frameRate);
+            return m;
+        }
+
+        // Model instances (see tools/export_models.py), drawn at the bind pose for now.
+        void BuildModels(string exportRoot)
+        {
+            if (Data.models == null || Data.models.Length == 0) return;
+            var root = new GameObject("Models");
+            root.transform.SetParent(Root.transform, false);
+            var skinMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
+            var models = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
+            foreach (var inst in Data.models)
+            {
+                var model = ModelLibrary.Load(exportRoot, inst.file, models, owned);
+                if (model == null) continue;
+                var obj = Data.objects[inst.obj];
+                var go = new GameObject($"{obj.name} [{obj.cls}: {inst.file}]");
+                go.transform.SetParent(root.transform, false);
+                go.transform.localPosition = obj.Position;
+                go.transform.localRotation = obj.Rotation;
+                if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
+                go.AddComponent<MeshFilter>().sharedMesh = model.mesh;
+                var mats = new Material[model.data.pieces.Length];
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    // Texture stage 0 names the skin slot (ModelPiece::m_iTextures).
+                    var t = model.data.pieces[i].textures;
+                    int slot = t != null && t.Length > 0 ? t[0] : 0;
+                    string skin = inst.skins != null && slot >= 0 && slot < inst.skins.Length ? inst.skins[slot] : "";
+                    if (!skinMaterials.TryGetValue(skin, out var m))
+                        skinMaterials[skin] = m = CreateMaterial(skin);
+                    mats[i] = m;
+                }
+                var mr = go.AddComponent<MeshRenderer>();
+                mr.sharedMaterials = mats;
+                mr.shadowCastingMode = ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                mr.lightProbeUsage = LightProbeUsage.Off;
+                mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
             }
         }
 

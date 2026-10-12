@@ -13,6 +13,7 @@ extracted/                    raw game files (worlds/*.dat, tex/*.dtx, attribute
    │  tools/export_level.py   DAT v85 -> runtime format (uses tools/dat85.py)
    ▼
 export/levels/<level>/level.json + level.bin, export/levels.json
+export/models/<model>.ltb.json + .bin   (tools/export_models.py, uses tools/ltb.py)
    │
 TronViewer/ (Unity 6000.3, URP)  loads export/ + extracted/ at runtime
 Build/TronExplorer.app        native build
@@ -65,6 +66,12 @@ G screen glow · R respawn · T next start/teleport point · Tab/Esc level menu 
   rotate, warble, world-position env panning… builds the same per-frame texture matrix as in game,
   on the base texture or env map channel.
 - Animated `.spr` sprites cycle at their frame rate.
+
+- **Models** (`.ltb`, `tools/ltb.py`): visible `ArchiveBin`, `SecRezzer`, `Finder` and `PropType`
+  objects show their model, resolved like the game does: `ModelTemplate` in
+  `attributes/modelbutes.txt`, `Type` in `attributes/proptypes.txt`, or the object's own
+  `Filename`/`Skin`. LOD 0 at the bind pose, skin per piece from texture stage 0; render styles,
+  model lighting, characters (skeletal animation, attachments) are not done yet.
 
 ## Not yet (behavior phase)
 

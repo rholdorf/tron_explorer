@@ -19,7 +19,11 @@ namespace Tron
         public int blockerCollider;
         public WorldModelJson[] worldModels;
         public ObjectJson[] objects;
+        public ModelInstanceJson[] models;
     }
+
+    // A level object that shows a model: object index, model file, skin and render style slots.
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; }
 
     [Serializable] public class MaterialJson { public string tex, tex2, effect; public int shader; }
     [Serializable] public class SubMeshJson { public int mat, start, count; }
@@ -77,4 +81,15 @@ namespace Tron
     }
 
     [Serializable] public class LevelIndexJson { public string[] levels; }
+
+    // Mirrors tools/export_models.py (export/models/<file>.json).
+    [Serializable] public class ModelJson { public int version; public string file; public ModelPieceJson[] pieces; public ModelNodeJson[] nodes; }
+    [Serializable] public class ModelPieceJson
+    {
+        public string name;
+        public int[] textures;
+        public int style, kind, bone, vtxOffset, vtxCount, idxOffset, idxCount;
+        public float[] min, max;
+    }
+    [Serializable] public class ModelNodeJson { public string name; public int parent; public float[] transform; }
 }

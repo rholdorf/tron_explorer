@@ -1,0 +1,79 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Unity.Collections;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace Tron
+{
+    public class LoadedModel
+    {
+        public ModelJson data;
+        public Mesh mesh;   // one submesh per piece, LOD 0, bind pose, LithTech units
+    }
+
+    // Reads exported models (export/models/<file>.json + .bin, see tools/export_models.py).
+    public static class ModelLibrary
+    {
+        public const int FormatVersion = 1;
+        const int HeaderSize = 16, VertexSize = 44;
+
+        // Loaded once per level; the meshes go to `owned` so the level frees them.
+        public static LoadedModel Load(string exportRoot, string file, Dictionary<string, LoadedModel> cache, List<UnityEngine.Object> owned)
+        {
+            if (cache.TryGetValue(file, out var cached)) return cached;
+            LoadedModel result = null;
+            try
+            {
+                var basePath = Path.Combine(exportRoot, "models", file);
+                var data = JsonUtility.FromJson<ModelJson>(File.ReadAllText(basePath + ".json"));
+                if (data.version != FormatVersion) throw new Exception($"model format v{data.version}, expected v{FormatVersion}");
+                var bin = File.ReadAllBytes(basePath + ".bin");
+                if (bin[0] != 'T' || bin[1] != 'R' || bin[2] != 'M' || bin[3] != 'D') throw new Exception("bad model .bin");
+                int nv = BitConverter.ToInt32(bin, 8), ni = BitConverter.ToInt32(bin, 12);
+                var mesh = new Mesh { name = file };
+                owned.Add(mesh);
+                mesh.SetVertexBufferParams(nv,
+                    new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3),
+                    new VertexAttributeDescriptor(VertexAttribute.Normal, VertexAttributeFormat.Float32, 3),
+                    new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4),
+                    new VertexAttributeDescriptor(VertexAttribute.TexCoord0, VertexAttributeFormat.Float32, 2),
+                    new VertexAttributeDescriptor(VertexAttribute.TexCoord1, VertexAttributeFormat.Float32, 2));
+                using (var vb = new NativeArray<byte>(nv * VertexSize, Allocator.Temp))
+                {
+                    NativeArray<byte>.Copy(bin, HeaderSize, vb, 0, vb.Length);
+                    mesh.SetVertexBufferData(vb, 0, 0, vb.Length);
+                }
+                mesh.SetIndexBufferParams(ni, IndexFormat.UInt32);
+                using (var ib = new NativeArray<byte>(ni * 4, Allocator.Temp))
+                {
+                    NativeArray<byte>.Copy(bin, HeaderSize + nv * VertexSize, ib, 0, ib.Length);
+                    mesh.SetIndexBufferData(ib, 0, 0, ib.Length);
+                }
+                mesh.subMeshCount = data.pieces.Length;
+                var bounds = new Bounds();
+                for (int i = 0; i < data.pieces.Length; i++)
+                {
+                    var p = data.pieces[i];
+                    var b = new Bounds();
+                    b.SetMinMax(new Vector3(p.min[0], p.min[1], p.min[2]), new Vector3(p.max[0], p.max[1], p.max[2]));
+                    if (i == 0) bounds = b; else bounds.Encapsulate(b);
+                    mesh.SetSubMesh(i, new SubMeshDescriptor(p.idxOffset, p.idxCount)
+                    {
+                        baseVertex = p.vtxOffset, firstVertex = p.vtxOffset, vertexCount = p.vtxCount, bounds = b,
+                    }, MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices);
+                }
+                mesh.bounds = bounds;
+                mesh.UploadMeshData(true);
+                result = new LoadedModel { data = data, mesh = mesh };
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Model {file}: {e.Message}");
+            }
+            cache[file] = result;
+            return result;
+        }
+    }
+}
