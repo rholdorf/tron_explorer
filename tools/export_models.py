@@ -251,6 +251,19 @@ def skin_weights(mesh, nv):
     return counts, out
 
 
+def model_dims(m):
+    """The model's dims (half-extents): its first animation's, which a prop takes as its object dims
+    (ModelInstance::GetDims); the bind-pose box when it has no animation."""
+    n = struct.unpack_from("<I", m.data, m.anims_offset)[0]
+    if n:
+        return list(struct.unpack_from("<3f", m.data, m.anims_offset + 4))
+    pts = [p.lods[0][3].field("pos") for p in m.pieces if p.lods[0][3].field("pos") is not None]
+    if not pts:
+        return [0.0, 0.0, 0.0]
+    pts = np.concatenate(pts)
+    return ((pts.max(0) - pts.min(0)) / 2).tolist()
+
+
 def export_model(extracted, rel, out_root):
     m = ltb.load(os.path.join(extracted, rel))
     verts, idx, pieces, counts, weights = [], [], [], [], []
@@ -268,7 +281,7 @@ def export_model(extracted, rel, out_root):
         uv = mesh.field("uv")
         if uv is not None:
             out["uv"] = uv[:, 0]
-        out["rgba"] = (128, 128, 128, 255)  # neutral lighting (x2 in the shader)
+        out["rgba"] = (128, 128, 128, 255)  # unused: Tron/Model lights from the material (D3D lighting)
         tris = mesh.indices.astype(np.uint32).reshape(-1)
         pieces.append({"name": p.name, "textures": textures, "style": style, "kind": mesh.kind,
                        "bone": mesh.bone, "vtxOffset": nv, "vtxCount": int(len(out)), "idxOffset": ni,

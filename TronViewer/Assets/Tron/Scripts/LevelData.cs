@@ -21,13 +21,24 @@ namespace Tron
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public RenderStyleJson[] renderStyles;
+        public LightGridJson lightGrid;      // samples follow the lightmap atlas in level.bin
+        public StaticLightJson[] lights;
+        public SunJson sun;                  // black when the level has none
     }
 
     // A level object that shows a model: object index, model file, skin and render style slots,
     // and per exported piece its render style (index into renderStyles) and texture list.
     // skinned: drawn by a SkinnedMeshRenderer over the model's nodes (characters and their attachments).
     // parent >= 0: an attachment, carried by that instance at its model socket `socket`.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; }
+    // dims: half-extents (LT units, scaled); visRadius: the model's; sunAmount: 0-1 sky visibility toward the sun.
+    // Attachments carry their own (their model's dims, at the parent object's position).
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] dims; public float visRadius, sunAmount; }
+
+    // Model lighting inputs (tools/modellight.py). Colors are 0-255.
+    [Serializable] public class LightGridJson { public float[] origin, cell; public int[] dims; }
+    // A static object light: cosFov > -0.99 is a spot along dir; att "Quartic", "Linear" or "D3D" (attCoefs).
+    [Serializable] public class StaticLightJson { public string name, cls, att; public float[] pos, dir, color, attCoefs; public float radius, cosFov, toAmbient; }
+    [Serializable] public class SunJson { public float[] dir, color; public float toAmbient; }
     [Serializable] public class PieceStyleJson { public int style; public string[] tex; }
 
     // A render style compiled for the model shader (tools/renderstyle.py compile_style).

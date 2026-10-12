@@ -14,6 +14,9 @@ namespace Tron
     public class TronExplorer : MonoBehaviour
     {
         public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader;
+        // Light grid interpolation order for models (ModelLighting.LtjsGridOrder), applied on level load.
+        // Also "-gridorder ltjs" on the command line.
+        public bool ltjsGridOrder;
 
         string extractedRoot, exportRoot;
         string[] levels = Array.Empty<string>();
@@ -51,6 +54,7 @@ namespace Tron
             Shader.SetGlobalFloat("_LTScale", LT.Scale);
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 
+            if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
             var auto = GetArg("-level");
             if (auto != null) Load(auto);
             if (float.TryParse(GetArg("-benchmark"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var secs) && level != null)
@@ -216,6 +220,7 @@ namespace Tron
             level?.Destroy();
             DtxLoader.ClearCache();
             level = new LevelBuilder();
+            ModelLighting.LtjsGridOrder = ltjsGridOrder;
             try
             {
                 level.Build(Path.Combine(exportRoot, "levels", match), worldShader, modelShader, exportRoot);

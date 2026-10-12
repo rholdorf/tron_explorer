@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 6;
+        public const int FormatVersion = 7;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family).
@@ -50,6 +50,7 @@ namespace Tron
         readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
         Shader shader, modelShader;
         Texture2D lightmapAtlas;
+        ModelLighting lighting;
         byte[] bin;
         int vtxBase, idxBase, cvtxBase, cidxBase;
 
@@ -67,7 +68,9 @@ namespace Tron
             idxBase = vtxBase + nv * VertexSize;
             cvtxBase = idxBase + ni * 4;
             cidxBase = cvtxBase + ncv * 12;
-            LoadLightmapAtlas(BitConverter.ToInt32(bin, 24), BitConverter.ToInt32(bin, 28), cidxBase + nci * 4);
+            int lmW = BitConverter.ToInt32(bin, 24), lmH = BitConverter.ToInt32(bin, 28);
+            LoadLightmapAtlas(lmW, lmH, cidxBase + nci * 4);
+            LoadLightGrid(cidxBase + nci * 4 + lmW * lmH * 4);
 
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
@@ -102,6 +105,16 @@ namespace Tron
                 lightmapAtlas.LoadRawTextureData(px);
             }
             lightmapAtlas.Apply(false, true);
+        }
+
+        // The light grid follows the lightmap atlas (tools/export_level.py); models are lit from it.
+        void LoadLightGrid(int offset)
+        {
+            var d = Data.lightGrid.dims;
+            var grid = new byte[d[0] * d[1] * d[2] * 3];
+            if (offset + grid.Length > bin.Length) throw new Exception("level.bin: light grid truncated");
+            Buffer.BlockCopy(bin, offset, grid, 0, grid.Length);
+            lighting = new ModelLighting(Data, grid);
         }
 
         // Section shaders whose texture pass is multiplied over a lightmap (d3d_renderblock.cpp).
@@ -171,6 +184,9 @@ namespace Tron
             var styleMaterials = new Dictionary<(int, string, string), Material>();
             var models = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
             var built = new (LoadedModel model, Transform[] bones)[Data.models.Length];
+            var mpb = new MaterialPropertyBlock();
+            var lightDirs = new Vector4[ModelLighting.MaxLights];
+            var lightColors = new Vector4[ModelLighting.MaxLights];
             for (int n = 0; n < Data.models.Length; n++)
             {
                 var inst = Data.models[n];
@@ -225,8 +241,23 @@ namespace Tron
                 r.receiveShadows = false;
                 r.lightProbeUsage = LightProbeUsage.Off;
                 r.reflectionProbeUsage = ReflectionProbeUsage.Off;
+
+                // Per-instance D3D lighting (ModelLighting): ambient and up to 4 directional lights, 0-1.
+                // Every instance has its own (attachments: their model's dims at the parent object's position).
+                var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
+                var ambient = lighting.Compute(obj.Position, dims, inst.visRadius, inst.sunAmount, lightDirs, lightColors);
+                for (int i = 0; i < lightColors.Length; i++) lightColors[i] /= 255f;
+                mpb.Clear();
+                mpb.SetVector(AmbientId, ambient / 255f);
+                mpb.SetVectorArray(LightDirId, lightDirs);
+                mpb.SetVectorArray(LightColorId, lightColors);
+                r.SetPropertyBlock(mpb);
             }
         }
+
+        static readonly int AmbientId = Shader.PropertyToID("_LTAmbient");
+        static readonly int LightDirId = Shader.PropertyToID("_LTLightDir");
+        static readonly int LightColorId = Shader.PropertyToID("_LTLightColor");
 
         // One Transform per model node, parented like the node tree. Bind pose: local = parent bind^-1 x bind.
         // Otherwise the exported first-frame pose (parent-relative position + rotation).
