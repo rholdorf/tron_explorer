@@ -31,6 +31,7 @@ namespace Tron
 
         public LevelJson Data;
         public GameObject Root;
+        public CommandMgr Commands;   // the level's command manager (JoinCommands)
         public Vector3 SkyViewMin, SkyViewMax;   // LT units
         public bool HasSky;
 
@@ -77,6 +78,7 @@ namespace Tron
 
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
+            JoinCommands();
 
             BuildMaterials();
 
@@ -94,6 +96,26 @@ namespace Tron
             BuildSoundFX();
             BuildSoundButeFX();
             BuildKeyframers();
+        }
+
+        // Every level object joins the command manager by name and class, in level order, so an object's
+        // id is its index in Data.objects; builders add handlers with Commands.Handle(index, ...). Groups
+        // pass their messages on to their Object1..Object50 (Tron's 50 slots). Ticked by CommandTicker.
+        void JoinCommands()
+        {
+            Commands = new CommandMgr();
+            foreach (var o in Data.objects)
+            {
+                if (string.Equals(o.cls, "Group", StringComparison.OrdinalIgnoreCase))
+                {
+                    var members = new string[50];
+                    for (int i = 0; i < members.Length; i++) members[i] = o.Str("Object" + (i + 1));
+                    Commands.JoinGroup(o.name, members);
+                }
+                else
+                    Commands.Join(o.name, o.cls);
+            }
+            Root.AddComponent<CommandTicker>().Commands = Commands;
         }
 
         // One RGBA atlas of all section lightmaps (see tools/export_level.py); raw values, like the DTX path.
