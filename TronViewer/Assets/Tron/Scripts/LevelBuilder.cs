@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 8;
+        public const int FormatVersion = 9;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family).
@@ -172,10 +172,11 @@ namespace Tron
             return m;
         }
 
-        // Model instances (see tools/export_models.py). Props: a MeshRenderer at the bind pose. Characters:
-        // a SkinnedMeshRenderer over one Transform per model node, at the bind pose. Attachments hang
-        // from their character's socket node, posed at their own animation 0, frame 0 (attachment models
-        // keep their geometry where it sits on the body and move it to the socket with that pose).
+        // Model instances (see tools/export_models.py), at their spawn position (after MoveToFloor). Props:
+        // a MeshRenderer at the bind pose. Characters: a SkinnedMeshRenderer over one Transform per model
+        // node, looping their clip (ModelAnimator). Attachments hang from their character's socket node,
+        // posed at their own animation 0, frame 0 (attachment models keep their geometry where it sits on
+        // the body and move it to the socket with that pose), and follow it as the character moves.
         void BuildModels(string exportRoot)
         {
             if (Data.models == null || Data.models.Length == 0) return;
@@ -190,6 +191,7 @@ namespace Tron
             var mpb = new MaterialPropertyBlock();
             var lightDirs = new Vector4[ModelLighting.MaxLights];
             var lightColors = new Vector4[ModelLighting.MaxLights];
+            var animator = root.AddComponent<ModelAnimator>();
             for (int n = 0; n < Data.models.Length; n++)
             {
                 var inst = Data.models[n];
@@ -202,6 +204,7 @@ namespace Tron
                 }
                 var obj = Data.objects[inst.obj];
                 var go = new GameObject($"{obj.name} [{obj.cls}: {inst.file}]");
+                var pos = inst.pos != null && inst.pos.Length >= 3 ? new Vector3(inst.pos[0], inst.pos[1], inst.pos[2]) : obj.Position;
                 if (inst.parent >= 0)
                 {
                     if (!AttachToSocket(go.transform, inst, built[inst.parent])) { UnityEngine.Object.Destroy(go); continue; }
@@ -209,7 +212,7 @@ namespace Tron
                 else
                 {
                     go.transform.SetParent(root.transform, false);
-                    go.transform.localPosition = obj.Position;
+                    go.transform.localPosition = pos;
                     go.transform.localRotation = obj.Rotation;
                     if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
                 }
@@ -246,6 +249,8 @@ namespace Tron
                 {
                     var bones = BuildBones(go.transform, model, inst.parent >= 0);
                     built[n] = (model, bones);
+                    if (inst.parent < 0 && !string.IsNullOrEmpty(inst.anim) && !animator.Play(model, inst.anim, bones))
+                        Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
                     var smr = go.AddComponent<SkinnedMeshRenderer>();
                     smr.sharedMesh = mesh;
                     smr.bones = bones;
@@ -266,7 +271,7 @@ namespace Tron
                 // Per-instance D3D lighting (ModelLighting): ambient and up to 4 directional lights, 0-1.
                 // Every instance has its own (attachments: their model's dims at the parent object's position).
                 var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
-                var ambient = lighting.Compute(obj.Position, dims, inst.visRadius, inst.sunAmount, lightDirs, lightColors);
+                var ambient = lighting.Compute(pos, dims, inst.visRadius, inst.sunAmount, lightDirs, lightColors);
                 for (int i = 0; i < lightColors.Length; i++) lightColors[i] /= 255f;
                 mpb.Clear();
                 mpb.SetVector(AmbientId, ambient / 255f);
@@ -274,6 +279,7 @@ namespace Tron
                 mpb.SetVectorArray(LightColorId, lightColors);
                 r.SetPropertyBlock(mpb);
             }
+            animator.Begin();
         }
 
         static readonly int AmbientId = Shader.PropertyToID("_LTAmbient");

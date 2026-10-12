@@ -12,9 +12,14 @@ Layout (model_load.cpp, d3dmeshrendobj_*.cpp in ltjs):
   weight sets u32 n; each: str name, u32 n, f32 weights[n]
   child models u32 n (self included); names for 1..n-1
   animations  u32 n; each: f32x3 dims, str name, u32 compression, u32 interpMS, u32 nKeys,
-              keys (u32 time, str cmd), then per node (tree order) its channel data
+              keys (u32 time, str cmd), then per node (tree order) its channel data:
+                ANCMPRS_NONE   u8 isVertexAnim; nKeys x f32 pos[3], then nKeys x f32 quat[4]
+                ANCMPRS_REL    u32 nPos, f32 pos[3] each; u32 nRot, f32 quat[4] each
+                ANCMPRS_REL_16 u32 nPos, i16 pos[3] (/16) each; u32 nRot, i16 quat[4] (/32767) each
+                ANCMPRS_REL_16_ROT_ONLY  f32 positions, i16 quaternions
+              (a count is 0 = null channel, 1 = constant or nKeys)
   sockets     u32 n; each: u32 node, str name, quat rot, vec3 pos, vec3 scale
-  anim bindings per child model
+  anim bindings per child model (self first): u32 n; each str name, f32 dims[3], f32 translation[3]
 Render object vertex streams follow GetVertexFlags_and_Size (d3d_utils.h): position+normal
 (+ blend weights / packed bone indices for skeletal), then uv sets, then basis vectors.
 """
@@ -213,6 +218,7 @@ def load(path):
     if file_type != 1 or ltb_version != 9:
         raise ValueError(f"not a D3D LTB model (type {file_type}, version {ltb_version})")
     m = Model()
+    m.path = path
     m.version = r.u32()
     if m.version < 23:  # MIN_MODEL_FILE_VERSION (model.h)
         raise Unsupported(f"model version {m.version} (the engine loads 23+)")
@@ -250,9 +256,9 @@ def load(path):
         m.weight_sets.append((name, r.array("<f4", r.u32())))
     n_child = r.u32()
     m.child_models = [r.str() for _ in range(n_child - 1)]
-    m.anims_offset = r.p   # animation data follows (parsed by load_anims)
+    m.anims_offset = r.p   # animation block (read_anims)
     m.data = data
-    first = read_anims(r, len(m.nodes))
+    m.anims = read_anims(r, len(m.nodes))
     m.sockets = []
     for _ in range(r.u32()):   # LoadSockets
         s = Socket()
@@ -262,86 +268,133 @@ def load(path):
         s.pos = r.fmt("<3f")
         s.scale = r.fmt("<3f")
         m.sockets.append(s)
-    root_offset = (0.0, 0.0, 0.0)
-    for c in range(n_child):   # LoadAnimBindings: self, then each child model
-        for k in range(r.u32()):
-            r.str()
-            r.p += 12          # dims
-            t = r.fmt("<3f")   # added to the root node's position (TransformMaker::InitTransform)
-            if c == 0 and k == 0:
-                root_offset = t
+    for c in range(n_child):   # LoadAnimBindings: self, then each child model (always empty in Tron)
+        for _ in range(r.u32()):
+            name = r.str()
+            dims, t = r.fmt("<3f"), r.fmt("<3f")
+            a = find_anim(m.anims, name) if c == 0 else None
+            if a is not None:
+                a.dims = dims
+                a.translation = t   # added to the root node's position (TransformMaker::InitTransform)
     m.end = r.p
-    m.first_pose = first_pose(m, first, root_offset)
+    m.first_pose = first_pose(m, m.anims[0]) if m.anims else None
     return m
 
 
-def first_pose(m, keys, root_offset):
-    """Each node's parent-relative (position, quaternion) at frame 0 of animation 0, the pose a model
-    spawns in (TransformMaker::Recurse). MNODE_ROTATIONONLY nodes keep their bind offset from the
-    parent (Model::SetNodeParentOffsets)."""
-    if keys is None:
-        return None
+def find_anim(anims, name):
+    """Model::FindAnim: linear, case-insensitive, first match."""
+    name = name.lower()
+    return next((a for a in anims if a.name.lower() == name), None)
+
+
+def first_pose(m, anim):
+    """Each node's parent-relative (position, quaternion) at frame 0 of `anim` (animation 0 is the pose
+    a model spawns in; TransformMaker::Recurse). MNODE_ROTATIONONLY nodes keep their bind offset from
+    the parent (Model::SetNodeParentOffsets); the root adds the animation's translation."""
     out = []
-    for n, (pos, rot) in zip(m.nodes, keys):
-        if n.flags & 2:
-            pos = (0.0, 0.0, 0.0) if n.parent < 0 else tuple(
-                (np.linalg.inv(m.nodes[n.parent].transform.astype(np.float64)) @ n.transform)[:3, 3].tolist())
+    for n, (pos, rot) in zip(m.nodes, decode_anim(m, anim)):
+        p = tuple(pos[0].tolist()) if len(pos) else (0.0, 0.0, 0.0)
+        q = tuple(rot[0].tolist()) if len(rot) else (0.0, 0.0, 0.0, 1.0)
+        if n.flags & MNODE_ROTATIONONLY:
+            p = parent_offset(m, n)
         if n.parent < 0:
-            pos = tuple(a + b for a, b in zip(pos, root_offset))
-        out.append((pos, rot))
+            p = tuple(a + b for a, b in zip(p, anim.translation))
+        out.append((p, q))
     return out
+
+
+def parent_offset(m, n):
+    """m_vOffsetFromParent: the node's bind position in its parent's space (SetNodeParentOffsets)."""
+    if n.parent < 0:
+        return (0.0, 0.0, 0.0)
+    rel = np.linalg.inv(m.nodes[n.parent].transform.astype(np.float64)) @ n.transform.astype(np.float64)
+    return tuple(rel[:3, 3].tolist())
 
 
 class Socket:
     pass
 
 
+MNODE_ROTATIONONLY = 0x2
+
 # Position / rotation key formats for each ANCMPRS_* compression (AnimNode::Load; model.h decoding:
 # i16 positions are 1.11.4 fixed point (/16), i16 quaternions /32767).
-_KEYS = {1: (("<3f", 1.0), ("<4f", 1.0)), 2: (("<3h", 16.0), ("<4h", 32767.0)), 3: (("<3f", 1.0), ("<4h", 32767.0))}
+_KEYS = {1: (("<f4", 1.0), ("<f4", 1.0)), 2: (("<i2", 16.0), ("<i2", 32767.0)),
+         3: (("<f4", 1.0), ("<i2", 32767.0))}
+
+
+class Anim:
+    """One animation (ModelAnim + AnimInfo). times: key times in ms (they start at 0 and never
+    decrease, but consecutive keys can share a time). Node channels stay undecoded until decode_anim."""
+
+    def __init__(self):
+        self.name = ""
+        self.dims = (0.0, 0.0, 0.0)          # user dims (half-extents); the bindings have the final value
+        self.translation = (0.0, 0.0, 0.0)   # root translation, from the bindings
+        self.compression = 0
+        self.interp_ms = 0
+        self.times = None
+        self.node_offset = 0                 # byte offset of the node channels in the model file
+
+
+def _channels(r, compression, n_keys, n_nodes, decode):
+    """Walks one animation's node channels (AnimNode::Load; nodes in tree order = index order). Returns
+    per node (positions (k, 3), quaternions x y z w (k, 4)) with k = 0 (null channel: zero position,
+    identity rotation), 1 (constant) or n_keys; None when not decoding."""
+    out = [] if decode else None
+    for _ in range(n_nodes):
+        pos, rot = np.zeros((0, 3)), np.zeros((0, 4))
+        if compression == 0:
+            if r.u8():             # vertex animation (pv_energyclaw): stepped over
+                for _ in range(n_keys):
+                    n = r.u32()
+                    r.p += 12 * n
+            elif decode:
+                pos = r.array("<f4", n_keys * 3).reshape(-1, 3).astype(np.float64)
+                rot = r.array("<f4", n_keys * 4).reshape(-1, 4).astype(np.float64)
+            else:
+                r.p += 28 * n_keys
+        elif compression in _KEYS:
+            chans = []
+            for width, (f, scale) in zip((3, 4), _KEYS[compression]):
+                n = r.u32()
+                if decode:
+                    chans.append(r.array(f, n * width).reshape(-1, width).astype(np.float64) / scale)
+                else:
+                    r.p += n * width * np.dtype(f).itemsize
+            if decode:
+                pos, rot = chans
+        else:
+            raise ValueError(f"animation compression {compression} not supported")
+        if decode:
+            out.append((pos, rot))
+    return out
 
 
 def read_anims(r, n_nodes):
-    """Step over the animation block (Model::Load; ModelAnim::Load, AnimNode::Load in ltjs) and return
-    the first key of animation 0 per node as (position, quaternion x y z w), parent-relative. A null
-    channel is the zero position / identity rotation."""
-    first = None
-    for a in range(r.u32()):
-        r.p += 12                      # user dims
-        r.str()
-        compression, _interp_ms, n_keys = r.fmt("<3I")
+    """The animation block (Model::Load; ModelAnim::Load, AnimNode::Load in ltjs). Key times are read;
+    node channels are only stepped over, decode_anim reads them on demand."""
+    anims = []
+    for _ in range(r.u32()):
+        a = Anim()
+        a.dims = r.fmt("<3f")
+        a.name = r.str()
+        a.compression, a.interp_ms, n_keys = r.fmt("<3I")
+        times = []
         for _ in range(n_keys):
-            r.p += 4                   # time
-            r.str()                    # command string
-        keys = []
-        for _ in range(n_nodes):
-            pos, rot = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0)
-            if compression == 0:
-                if r.u8():             # vertex animation
-                    for _ in range(n_keys):
-                        n = r.u32()
-                        r.p += 12 * n
-                elif n_keys:
-                    pos = r.fmt("<3f")
-                    r.p += (n_keys - 1) * 12
-                    rot = r.fmt("<4f")
-                    r.p += (n_keys - 1) * 16
-            elif compression in _KEYS:
-                for which, (f, scale) in enumerate(_KEYS[compression]):
-                    n = r.u32()
-                    if n:
-                        v = tuple(x / scale for x in r.fmt(f))
-                        r.p += (n - 1) * struct.calcsize(f)
-                        if which:
-                            rot = v
-                        else:
-                            pos = v
-            else:
-                raise ValueError(f"animation compression {compression} not supported")
-            keys.append((pos, rot))
-        if a == 0:
-            first = keys
-    return first
+            times.append(r.u32())
+            r.str()                    # command string (FOOTSTEP_KEY, FIRE, ...)
+        a.times = np.array(times, np.float64)
+        a.node_offset = r.p
+        _channels(r, a.compression, n_keys, n_nodes, False)
+        anims.append(a)
+    return anims
+
+
+def decode_anim(m, anim):
+    """Node channels of one of m's own animations: per node (positions (k, 3), quaternions (k, 4)),
+    parent-relative, k in {0, 1, len(anim.times)}."""
+    return _channels(Reader(m.data, anim.node_offset), anim.compression, len(anim.times), len(m.nodes), True)
 
 
 if __name__ == "__main__":

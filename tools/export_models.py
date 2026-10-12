@@ -1,13 +1,15 @@
 """Model instances for the viewer: resolve which .ltb + skins each level object shows, and export
 those models to the runtime format.
 
-export/models/<model path>.json  pieces, nodes
-export/models/<model path>.bin   'TRMD', u32 version, u32 nVerts, u32 nIdx, u32 nInfluences,
+export/models/<model path>.json  pieces, nodes, sockets, anims
+export/models/<model path>.bin   'TRMD', u32 version, u32 nVerts, u32 nIdx, u32 nInfluences, u32 nAnimFloats,
                                  verts (nVerts * 44 bytes, same layout as level.bin),
                                  idx (u32, relative to the piece's first vertex),
                                  influences per vertex (u8 x nVerts, 1..4),
-                                 influences (nInfluences * Unity BoneWeight1: f32 weight, i32 node)
-Only LOD 0 is exported, at the bind pose (vertices are stored in model space).
+                                 influences (nInfluences * Unity BoneWeight1: f32 weight, i32 node),
+                                 animation clips (nAnimFloats * f32, indexed by the json's anims)
+Only LOD 0 is exported, at the bind pose (vertices are stored in model space). Only the animations
+the levels' instances play are exported (animation.clip: engine rules applied, channels parent-relative).
 """
 import json
 import os
@@ -15,11 +17,12 @@ import struct
 
 import numpy as np
 
+import animation
 import butes
 import ltb
 import renderstyle
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 
 OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4), ("uv", "<f4", 2),
                        ("uv2", "<f4", 2)])
@@ -82,12 +85,11 @@ class Resolver:
             return norm(s("Filename")), self._skins(s("Skin")), []
         return None
 
-    def attachments(self, obj):
-        """A character's attachments as (socket, model file, skins, render styles). The object's own
-        position properties are created first (CAttachments::ReadProp/Init), then the template's
-        DefaultAttachmentN = "Position, Name" unless UseDefaultAttachments is off (CAIHuman
-        InitialUpdate); a default for an occupied position is dropped (CAttachments::Attach). The
-        position name is the parent model's socket. Weapons occupy their position but aren't drawn."""
+    def occupants(self, obj):
+        """What a character's attachment positions hold, as (position, name, attachable or None for a
+        weapon). The object's own position properties are created first (CAttachments::ReadProp/Init),
+        then the template's DefaultAttachmentN = "Position, Name" unless UseDefaultAttachments is off
+        (CAIHuman InitialUpdate); a default for an occupied position is dropped (CAttachments::Attach)."""
         p = {q["k"].lower(): q for q in obj["props"]}
         t = self.templates.get(p["modeltemplate"]["s"].lower()) if "modeltemplate" in p else None
         if not t:
@@ -106,14 +108,31 @@ class Resolver:
         for pos, name in wanted:
             if pos.lower() not in POSITION_SET or pos.lower() in occupied or name.lower() == "<none>":
                 continue
-            if name.split(",")[0].strip().lower() in self.weapons:   # WeaponMgr::ReadWeapon "weapon,ammo"
+            weapon = name.split(",")[0].strip()   # WeaponMgr::ReadWeapon "weapon,ammo"
+            if weapon.lower() in self.weapons:
                 occupied.add(pos.lower())
-                self.skipped_weapons += 1
+                out.append((pos, weapon, None))
                 continue
             a = self.attachables.get(name.lower())
             if not a:
                 continue   # "Unmatched attable name": nothing is created
             occupied.add(pos.lower())
+            out.append((pos, name, a))
+        return out
+
+    def weapon_at(self, obj, position):
+        """The weapon a character holds at `position` (e.g. RightHand, its primary weapon), or None."""
+        return next((name for pos, name, a in self.occupants(obj)
+                     if a is None and pos.lower() == position.lower()), None)
+
+    def attachments(self, obj):
+        """A character's drawn attachments as (socket, model file, skins, render styles); the position
+        name is the parent model's socket. Weapons occupy their position but aren't drawn."""
+        out = []
+        for pos, _name, a in self.occupants(obj):
+            if a is None:
+                self.skipped_weapons += 1
+                continue
             # Type 0 is a Prop; type 1 creates its Class, which only draws the model if it's a Prop.
             if a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES:
                 self.undrawn_attachments[a.get("class")] = self.undrawn_attachments.get(a.get("class"), 0) + 1
@@ -250,11 +269,10 @@ def skin_weights(mesh, nv):
 
 
 def model_dims(m):
-    """The model's dims (half-extents): its first animation's, which a prop takes as its object dims
-    (ModelInstance::GetDims); the bind-pose box when it has no animation."""
-    n = struct.unpack_from("<I", m.data, m.anims_offset)[0]
-    if n:
-        return list(struct.unpack_from("<3f", m.data, m.anims_offset + 4))
+    """The model's dims (half-extents): its first animation's user dims (bindings applied), which a prop
+    takes as its object dims (ModelInstance::GetDims); the bind-pose box when it has no animation."""
+    if m.anims:
+        return list(m.anims[0].dims)
     pts = [p.lods[0][3].field("pos") for p in m.pieces if p.lods[0][3].field("pos") is not None]
     if not pts:
         return [0.0, 0.0, 0.0]
@@ -262,8 +280,34 @@ def model_dims(m):
     return ((pts.max(0) - pts.min(0)) / 2).tolist()
 
 
-def export_model(extracted, rel, out_root):
+def clip_block(clips):
+    """The clips as one float block and their json entries: times (s), then per node its position keys
+    (3 floats each) and rotation keys (4 floats, quaternion x y z w). channels: per node posOffset,
+    posCount, rotOffset, rotCount (offsets in floats; a count is 1 for a constant channel or keys)."""
+    floats, meta, n = [], [], 0
+
+    def put(a):
+        nonlocal n
+        a = np.ascontiguousarray(a, np.float32).reshape(-1)
+        floats.append(a)
+        n += len(a)
+        return n - len(a)
+
+    for c in clips:
+        entry = {"name": c.name, "length": c.length / 1000.0, "keys": len(c.times),
+                 "times": put(c.times / 1000.0), "channels": []}
+        for p, q in zip(c.pos, c.rot):
+            entry["channels"] += [put(p), len(p), put(q), len(q)]
+        meta.append(entry)
+    return (np.concatenate(floats) if floats else np.zeros(0, np.float32)), meta
+
+
+def export_model(extracted, rel, out_root, anims=(), load=None):
+    """Writes the model and the clips of `anims` (animation names in the model or its child models).
+    load(rel): a model loader (default ltb.load), for child models."""
     m = ltb.load(os.path.join(extracted, rel))
+    children = animation.load_children(extracted, rel, m, load) if anims else []
+    anim_floats, anim_meta = clip_block([animation.clip(m, children, a) for a in anims])
     verts, idx, pieces, counts, weights = [], [], [], [], []
     nv = ni = 0
     for p in m.pieces:
@@ -296,13 +340,14 @@ def export_model(extracted, rel, out_root):
                        "pose": list(pose[0]) + list(pose[1])}
                       for n, pose in zip(m.nodes, m.first_pose)],
             "sockets": [{"name": s.name, "node": s.node, "pos": list(s.pos), "rot": list(s.rot),
-                         "scale": list(s.scale)} for s in m.sockets]}
+                         "scale": list(s.scale)} for s in m.sockets],
+            "anims": anim_meta}
     base = os.path.join(out_root, "models", rel)
     os.makedirs(os.path.dirname(base), exist_ok=True)
     with open(base + ".bin", "wb") as f:
         f.write(b"TRMD")
-        f.write(struct.pack("<4I", FORMAT_VERSION, nv, ni, sum(len(w) for w in weights)))
-        for a in verts + idx + counts + weights:
+        f.write(struct.pack("<5I", FORMAT_VERSION, nv, ni, sum(len(w) for w in weights), len(anim_floats)))
+        for a in verts + idx + counts + weights + [anim_floats]:
             f.write(np.ascontiguousarray(a).tobytes())
     with open(base + ".json", "w") as f:
         json.dump(meta, f, separators=(",", ":"))

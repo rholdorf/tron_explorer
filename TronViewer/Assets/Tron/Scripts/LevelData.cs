@@ -32,7 +32,9 @@ namespace Tron
     // parent >= 0: an attachment, carried by that instance at its model socket `socket`.
     // dims: half-extents (LT units, scaled); visRadius: the model's; sunAmount: 0-1 sky visibility toward the sun.
     // Attachments carry their own (their model's dims, at the parent object's position).
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] dims; public float visRadius, sunAmount; }
+    // pos: where the instance spawns (the object's position after MoveToFloor; attachments: their parent's).
+    // anim: the clip a character loops (a name in its model's anims), "" for none.
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; }
 
     // Model lighting inputs (tools/modellight.py). Colors are 0-255.
     [Serializable] public class LightGridJson { public float[] origin, cell; public int[] dims; }
@@ -119,7 +121,11 @@ namespace Tron
     [Serializable] public class LevelIndexJson { public string[] levels; }
 
     // Mirrors tools/export_models.py (export/models/<file>.json).
-    [Serializable] public class ModelJson { public int version; public string file; public ModelPieceJson[] pieces; public ModelNodeJson[] nodes; public ModelSocketJson[] sockets; }
+    [Serializable] public class ModelJson { public int version; public string file; public ModelPieceJson[] pieces; public ModelNodeJson[] nodes; public ModelSocketJson[] sockets; public ModelAnimJson[] anims; }
+    // An animation clip in the model .bin's float block (tools/export_models.py clip_block): `keys` key
+    // times (seconds) at `times`; channels: per node posOffset, posCount, rotOffset, rotCount (offsets in
+    // floats; a count is 1 for a constant channel, else keys). Parent-relative position xyz, quaternion xyzw.
+    [Serializable] public class ModelAnimJson { public string name; public float length; public int keys, times; public int[] channels; }
     [Serializable] public class ModelPieceJson
     {
         public string name;
