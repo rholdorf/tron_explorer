@@ -256,17 +256,7 @@ class Styles:
                 g = self._load(glow)
                 if g is None:
                     raise ValueError(f"{name}: glow style {glow} not found")
-                g = renderstyle.compile_glow(g, glow)
-                # The glow pass swaps the whole style, states included (RemapRenderStyles), so a blended
-                # piece occludes the glow behind it. A one-pass glow rides on a draw that writes opaque
-                # with Z like it; otherwise the glow is a draw of its own with the glow style's state.
-                d = next((d for d in draws if len(g["passes"]) == 1 and tuple(d["blend"]) == (1, 0)
-                          and d["zwrite"]), None)
-                if d is None:
-                    d = {k: g[k] for k in ("blend", "zwrite", "ztest", "cull")}
-                    d["passes"] = []
-                    draws.append(d)
-                d["glow"] = g["passes"]
+                place_glow(draws, renderstyle.compile_glow(g, glow))
             c["name"] = name
             self.compiled[rel] = c
         return self.compiled[rel]
@@ -287,6 +277,24 @@ class Styles:
             out.append({"style": index[c["name"]],
                         "tex": [skins[t] if 0 <= t < len(skins) else "" for t in textures]})
         return out
+
+
+DRAW_STATE = ("blend", "zwrite", "ztest", "cull")
+
+
+def place_glow(draws, glow):
+    """Puts a compiled glow style (renderstyle.compile_glow) on a style's draws. The glow pass swaps the
+    whole style, states included (RemapRenderStyles), so a blended piece occludes the glow behind it.
+    A one-pass glow that writes opaque with Z rides on a draw that does too; otherwise the glow is a
+    draw of its own with the glow style's state."""
+    def opaque_z(d):
+        return tuple(d["blend"]) == (1, 0) and d["zwrite"]
+    d = next((d for d in draws if len(glow["passes"]) == 1 and opaque_z(glow) and opaque_z(d)), None)
+    if d is None:
+        d = {k: glow[k] for k in DRAW_STATE}
+        d["passes"] = []
+        draws.append(d)
+    d["glow"] = glow["passes"]
 
 
 BONE_WEIGHT = np.dtype([("weight", "<f4"), ("bone", "<i4")])   # Unity BoneWeight1
