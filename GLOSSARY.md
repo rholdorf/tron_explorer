@@ -126,6 +126,14 @@ _Avoid_: logic object, controller
 A `CommandObject`: a timeline that runs its commands at set times after it is started.
 _Avoid_: sequence, cutscene (cutscenes also need cameras and dialogue)
 
+**Door**:
+A `SlidingDoor` or `RotatingDoor`: a world model that opens and closes on use or on messages, playing a sound and running a command as it starts and finishes each move. Lifts are doors.
+_Avoid_: gate, elevator (an elevator is a door that moves up)
+
+**Switch**:
+A `SlidingSwitch` or `RotatingSwitch`: a world model the player uses to run commands, turning on and off like a door (most don't move).
+_Avoid_: button, lever, trigger (a trigger is a volume)
+
 **Use**:
 The player's action on the door or switch in front of them (key E in the viewer).
 _Avoid_: activate (that is also a message), interact
