@@ -37,7 +37,7 @@ import ambient  # noqa: E402
 import sounds  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 13
+FORMAT_VERSION = 14
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -501,6 +501,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "worldModels": world_models,
         "spinners": spinner.spinners(w.objects),
         "soundFX": ambient.sound_fx(w.objects),
+        "soundButeFX": ambient.sound_bute_fx(w.objects, sounds.soundbutes(extracted)),
         "objects": objects,
         "models": models,
         "renderStyles": render_styles,
