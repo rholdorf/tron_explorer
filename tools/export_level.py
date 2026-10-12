@@ -26,8 +26,10 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
+import butes  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
+import ltb  # noqa: E402
 
 FORMAT_VERSION = 6
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
@@ -294,6 +296,14 @@ def encode_prop(k, v):
     return {"k": k, "t": "n", "s": "", "v": [float(v)]}
 
 
+def template_model(resolver, name):
+    """(model file, skins, render styles) of a modelbutes.txt template, as the game's
+    CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
+    t = resolver.templates[name.lower()]
+    return export_models.norm(t["modelfile"]), [export_models.norm(x) for x in butes.indexed(t, "skin")], \
+        [export_models.norm(x) for x in butes.indexed(t, "renderstyle")]
+
+
 def model_instances(objects, resolver, styles, extracted):
     """Objects that show an .ltb the exporter can find (see export_models.Resolver), and the render
     styles their pieces use. Characters are skinned (bones = the model's nodes) and are followed by
@@ -305,7 +315,10 @@ def model_instances(objects, resolver, styles, extracted):
             return False
         try:
             styles.model(r[0])
-        except Exception:  # noqa: BLE001 - the model doesn't parse (reported when exporting models)
+        except ltb.Unsupported:  # the engine refuses it too: the game draws nothing there
+            return False
+        except Exception as e:  # noqa: BLE001 - report and leave the instance out
+            print(f"model {r[0]}: {e}")
             return False
         pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
         models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
@@ -318,7 +331,15 @@ def model_instances(objects, resolver, styles, extracted):
             continue
         scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
         character = o["cls"] == "CAIHuman"
-        if not add(i, r, scale, character) or not character:
+        if not add(i, r, scale, character):
+            continue
+        # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
+        # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
+        # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
+        # border the game shows around the bin's glass.
+        if o["cls"] == "ArchiveBin":
+            add(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1], False)
+        if not character:
             continue
         parent = len(models) - 1
         sockets = {s.name.lower() for s in styles.model(r[0]).sockets}
@@ -427,6 +448,8 @@ def main():
         print(f"two-pass glow style (#11) replaced by the default glow: {rs} -> {glow}")
     for (f, socket), n in sorted(resolver.missing_sockets.items()):
         print(f"attachment dropped, no socket {socket} on {f}: {n}")
+    for cls, n in sorted(resolver.undrawn_attachments.items()):
+        print(f"{n} {cls} attachments not drawn (not a model object)")
     if resolver.skipped_weapons:
         print(f"{resolver.skipped_weapons} weapon attachments not drawn (weapons.txt hand-held models)")
     if not only:

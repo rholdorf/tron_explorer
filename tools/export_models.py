@@ -46,6 +46,7 @@ class Resolver:
                         if "name" in s}
         self.skipped_weapons = 0   # weapon attachments (weapons.txt hand-held models) are not drawn yet
         self.missing_sockets = {}  # (character model, position) -> attachments dropped for want of a socket
+        self.undrawn_attachments = {}   # object attachment class without a model -> count
 
     @staticmethod
     def _skins(value):
@@ -113,6 +114,10 @@ class Resolver:
             if not a:
                 continue   # "Unmatched attable name": nothing is created
             occupied.add(pos.lower())
+            # Type 0 is a Prop; type 1 creates its Class, which only draws the model if it's a Prop.
+            if a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES:
+                self.undrawn_attachments[a.get("class")] = self.undrawn_attachments.get(a.get("class"), 0) + 1
+                continue
             if "model" in a:
                 out.append((pos, norm(a["model"]), [norm(x) for x in butes.indexed(a, "skin")],
                             [norm(x) for x in butes.indexed(a, "renderstyle")]))
@@ -127,18 +132,17 @@ ATTACHMENT_POSITIONS = [
     "LeftHand2", "LeftLowerArm2", "LeftLowerLeg2", "LeftUpperArm2", "LeftUpperLeg2", "RightUpperArm2",
     "RightUpperLeg2", "RightLowerArm2", "RightLowerLeg2", "UpperTorso2", "LeftRod", "RightRod"]
 POSITION_SET = {x.lower() for x in ATTACHMENT_POSITIONS}
+# Object attachment classes that are Props (powerarmor.cpp). AttachedExplosion is an Explosion (GameBase,
+# OT_NORMAL): its Model line is never drawn.
+MODEL_ATTACHMENT_CLASSES = {"PowerArmor", "ShellArmor"}
 
-
-# Render styles the game evidently doesn't draw as the file reads. props/rs/archivecube.ltb (ArchiveBin
-# slot 0) is additive and alpha-tests away the texture's dark border, so it can't darken what's behind;
-# the game shows a dark frame over translucent glass, which is the bin's slot 1 style, alpha_chrome.
-# Why the game ends up there (ArchiveBin code, or the engine rejecting ColorOp 19) is still open.
-STYLE_OVERRIDES = {"props/rs/archivecube.ltb": "rs/alpha_chrome.ltb"}
 
 # Character styles whose second pass needs a real second draw over the framebuffer (ticket #11). Until
 # then they draw pass 0 only; every other style the model shader can't draw still stops the export.
 PASS0_ONLY = {"chars/rs/thorn_body.ltb", "chars/rs/rector_cloak.ltb", "chars/rs/thorn_corruption.ltb",
-              "rs/alpha_transparent.ltb"}
+              "rs/alpha_transparent.ltb",
+              # Seeker (loads since #6): opaque alpha-tested pass, then an additive pass on the complement.
+              "chars/rs/seeker.ltb"}
 # Two-pass alpha-blended glow style (Thorn's cloak, ticket #11): the glow buffer gets GlowDefaultRS instead.
 GLOW_DEFAULT_INSTEAD = {"chars/rs/glow_thorncloak_rs.ltb"}
 
@@ -198,7 +202,6 @@ class Styles:
             if mesh.indices is None or not mesh.streams or mesh.field("pos") is None:
                 continue
             name = styles[style] if 0 <= style < len(styles) else ""
-            name = STYLE_OVERRIDES.get(name, name)
             c = self.compile(name)
             if name in self.pass0_only:
                 self.pass0_only[name][rel] = self.pass0_only[name].get(rel, 0) + 1

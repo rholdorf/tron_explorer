@@ -53,6 +53,12 @@ def test_level_attachments_take_their_position_before_the_defaults(extracted):
     assert by_pos["LeftHand2"] == r.attachments(human("IC_Shield"))[15][1]
 
 
+def test_attached_explosions_are_not_drawn(extracted):
+    # Seeker's defaults are AttachedExplosion objects (an Explosion: OT_NORMAL, no model drawn).
+    r = export_models.Resolver(extracted)
+    assert r.attachments(human("Seeker")) == []
+
+
 def test_use_default_attachments_off(extracted):
     r = export_models.Resolver(extracted)
     assert r.attachments(human("IC_Regular", UseDefaultAttachments=False)) == []
