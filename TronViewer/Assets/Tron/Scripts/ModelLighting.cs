@@ -13,18 +13,20 @@ namespace Tron
         public const int MaxLights = 4;   // MaxModelLights console variable default
         const float DirectionalCosFov = 0.98f;   // retail StaticLightCB, [0x58d9e4]
 
-        // CLightTable::GetLightVal as ltjs reads: Y lerps from the y+1 node to the y node. Off = textbook
-        // order, which fits the baked vertex colors better (docs/research/light-grid.md §2.1).
-        public static bool LtjsGridOrder;
 
         readonly byte[] grid;   // dims x*y*z RGB, x fastest (level.bin after the lightmap atlas)
         readonly Vector3 origin, cell;
         readonly int dx, dy, dz;
         readonly StaticLightJson[] lights;
         readonly SunJson sun;
+        readonly bool ltjsGridOrder;
 
-        public ModelLighting(LevelJson data, byte[] grid)
+        // ltjsGridOrder: CLightTable::GetLightVal as ltjs reads, Y lerps from the y+1 node to the y node
+        // (modellight.sample_grid's ltjs_order). Off = textbook order, which fits the baked vertex colors
+        // better (docs/research/light-grid.md §2.1).
+        public ModelLighting(LevelJson data, byte[] grid, bool ltjsGridOrder)
         {
+            this.ltjsGridOrder = ltjsGridOrder;
             var g = data.lightGrid;
             this.grid = grid;
             origin = V(g.origin);
@@ -53,7 +55,7 @@ namespace Tron
             Vector3 YLerp(int nx, int nz)
             {
                 Vector3 lo = Node(nx, y, nz), hi = Node(nx, y + oy, nz);
-                return LtjsGridOrder ? Vector3.LerpUnclamped(hi, lo, ty) : Vector3.LerpUnclamped(lo, hi, ty);
+                return ltjsGridOrder ? Vector3.LerpUnclamped(hi, lo, ty) : Vector3.LerpUnclamped(lo, hi, ty);
             }
             var near = Vector3.LerpUnclamped(YLerp(x, z), YLerp(x + ox, z), tx);
             var far = Vector3.LerpUnclamped(YLerp(x, z + oz), YLerp(x + ox, z + oz), tx);

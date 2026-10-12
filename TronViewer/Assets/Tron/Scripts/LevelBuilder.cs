@@ -54,7 +54,7 @@ namespace Tron
         byte[] bin;
         int vtxBase, idxBase, cvtxBase, cidxBase;
 
-        public void Build(string levelDir, Shader worldShader, Shader modelShader, string exportRoot)
+        public void Build(string levelDir, Shader worldShader, Shader modelShader, string exportRoot, bool ltjsGridOrder)
         {
             shader = worldShader;
             this.modelShader = modelShader;
@@ -70,7 +70,7 @@ namespace Tron
             cidxBase = cvtxBase + ncv * 12;
             int lmW = BitConverter.ToInt32(bin, 24), lmH = BitConverter.ToInt32(bin, 28);
             LoadLightmapAtlas(lmW, lmH, cidxBase + nci * 4);
-            LoadLightGrid(cidxBase + nci * 4 + lmW * lmH * 4);
+            LoadLightGrid(cidxBase + nci * 4 + lmW * lmH * 4, ltjsGridOrder);
 
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
@@ -108,13 +108,13 @@ namespace Tron
         }
 
         // The light grid follows the lightmap atlas (tools/export_level.py); models are lit from it.
-        void LoadLightGrid(int offset)
+        void LoadLightGrid(int offset, bool ltjsGridOrder)
         {
             var d = Data.lightGrid.dims;
             var grid = new byte[d[0] * d[1] * d[2] * 3];
             if (offset + grid.Length > bin.Length) throw new Exception("level.bin: light grid truncated");
             Buffer.BlockCopy(bin, offset, grid, 0, grid.Length);
-            lighting = new ModelLighting(Data, grid);
+            lighting = new ModelLighting(Data, grid, ltjsGridOrder);
         }
 
         // Section shaders whose texture pass is multiplied over a lightmap (d3d_renderblock.cpp).
