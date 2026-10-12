@@ -22,6 +22,7 @@ namespace Tron
         string[] levels = Array.Empty<string>();
         LevelBuilder level;
         PlayerController player;
+        PlayerUse use;
         Camera mainCam, skyCam, glowCam;
         RenderTexture glowRT, blurA, blurB;
         Material blurMat, compositeMat;
@@ -148,6 +149,8 @@ namespace Tron
 
             player = playerGo.AddComponent<PlayerController>();
             player.Cam = mainCam;
+            use = playerGo.AddComponent<PlayerUse>();
+            use.Cam = mainCam;
             playerGo.SetActive(false);
 
             // Sky pass: the sky world models are drawn first from a fixed point (the SkyPointer
@@ -256,6 +259,8 @@ namespace Tron
             }
             // The player answers to "player" (and "ActivePlayer"); its messages count as class Player.
             PlayerId = level.Commands.Join("player", "Player");
+            use.PlayerId = PlayerId;
+            level.ConnectPlayer(PlayerId, player);
             ApplyWorldProperties();
             Spawn();
             status = $"{match}: {sw.ElapsedMilliseconds} ms, {level.MissingTextures.Count} texturas ausentes";
@@ -451,13 +456,32 @@ namespace Tron
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
             GUI.Label(new Rect(8, 8, Mathf.Min(hs.x, w - 16), hs.y), hudContent, hudStyle);
+            DrawUsePrompt(w, h);
             if (showHelp)
             {
-                var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · " +
+                var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · E usar · " +
                                           "G glow · M som · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }
+        }
+
+        // The use prompt (CTargetMgr, layout.txt): the target's ActivateType text for its state, centered at
+        // (320, 300) of a 640x480 layout, size 14, yellow, grey while locked. A target whose type has no
+        // text for the state shows just the key.
+        GUIStyle promptStyle;
+
+        void DrawUsePrompt(float w, float h)
+        {
+            var t = use ? use.Target : null;
+            if (!t || menuOpen) return;
+            var text = t.Prompt;
+            text = string.IsNullOrEmpty(text) ? "[E]" : $"[E] {text}";
+            if (promptStyle == null) promptStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, wordWrap = false };
+            promptStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(14 * h / 480));
+            promptStyle.normal.textColor = t.Awm.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
+            float y = h * 300 / 480;
+            GUI.Label(new Rect(0, y - promptStyle.fontSize, w, promptStyle.fontSize * 2), text, promptStyle);
         }
     }
 }
