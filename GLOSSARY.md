@@ -101,7 +101,7 @@ Standing on a solid world model that moves or turns, and being carried with it: 
 _Avoid_: platform physics, parenting, pushing (pushing the player sideways is `PushObjects`, not riding)
 
 **Startup command**:
-The command a level runs when it loads (`StartupCommand`). It goes through the command language, so it is behavior, not live at start.
+The command a level runs when it loads (`StartupCommand`), on the level's first frame. It goes through the command language, so it is behavior, not live at start. The start point's command (`GameStartPoint` `Command`) runs right after it, on the player's first update, once per level.
 _Avoid_: init script, level script
 
 ### Behavior
