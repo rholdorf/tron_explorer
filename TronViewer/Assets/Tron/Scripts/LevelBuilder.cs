@@ -569,22 +569,7 @@ namespace Tron
             parent.transform.SetParent(Root.transform, false);
             foreach (var kf in Data.keyframers)
             {
-                var keys = new KeyframerMotion.Key[kf.keys.Length];
-                for (int i = 0; i < keys.Length; i++)
-                {
-                    var k = kf.keys[i];
-                    var cmds = new KeyframerMotion.Command[k.commands?.Length ?? 0];
-                    for (int c = 0; c < cmds.Length; c++)
-                        cmds[c] = new KeyframerMotion.Command { Verb = k.commands[c].verb, Delay = k.commands[c].delay, Key = k.commands[c].key };
-                    keys[i] = new KeyframerMotion.Key
-                    {
-                        Pos = LTV(k.pos), PYR = LTV(k.pyr), Time = k.time, Commands = cmds,
-                        HasPrev = k.bezPrev != null && k.bezPrev.Length >= 3, HasNext = k.bezNext != null && k.bezNext.Length >= 3,
-                    };
-                    if (keys[i].HasPrev) keys[i].BezPrev = LTV(k.bezPrev);
-                    if (keys[i].HasNext) keys[i].BezNext = LTV(k.bezNext);
-                }
-                var motion = new KeyframerMotion(keys, kf.looping, kf.totalPathTime, kf.wave, kf.alignToPath, kf.ignoreOffsets);
+                var motion = kf.Motion();
                 var shown = new List<Transform[]>();
                 foreach (var name in kf.targets)
                 {
@@ -634,8 +619,6 @@ namespace Tron
                 go.AddComponent<Keyframer>().Init(motion, shown.ToArray(), sound, clip);
             }
         }
-
-        static LTVec LTV(float[] v) => new LTVec(v[0], v[1], v[2]);
 
         void BuildSoundFX()
         {

@@ -113,10 +113,35 @@ namespace Tron
         public string activeSound;
         public float soundRadius;
         public KeyJson[] keys;
+
+        // The keyframer's motion, with no targets yet.
+        public KeyframerMotion Motion() =>
+            new KeyframerMotion(Array.ConvertAll(keys, k => k.MotionKey()), looping, totalPathTime, wave, alignToPath, ignoreOffsets);
     }
     // A path key: position (LT units), pitch/yaw/roll (radians), running time (s), absolute Bezier
     // controls (empty when absent) and the messages it sends its own keyframer.
-    [Serializable] public class KeyJson { public float[] pos, pyr, bezPrev, bezNext; public float time; public KeyCommandJson[] commands; }
+    [Serializable] public class KeyJson
+    {
+        public float[] pos, pyr, bezPrev, bezNext;
+        public float time;
+        public KeyCommandJson[] commands;
+
+        public KeyframerMotion.Key MotionKey()
+        {
+            var key = new KeyframerMotion.Key
+            {
+                Pos = LTV(pos), PYR = LTV(pyr), Time = time,
+                Commands = Array.ConvertAll(commands ?? new KeyCommandJson[0],
+                    c => new KeyframerMotion.Command { Verb = c.verb, Delay = c.delay, Key = c.key }),
+                HasPrev = bezPrev != null && bezPrev.Length >= 3, HasNext = bezNext != null && bezNext.Length >= 3,
+            };
+            if (key.HasPrev) key.BezPrev = LTV(bezPrev);
+            if (key.HasNext) key.BezNext = LTV(bezNext);
+            return key;
+        }
+
+        static LTVec LTV(float[] v) => new LTVec(v[0], v[1], v[2]);
+    }
     // verb: ON, OFF, PAUSE, RESUME, FORWARD, BACKWARD, TOGGLEDIR or GOTO (key: its key index); delay in s.
     [Serializable] public class KeyCommandJson { public string verb; public float delay; public int key; }
 
