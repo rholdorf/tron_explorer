@@ -121,13 +121,18 @@ namespace Tron
         // Section shaders whose texture pass is multiplied over a lightmap (d3d_renderblock.cpp).
         static bool IsLightmapped(int shader) => shader == 4 || shader == 9;
 
+        // Dual-texture sections without a second texture (all of them in the retail data; the exporter
+        // refuses any other): the engine falls back to the plain Gouraud_Texture / Lightmap_Texture
+        // shader, which ignores the texture's EnvMap and DetailTex (docs/research/dual-texture.md).
+        static bool IsPlainTexture(int shader) => shader == 8 || shader == 9;
+
         void BuildMaterials()
         {
             materials = new Material[Data.materials.Length];
             for (int i = 0; i < materials.Length; i++)
             {
                 var mj = Data.materials[i];
-                var m = CreateMaterial(mj.tex);
+                var m = CreateMaterial(mj.tex, !IsPlainTexture(mj.shader));
                 if (IsLightmapped(mj.shader) && lightmapAtlas)
                 {
                     m.SetTexture("_LightmapTex", lightmapAtlas);
@@ -138,8 +143,9 @@ namespace Tron
             }
         }
 
-        // A world-shader material for one LithTech texture, honoring its DTX command string.
-        Material CreateMaterial(string tex)
+        // A world-shader material for one LithTech texture, honoring its DTX command string
+        // (EnvMap and DetailTex only when `texVariants`: the engine picked an env/detail shader).
+        Material CreateMaterial(string tex, bool texVariants)
         {
             var m = new Material(shader) { name = tex };
             owned.Add(m);
@@ -153,14 +159,14 @@ namespace Tron
             if (t.uvScale != 1) m.SetTextureScale("_MainTex", Vector2.one * t.uvScale);
             if (t.alphaRef > 0) m.SetFloat("_Cutoff", t.alphaRef / 255f);
             if (t.fullbright) m.SetFloat("_Fullbright", 1);
-            var env = string.IsNullOrEmpty(t.envMap) ? null : DtxLoader.Load(t.envMap);
+            var env = !texVariants || string.IsNullOrEmpty(t.envMap) ? null : DtxLoader.Load(t.envMap);
             if (env != null)
             {
                 m.SetTexture("_EnvTex", env.tex);
                 m.SetFloat("_UseEnv", 1);
                 m.SetFloat("_EnvAlpha", t.envMapAlpha ? 1 : 0);
             }
-            var det = string.IsNullOrEmpty(t.detailTex) ? null : DtxLoader.Load(t.detailTex);
+            var det = !texVariants || string.IsNullOrEmpty(t.detailTex) ? null : DtxLoader.Load(t.detailTex);
             if (det != null)
             {
                 float rad = t.detailAngle * Mathf.Deg2Rad;

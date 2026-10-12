@@ -39,6 +39,9 @@ FORMAT_VERSION = 10
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
+# Without a second texture the engine draws these as plain texture sections (AllocShader falls back
+# to Gouraud_Texture / Lightmap_Texture, ignoring EnvMap/DetailTex); every retail one is like that.
+DUAL_TEXTURE_SHADERS = {8, 9}
 NO_LIGHTMAP = -1      # lmid: vertex has no lightmap uv
 NEUTRAL_LIGHTMAP = 0  # lmid of the 50% grey patch (x2 = unlit texture) for unmatched texture-pass tris
 
@@ -142,6 +145,8 @@ class Writer:
     def material(self, s):
         key = (s.textures[0].replace("\\", "/").lower(), s.textures[1].replace("\\", "/").lower(),
                s.shader, s.effect.lower())
+        if s.shader in DUAL_TEXTURE_SHADERS and key[1]:
+            raise ValueError(f"dual-texture section with a second texture ({key[1]}): not supported")
         if key not in self.mat_index:
             self.mat_index[key] = len(self.materials)
             self.materials.append({"tex": key[0], "tex2": key[1], "shader": key[2], "effect": key[3]})
