@@ -3,56 +3,17 @@ the way docs/research/command-language.md ("Validation against the levels") coun
 numbers came from its own model of the tokenizer over the charting survey's extraction; these come from
 the exporter's reading of the .dat files, so they agree where the corpus does (see each test).
 
-The corpus: every non-empty string property the engine reads as a command (a name ending in Command / Cmd
-with an optional number, not CustomCmd*; CommandObject events EventTnEm, the part after '|'; AI
-Initial / ActivateOn / ActivateOff; ArchiveBin OnWithdrawN; Optimizer OnActivate / OnOptimize), and every
-KeyFramer key command. "<none>" (the editor's empty value) and numbers aren't commands.
+The corpus: conftest.py's `corpus`.
 """
 import collections
-import glob
-import os
 import re
-
-import pytest
 
 import commands
 
-PROP = re.compile(r"(?i)((?<!custom)(command|cmd)\d*$|^EventT\d+E\d+$|^(Initial|ActivateOn|ActivateOff|"
-                  r"OnWithdraw\d*|OnActivate|OnOptimize)$)")
 AI_MIXED = {"Initial", "ActivateOn", "ActivateOff"}   # CAIHuman: split the AI's way (SendMixedTriggerMsgToObject)
 # Words of a verb that are nested commands.
 NESTED = {"DELAY": [2], "DELAYID": [3], "LOOP": [3], "LOOPID": [4], "REPEAT": [5], "REPEATID": [6], "RAND": [2, 3],
           **{f"RAND{n}": list(range(1, n + 1)) for n in range(2, 9)}}
-
-
-def level_commands(w):
-    """(class, property, command string) for every command string in a loaded level."""
-    import keyframer
-    out = []
-    for o in w.objects:
-        for k, v in o["props"].items():
-            if not isinstance(v, str) or not PROP.search(k):
-                continue
-            if re.fullmatch(r"(?i)EventT\d+E\d+", k):
-                v = v.split("|", 1)[1] if "|" in v else ""
-            if v.strip() and v.strip() != "<none>" and not re.fullmatch(r"[\d.\s-]+", v):
-                out.append((o["class"], k, v))
-        if o["class"] == "KeyFramer":
-            index = o["props"].get("KeyDataIndex", -1.0)
-            if 0 <= index < len(w.blind):
-                out += [("KeyFramer", "key", k["command"]) for k in keyframer.read_keys(w.blind[int(index)][1])
-                        if k["command"].strip()]
-    return out
-
-
-@pytest.fixture(scope="module")
-def corpus(extracted):
-    import dat85
-    out = []
-    for f in sorted(glob.glob(os.path.join(extracted, "worlds", "retailsingleplayer", "*.dat"))):
-        name = os.path.basename(f)[:-4]
-        out += [(name, *c) for c in level_commands(dat85.load(f))]
-    return out
 
 
 def mixed_parts(text):
