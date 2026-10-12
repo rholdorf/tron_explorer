@@ -1,6 +1,6 @@
 """Export a DAT v85 world to the viewer's runtime format.
 
-<out>/level.json  metadata (materials, meshes, colliders, world models, spinners, keyframers, objects)
+<out>/level.json  metadata (materials, meshes, colliders, world models, spinners, SoundFX, keyframers, objects)
 <out>/level.bin   binary payload:
     char[4] 'TRLV', u32 version,
     u32 nVerts, u32 nIdx, u32 nColVerts, u32 nColIdx, u32 lmWidth, u32 lmHeight,
@@ -34,6 +34,7 @@ import floor  # noqa: E402
 import keyframer  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
+import ambient  # noqa: E402
 import sounds  # noqa: E402
 import spinner  # noqa: E402
 
@@ -500,6 +501,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "blockerCollider": blocker_collider,
         "worldModels": world_models,
         "spinners": spinner.spinners(w.objects),
+        "soundFX": ambient.sound_fx(w.objects),
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "objects": objects,
         "models": models,

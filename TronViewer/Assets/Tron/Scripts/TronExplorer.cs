@@ -88,7 +88,7 @@ namespace Tron
             Application.Quit();
         }
 
-        // Checks the sound pipeline until sounds are placed in the level: loops one sound file
+        // Checks the sound pipeline outside a level's placed sounds: loops one sound file
         // ("Snd\amb\drone12.WAV"), unpositioned, until the next level load. "-playsound <path>" on the
         // command line. Returns false if the file isn't in the export.
         public bool PlayTestSound(string path)
@@ -257,6 +257,8 @@ namespace Tron
             Spawn();
             status = $"{match}: {sw.ElapsedMilliseconds} ms, {level.MissingTextures.Count} texturas ausentes";
             Debug.Log(status + (level.MissingTextures.Count > 0 ? "\n" + string.Join("\n", level.MissingTextures.Take(30)) : ""));
+            if (SoundLoader.Missing.Count > 0)
+                Debug.LogWarning($"{match}: {SoundLoader.Missing.Count} sons ausentes\n" + string.Join("\n", SoundLoader.Missing));
             menuOpen = false;
         }
 
