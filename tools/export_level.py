@@ -33,6 +33,7 @@ import export_models  # noqa: E402
 import floor  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
+import sounds  # noqa: E402
 import spinner  # noqa: E402
 
 FORMAT_VERSION = 12
@@ -525,6 +526,7 @@ def main():
     styles = export_models.Styles(root)
     idle = animation.IdleSelector(root, resolver)
     model_files = {}   # model file -> the animations its instances play
+    level_objects = {}  # level -> its objects, for the sound files they name
     worlds_dir = os.path.join(root, "worlds")
     for dat in sorted(glob.glob(os.path.join(worlds_dir, "**", "*.dat"), recursive=True)):
         rel = os.path.relpath(dat, worlds_dir)[:-4]
@@ -535,6 +537,7 @@ def main():
         print(f"{rel:45} meshes={len(meta['meshes']):4} tris={tris:7} colliders={len(meta['colliders']):4} "
               f"objects={len(meta['objects'])} models={len(meta['models'])}")
         index.append(rel)
+        level_objects[rel] = meta["objects"]
         for m in meta["models"]:
             anims = model_files.setdefault(m["file"], set())
             if m["anim"]:
@@ -555,6 +558,10 @@ def main():
         print(f"{n} {cls} attachments not drawn (not a model object)")
     if resolver.hidden_weapons:
         print(f"{resolver.hidden_weapons} weapon attachments not drawn (no hand-held model)")
+    exported, missing = sounds.export_sounds(root, level_objects, out_root)
+    print(f"{len(exported)} sound files")
+    for rel, users in missing.items():
+        print(f"sound file {rel} not found, named in {', '.join(users)}")
     if not only:
         with open(os.path.join(out_root, "levels.json"), "w") as f:
             json.dump({"levels": index}, f, indent=1)
