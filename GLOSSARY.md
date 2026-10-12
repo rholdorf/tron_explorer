@@ -103,3 +103,33 @@ _Avoid_: platform physics, parenting, pushing (pushing the player sideways is `P
 **Startup command**:
 The command a level runs when it loads (`StartupCommand`). It goes through the command language, so it is behavior, not live at start.
 _Avoid_: init script, level script
+
+### Behavior
+
+**Command**:
+A string in the level's command language that the engine runs: `msg`, `delay`, `loop`, `rand` and the like, nested with parentheses and separated by `;`.
+_Avoid_: script, event (an event is a moment that runs a command)
+
+**Message**:
+What a `msg` command delivers to one or more named objects, such as `on`, `off`, `trigger`, `hidden 1` or `lock`; each class decides what it does with it.
+_Avoid_: event, signal, command (the command is the whole `msg` line)
+
+**Trigger**:
+A level volume that runs its commands when the player enters it or when it receives `trigger`; it can be locked and limited to a number of activations.
+_Avoid_: zone, sensor, switch (a switch is a world model the player uses)
+
+**Relay**:
+An object that exists only to pass commands on: triggers fired by message, event counters, command objects and groups.
+_Avoid_: logic object, controller
+
+**Command object**:
+A `CommandObject`: a timeline that runs its commands at set times after it is started.
+_Avoid_: sequence, cutscene (cutscenes also need cameras and dialogue)
+
+**Use**:
+The player's action on the door or switch in front of them (key E in the viewer).
+_Avoid_: activate (that is also a message), interact
+
+**Permission set**:
+One of eight keys (`Key1`..`Key8`) a door, switch or other object can require; the player gets them from archive bins or scripts. The viewer grants all of them.
+_Avoid_: keycard, access level
