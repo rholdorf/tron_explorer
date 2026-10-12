@@ -108,8 +108,9 @@ class Resolver:
             # (the "on" set; death switches to Skin3..5, 0x10031128).
             file, skins, rs = self.template("Optimizer")
             return file, skins[:3], rs
-        if cls in ("PropType", "Finder"):
-            t = self.proptypes.get(s("Type").lower())
+        if cls in ("PropType", "Finder", "TronTurret"):
+            # TronTurret::ReadProp (object.lto 0x1006b818) reads its type from "PropType".
+            t = self.proptypes.get(s("PropType" if cls == "TronTurret" else "Type").lower())
             if not t or "filename" not in t:
                 return None
             return norm(t["filename"]), [norm(x) for x in butes.indexed(t, "skin")], \

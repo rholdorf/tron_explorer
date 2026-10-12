@@ -360,14 +360,19 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
                        "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount else 0.0})
         return True
 
+    by_name, turrets = {}, []
     for i, o in enumerate(objects):
         r = resolver.resolve(o)
         if not r:
             continue
         scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
+        if o["cls"] == "TronTurret":   # attached to another object's model: once all of them exist
+            turrets.append((i, r, scale))
+            continue
         character = o["cls"] == "CAIHuman"
         if not add(i, r, scale, character):
             continue
+        by_name.setdefault(o["name"].lower(), len(models) - 1)
         placed = models[-1]["pos"]
         # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
         # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
@@ -391,6 +396,17 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
                 resolver.missing_sockets[(r[0], socket)] = resolver.missing_sockets.get((r[0], socket), 0) + 1
                 continue
             add(i, att, [1, 1, 1], True, parent, socket, pos=placed)
+    # TronTurret (object.lto 0x1006c960, 0x1006d590) finds the object named by its Parent property and,
+    # every update, puts itself at that object's ParentSocket: a socket attachment for a static frame.
+    # Aiming at its Target turns it from there (behavior).
+    for i, r, scale in turrets:
+        p = {q["k"].lower(): q["s"] for q in objects[i]["props"] if q["t"] == "s"}
+        parent = by_name.get(p.get("parent", "").strip().lower())
+        if parent is None or p.get("parentsocket", "").lower() not in \
+                {s.name.lower() for s in styles.model(models[parent]["file"]).sockets}:
+            add(i, r, scale, False)   # "could not find a parent": it stays where it was placed
+            continue
+        add(i, r, scale, False, parent, p["parentsocket"], pos=models[parent]["pos"])
     return models, render_styles
 
 

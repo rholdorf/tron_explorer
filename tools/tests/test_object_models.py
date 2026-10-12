@@ -66,3 +66,24 @@ def test_each_bin_item_is_a_berry_at_a_bin_socket(extracted, tools, tmp_path):
         assert [x["socket"] for x in berries] == [f"Socket{k}" for k in range(1, len(items) + 1)]
         checked += len(items)
     assert checked > 0
+
+
+def test_tron_turret_sits_at_its_parents_socket(extracted, tools, tmp_path):
+    meta = export(extracted, tools, tmp_path, "m05-02")
+    turrets = models_of(meta, "TronTurret")
+    assert len(turrets) == 4
+    for t in turrets:
+        parent = meta["models"][t["parent"]]
+        assert meta["objects"][parent["obj"]]["name"] == prop(meta["objects"][t["obj"]], "Parent")
+        assert parent["file"] == "props/models/tankbody.ltb"
+        assert t["socket"] == "TurretSocket"
+        assert t["file"] == "props/models/tankturret.ltb"
+        assert t["skins"][0] == "props/skins/tank1.dtx"
+        assert t["styles"] == ["props/rs/tank1.ltb", "chars/rs/jet_rs.ltb"]
+
+
+def test_every_turret_in_the_single_player_levels_has_its_tank(extracted, tools, tmp_path):
+    turrets = [t for rel in ("m05-02", "m05-03") for t in models_of(export(extracted, tools, tmp_path, rel),
+                                                                   "TronTurret")]
+    assert len(turrets) == 14
+    assert all(t["parent"] >= 0 for t in turrets)
