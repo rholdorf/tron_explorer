@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import dat85  # noqa: E402
 import export_models  # noqa: E402
 
-FORMAT_VERSION = 5
+FORMAT_VERSION = 6
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -294,6 +294,42 @@ def encode_prop(k, v):
     return {"k": k, "t": "n", "s": "", "v": [float(v)]}
 
 
+def model_instances(objects, resolver, styles, extracted):
+    """Objects that show an .ltb the exporter can find (see export_models.Resolver), and the render
+    styles their pieces use. Characters are skinned (bones = the model's nodes) and are followed by
+    their attachments: parent = the character's entry, socket = the parent model socket they sit at."""
+    models, render_styles, style_index = [], [], {}
+
+    def add(i, r, scale, skinned, parent=-1, socket=""):
+        if not os.path.isfile(os.path.join(extracted, r[0])):
+            return False
+        try:
+            styles.model(r[0])
+        except Exception:  # noqa: BLE001 - the model doesn't parse (reported when exporting models)
+            return False
+        pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
+        models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
+                       "pieces": pieces, "skinned": int(skinned), "parent": parent, "socket": socket})
+        return True
+
+    for i, o in enumerate(objects):
+        r = resolver.resolve(o)
+        if not r:
+            continue
+        scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
+        character = o["cls"] == "CAIHuman"
+        if not add(i, r, scale, character) or not character:
+            continue
+        parent = len(models) - 1
+        sockets = {s.name.lower() for s in styles.model(r[0]).sockets}
+        for socket, *att in resolver.attachments(o):
+            if socket.lower() not in sockets:   # CreateAttachment fails: "unable to create socket"
+                resolver.missing_sockets[(r[0], socket)] = resolver.missing_sockets.get((r[0], socket), 0) + 1
+                continue
+            add(i, att, [1, 1, 1], True, parent, socket)
+    return models, render_styles
+
+
 def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
     w = dat85.load(dat_path)
     wr = Writer()
@@ -331,19 +367,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
             "props": [encode_prop(k, v) for k, v in p.items() if k not in ("Name", "Pos", "Rotation")],
         })
 
-    # Model instances: objects that show an .ltb the exporter can find (see export_models.Resolver).
-    models, render_styles, style_index = [], [], {}
-    for i, o in enumerate(objects):
-        r = resolver.resolve(o)
-        if r and os.path.isfile(os.path.join(extracted, r[0])):
-            try:
-                styles.model(r[0])
-            except Exception:  # noqa: BLE001 - the model doesn't parse (reported when exporting models)
-                continue
-            pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
-            scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
-            models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
-                           "pieces": pieces})
+    models, render_styles = model_instances(objects, resolver, styles, extracted)
 
     meta = {
         "version": FORMAT_VERSION,
@@ -396,6 +420,15 @@ def main():
         except Exception as e:  # noqa: BLE001 - report and keep exporting the rest
             print(f"model {rel}: {e}")
     print(f"{len(model_files)} models")
+    for rs, pieces in sorted(styles.pass0_only.items()):
+        print(f"two-pass style drawn with pass 0 only (#11): {rs}: "
+              + ", ".join(f"{f} x{n}" for f, n in sorted(pieces.items())))
+    for rs, glow in sorted(styles.glow_fallbacks):
+        print(f"two-pass glow style (#11) replaced by the default glow: {rs} -> {glow}")
+    for (f, socket), n in sorted(resolver.missing_sockets.items()):
+        print(f"attachment dropped, no socket {socket} on {f}: {n}")
+    if resolver.skipped_weapons:
+        print(f"{resolver.skipped_weapons} weapon attachments not drawn (weapons.txt hand-held models)")
     if not only:
         with open(os.path.join(out_root, "levels.json"), "w") as f:
             json.dump({"levels": index}, f, indent=1)
