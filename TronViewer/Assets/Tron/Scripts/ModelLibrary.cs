@@ -11,6 +11,16 @@ namespace Tron
     {
         public ModelJson data;
         public Mesh mesh;   // one submesh per piece, LOD 0, bind pose, LithTech units; bones = data.nodes
+        public float[] animData;   // the clips' float block (data.anims index into it)
+
+        // Index of the clip named `name` in data.anims, or -1.
+        public int FindAnim(string name)
+        {
+            if (data.anims == null || string.IsNullOrEmpty(name)) return -1;
+            for (int i = 0; i < data.anims.Length; i++)
+                if (string.Equals(data.anims[i].name, name, StringComparison.OrdinalIgnoreCase)) return i;
+            return -1;
+        }
 
         // A node's model-space bind matrix (the exporter writes it row-major).
         public Matrix4x4 BindMatrix(int node)
@@ -27,8 +37,8 @@ namespace Tron
     // Reads exported models (export/models/<file>.json + .bin, see tools/export_models.py).
     public static class ModelLibrary
     {
-        public const int FormatVersion = 2;
-        const int HeaderSize = 20, VertexSize = 44, BoneWeightSize = 8;
+        public const int FormatVersion = 3;
+        const int HeaderSize = 24, VertexSize = 44, BoneWeightSize = 8;
 
         // Loaded once per level; the meshes go to `owned` so the level frees them.
         public static LoadedModel Load(string exportRoot, string file, Dictionary<string, LoadedModel> cache, List<UnityEngine.Object> owned)
@@ -43,6 +53,7 @@ namespace Tron
                 var bin = File.ReadAllBytes(basePath + ".bin");
                 if (bin[0] != 'T' || bin[1] != 'R' || bin[2] != 'M' || bin[3] != 'D') throw new Exception("bad model .bin");
                 int nv = BitConverter.ToInt32(bin, 8), ni = BitConverter.ToInt32(bin, 12), nInf = BitConverter.ToInt32(bin, 16);
+                int nAnim = BitConverter.ToInt32(bin, 20);
                 var mesh = new Mesh { name = file };
                 owned.Add(mesh);
                 mesh.SetVertexBufferParams(nv,
@@ -72,7 +83,10 @@ namespace Tron
                     NativeArray<byte>.Copy(bin, skinBase + nv, weights, 0, weights.Length);
                     mesh.SetBoneWeights(counts, weights.Reinterpret<BoneWeight1>(1));
                 }
-                var result0 = new LoadedModel { data = data, mesh = mesh };
+                // Animation clips follow the skin.
+                var animData = new float[nAnim];
+                Buffer.BlockCopy(bin, skinBase + nv + nInf * BoneWeightSize, animData, 0, nAnim * 4);
+                var result0 = new LoadedModel { data = data, mesh = mesh, animData = animData };
                 var bindposes = new Matrix4x4[data.nodes.Length];
                 for (int i = 0; i < bindposes.Length; i++) bindposes[i] = result0.BindMatrix(i).inverse;
                 mesh.bindposes = bindposes;

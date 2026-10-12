@@ -67,6 +67,7 @@ def clip(m, children, name):
             p = p + np.asarray(anim.translation, np.float64)
         if not len(q):
             q = np.array([[0.0, 0.0, 0.0, 1.0]])
+        q = q / np.linalg.norm(q, axis=1, keepdims=True)   # i16 keys are unit only to ~1e-3
         pos.append(_collapse(p))
         rot.append(_collapse(q))
     return Clip(anim.name, anim.times, pos, rot)
