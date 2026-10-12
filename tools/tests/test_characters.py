@@ -181,7 +181,7 @@ def test_model_sockets_are_read_past_the_animations(extracted):
     assert m.end == len(m.data)   # sockets and animation bindings consume the rest of the file
 
 
-def test_template_objects_are_never_created(extracted):
+def test_spawner_templates_are_never_created(extracted):
     # GameBase::ReadProp: Template = TRUE saves the object as a spawner template, it isn't created.
     r = export_models.Resolver(extracted)
     assert r.resolve(human("IC_Regular", Template=True)) is None
@@ -195,7 +195,7 @@ def test_objects_off_in_single_player_are_skipped(extracted):
     assert r.resolve(human("IC_Regular", SinglePlayer=True)) is not None
 
 
-def test_template_props_are_never_created(extracted):
+def test_spawner_template_props_are_never_created(extracted):
     r = export_models.Resolver(extracted)
     prop = {"cls": "Prop", "name": "p", "pos": [0, 0, 0], "rot": [0, 0, 0],
             "props": [{"k": "Filename", "t": "s", "s": "props/models/chair.ltb", "v": []},
