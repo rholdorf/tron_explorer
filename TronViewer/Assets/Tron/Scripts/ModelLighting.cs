@@ -11,6 +11,7 @@ namespace Tron
     public class ModelLighting
     {
         public const int MaxLights = 4;   // MaxModelLights console variable default
+        const float DirectionalCosFov = 0.98f;   // retail StaticLightCB, [0x58d9e4]
 
         // CLightTable::GetLightVal as ltjs reads: Y lerps from the y+1 node to the y node. Off = textbook
         // order, which fits the baked vertex colors better (docs/research/light-grid.md §2.1).
@@ -80,9 +81,10 @@ namespace Tron
             return V(lt.color) * k;
         }
 
-        // A light in the relevant light list: the sun (light == null, color already scaled) or a static
-        // light, whose color the list scales by keep = 1 - ConvertToAmbient.
-        struct Slot { public float score, keep; public StaticLightJson light; public Vector3 sunDir, color; }
+        // A light in the relevant light list: a directional light (light == null: the sun or a narrow static
+        // spot; color already scaled) or a sampled static light, whose color the list scales by
+        // keep = 1 - ConvertToAmbient.
+        struct Slot { public float score, keep; public StaticLightJson light; public Vector3 dir, color; }
 
         // Ambient (0-255, the D3D ambient light) and up to MaxLights directional lights for an instance:
         // dirs[i].xyz = unit direction the light travels, colors[i].rgb = 0-255 (zero when unused).
@@ -113,7 +115,7 @@ namespace Tron
             if (sun != null && sun.color != null && (sun.color[0] != 0 || sun.color[1] != 0 || sun.color[2] != 0))
             {
                 var c = V(sun.color) * sunAmount;
-                Insert(new Slot { sunDir = V(sun.dir), color = c }, c, sun.toAmbient);
+                Insert(new Slot { dir = V(sun.dir), color = c }, c, sun.toAmbient);
             }
             ambient += SampleGrid(pos);
             foreach (var lt in lights)
@@ -123,14 +125,17 @@ namespace Tron
                 float reach = lt.radius + visRadius;
                 if (Mathf.Abs(lp.x - pos.x) > reach || Mathf.Abs(lp.y - pos.y) > reach || Mathf.Abs(lp.z - pos.z) > reach) continue;
                 if (lt.color[0] < 1 && lt.color[1] < 1 && lt.color[2] < 1) continue;   // StaticLightCB early out
-                Insert(new Slot { light = lt, color = V(lt.color) }, Sample(lt, pos), lt.toAmbient);
+                // Retail Lithtech.exe StaticLightCB (0x54f2cb), not in ltjs: a spot narrower than
+                // DirectionalCosFov is set up as a directional light along its direction, at full color.
+                if (lt.cosFov > DirectionalCosFov) Insert(new Slot { dir = V(lt.dir), color = V(lt.color) }, V(lt.color), lt.toAmbient);
+                else Insert(new Slot { light = lt, color = V(lt.color) }, Sample(lt, pos), lt.toAmbient);
             }
 
             int n = 0;
             foreach (var s in slots)
             {
                 Vector3 dir, color;
-                if (s.light == null) { dir = s.sunDir; color = s.color; }
+                if (s.light == null) { dir = s.dir; color = s.color; }
                 else DeviceLight(s.light, s.keep, pos, dims, out dir, out color);
                 if (color.x <= 0 && color.y <= 0 && color.z <= 0) continue;
                 dirs[n] = dir.normalized;
