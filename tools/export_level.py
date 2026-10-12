@@ -527,6 +527,8 @@ def main():
         print(f"idle animation {name} not in {f} or its child models, animation 0 instead: {n}")
     for (f, socket), n in sorted(resolver.missing_sockets.items()):
         print(f"attachment dropped, no socket {socket} on {f}: {n}")
+    for rel in sorted(styles.missing):
+        print(f"render style {rel} not found, default style instead")
     for cls, n in sorted(resolver.undrawn_attachments.items()):
         print(f"{n} {cls} attachments not drawn (not a model object)")
     if resolver.skipped_weapons:

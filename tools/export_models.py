@@ -172,6 +172,7 @@ class Styles:
                          for i in range(len(butes.indexed(glow, "glowmaprs")))}
         self.compiled = {}
         self.models = {}
+        self.missing = set()   # style paths set on a piece whose file doesn't exist (default style used)
 
     def model(self, rel):
         if rel not in self.models:
@@ -186,6 +187,8 @@ class Styles:
         """rel = '' or a missing file: the engine's backup style (CD3DRenderStyle::SetDefaults)."""
         if rel not in self.compiled:
             s = self._load(rel)
+            if rel and s is None:
+                self.missing.add(rel)
             name = rel if s else "<default>"
             c = renderstyle.compile_style(s or renderstyle.default_style(), name)
             glow = self.glow_map.get(rel, self.glow_default) if s else self.glow_default
