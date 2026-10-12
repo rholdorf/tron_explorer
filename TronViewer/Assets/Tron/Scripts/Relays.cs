@@ -37,6 +37,9 @@ namespace Tron
                     commands.Handle(id, t.OnMessage);
                     return true;
                 }
+                case "eventcounter":
+                    commands.Handle(id, new EventCounter(commands, id, p).OnMessage);
+                    return true;
                 default:
                     return false;
             }
@@ -72,6 +75,69 @@ namespace Tron
             public bool Bool(string k, bool def) => Num(k, def ? 1 : 0) != 0;
             public LTVec Vec(string k, LTVec def) =>
                 nums != null && nums.TryGetValue(k, out var v) && v != null && v.Length >= 3 ? new LTVec(v[0], v[1], v[2]) : def;
+        }
+
+        // C atol: the leading integer, 0 if there's none.
+        static int Atol(string s)
+        {
+            int i = 0, n = 0, sign = 1;
+            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            if (i < s.Length && (s[i] == '+' || s[i] == '-')) sign = s[i++] == '-' ? -1 : 1;
+            while (i < s.Length && char.IsDigit(s[i])) n = n * 10 + (s[i++] - '0');
+            return sign * n;
+        }
+
+        // EventCounter (eventcounter.cpp): a count that runs EventNIncToValCmd / EventNDecToValCmd of every
+        // event whose EventNValue it steps onto (sender and active target the counter). Tron adds RESET:
+        // back to StartingValue, running nothing.
+        sealed class EventCounter
+        {
+            const int MaxEvents = 10;
+
+            readonly CommandMgr commands;
+            readonly int id, start;
+            readonly int[] values = new int[MaxEvents];
+            readonly string[] inc = new string[MaxEvents], dec = new string[MaxEvents];
+            int count;
+            bool locked;
+
+            public EventCounter(CommandMgr commands, int id, Props p)
+            {
+                this.commands = commands;
+                this.id = id;
+                for (int i = 0; i < MaxEvents; i++)
+                {
+                    values[i] = (int)p.Num($"Event{i + 1}Value", -1);
+                    inc[i] = p.Str($"Event{i + 1}IncToValCmd");
+                    dec[i] = p.Str($"Event{i + 1}DecToValCmd");
+                }
+                count = start = (int)p.Num("StartingValue", 0);
+            }
+
+            public bool OnMessage(Message m)
+            {
+                // INC/DEC [n]: n steps, at least one.
+                int steps = Math.Max(1, m.ArgCount > 0 ? Atol(m.Arg(0)) : 1);
+                if (m.Is("INC") || m.Is("INCREMENT"))
+                    for (int i = 0; i < steps; i++) Step(+1);
+                else if (m.Is("DEC") || m.Is("DECREMENT"))
+                    for (int i = 0; i < steps; i++) Step(-1);
+                else if (m.Is("LOCK")) locked = true;
+                else if (m.Is("UNLOCK")) locked = false;
+                else if (m.Is("RESET")) count = start;
+                else if (m.Is("REPORT")) { }   // prints the count to the game's console
+                else return false;
+                return true;
+            }
+
+            void Step(int by)
+            {
+                if (locked || (by < 0 && count <= 0)) return;
+                count += by;
+                var cmds = by > 0 ? inc : dec;
+                for (int i = 0; i < MaxEvents; i++)
+                    if (values[i] == count && !string.IsNullOrEmpty(cmds[i])) commands.Run(cmds[i], id, id);
+            }
         }
 
         // Trigger (trigger.cpp), NoPlayerTrigger (noplayertrigger.cpp) and ExitTrigger (its touch is off; the

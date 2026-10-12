@@ -196,3 +196,28 @@ def test_an_exit_trigger_runs_its_commands_on_trigger_only(driver):
                   trigger("x", "$Command1=msg a on", cls="ExitTrigger"),
                   ("frame", 0.1, INSIDE), ("echo", "touch does nothing"), ("run", "msg x trigger")])
     assert out == [("touch does nothing",), ("got", "a", "-", "on")]
+
+
+def counter(name="c", *props):
+    return ("relay", name, "EventCounter", "0 0 0", *props)
+
+
+def test_an_event_counter_runs_the_commands_of_the_values_it_steps_onto(driver):
+    out = driver([("obj", "a", "WorldModel"),
+                  counter("c", "Event1Value=1", "$Event1IncToValCmd=msg a one", "Event2Value=3",
+                          "$Event2IncToValCmd=msg a three", "$Event2DecToValCmd=msg a down3",
+                          "Event3Value=1", "$Event3DecToValCmd=msg a down1", "Event4Value=-1"),
+                  ("run", "msg c inc"), ("echo", "+2"), ("run", "msg c (increment 2)"),
+                  ("echo", "dec"), ("run", "msg c (dec 5)"), ("echo", "floor"), ("run", "msg c decrement")])
+    # Each step counts by one and runs every event whose value is the new count; it stops at 0.
+    assert out == [("got", "a", "c", "one"), ("+2",), ("got", "a", "c", "three"),
+                   ("dec",), ("got", "a", "c", "down1"), ("floor",)]
+
+
+def test_a_locked_event_counter_ignores_steps_and_reset_goes_back_to_the_starting_value_silently(driver):
+    out = driver([("obj", "a", "WorldModel"),
+                  counter("c", "StartingValue=1", "Event1Value=2", "$Event1IncToValCmd=msg a two",
+                          "Event2Value=1", "$Event2DecToValCmd=msg a back"),
+                  ("run", "msg c lock; msg c inc"), ("echo", "unlocked"), ("run", "msg c unlock; msg c inc"),
+                  ("echo", "reset"), ("run", "msg c reset"), ("echo", "inc"), ("run", "msg c inc")])
+    assert out == [("unlocked",), ("got", "a", "c", "two"), ("reset",), ("inc",), ("got", "a", "c", "two")]
