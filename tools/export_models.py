@@ -77,6 +77,18 @@ class Resolver:
         return out
 
     @staticmethod
+    def turret_mount(obj, parents):
+        """Where a TronTurret sits, as (parent, socket), or None ("could not find a parent"). TronTurret
+        (object.lto 0x1006c960, 0x1006d590) finds the object named by its Parent property and, every
+        update, puts itself at that object's ParentSocket: a socket attachment for a static frame. Aiming
+        at its Target turns it from there (behavior). parents: object name (lowercase) -> (parent, its
+        model's socket names, lowercase)."""
+        p = {q["k"].lower(): q["s"] for q in obj["props"] if q["t"] == "s"}
+        parent, sockets = parents.get(p.get("parent", "").strip().lower(), (None, set()))
+        socket = p.get("parentsocket", "")
+        return (parent, socket) if socket.lower() in sockets else None
+
+    @staticmethod
     def _skins(value):
         return [norm(s) for s in value.split(";") if s.strip()] if value else []
 

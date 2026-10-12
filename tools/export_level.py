@@ -402,17 +402,14 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
         parent = len(models) - 1
         models[parent]["anim"] = character_anim(styles, extracted, r[0], idle.idle(o, i) if idle else None)
         attach(i, parent, resolver.attachments(o), True, styles.model(r[0]).sockets)
-    # TronTurret (object.lto 0x1006c960, 0x1006d590) finds the object named by its Parent property and,
-    # every update, puts itself at that object's ParentSocket: a socket attachment for a static frame.
-    # Aiming at its Target turns it from there (behavior).
+    parents = {name: (m, {s.name.lower() for s in styles.model(models[m]["file"]).sockets})
+               for name, m in by_name.items()}
     for i, r, scale in turrets:
-        p = {q["k"].lower(): q["s"] for q in objects[i]["props"] if q["t"] == "s"}
-        parent = by_name.get(p.get("parent", "").strip().lower())
-        if parent is None or p.get("parentsocket", "").lower() not in \
-                {s.name.lower() for s in styles.model(models[parent]["file"]).sockets}:
+        mount = resolver.turret_mount(objects[i], parents)
+        if mount is None:
             add(i, r, scale, False)   # "could not find a parent": it stays where it was placed
             continue
-        add(i, r, scale, False, parent, p["parentsocket"], pos=models[parent]["pos"])
+        add(i, r, scale, False, *mount, pos=models[mount[0]]["pos"])
     return models, render_styles
 
 
