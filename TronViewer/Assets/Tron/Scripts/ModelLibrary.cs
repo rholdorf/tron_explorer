@@ -126,10 +126,35 @@ namespace Tron
             mesh = UnityEngine.Object.Instantiate(model.mesh);   // copies vertices, skin, bind poses, submeshes
             mesh.name = $"{model.mesh.name} +{pieces.Count}";
             owned.Add(mesh);
+            const MeshUpdateFlags flags = MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices;
             int n = model.mesh.subMeshCount;
+            // Each repeat gets its own copy of the piece's indices, appended to the index buffer:
+            // submeshes sharing an index range make Unity warn ("shares part of its index buffer").
+            var repeats = new SubMeshDescriptor[pieces.Count];
+            using (var src = Mesh.AcquireReadOnlyMeshData(model.mesh))
+            {
+                var srcIndices = src[0].GetIndexData<uint>();
+                int total = srcIndices.Length;
+                foreach (int p in pieces) total += model.mesh.GetSubMesh(p).indexCount;
+                using (var indices = new NativeArray<uint>(total, Allocator.Temp))
+                {
+                    NativeArray<uint>.Copy(srcIndices, indices, srcIndices.Length);
+                    int at = srcIndices.Length;
+                    for (int j = 0; j < pieces.Count; j++)
+                    {
+                        var d = model.mesh.GetSubMesh(pieces[j]);
+                        NativeArray<uint>.Copy(srcIndices, d.indexStart, indices, at, d.indexCount);
+                        d.indexStart = at;
+                        repeats[j] = d;
+                        at += d.indexCount;
+                    }
+                    mesh.SetIndexBufferParams(total, IndexFormat.UInt32);
+                    mesh.SetIndexBufferData(indices, 0, 0, total, flags);
+                }
+            }
             mesh.subMeshCount = n + pieces.Count;
             for (int j = 0; j < pieces.Count; j++)
-                mesh.SetSubMesh(n + j, model.mesh.GetSubMesh(pieces[j]), MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices);
+                mesh.SetSubMesh(n + j, repeats[j], flags);
             mesh.bounds = model.mesh.bounds;
             mesh.UploadMeshData(false);
             cache[key] = mesh;
