@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 5;
+        public const int FormatVersion = 6;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family).
@@ -159,7 +159,10 @@ namespace Tron
             return m;
         }
 
-        // Model instances (see tools/export_models.py), drawn at the bind pose for now.
+        // Model instances (see tools/export_models.py). Props: a MeshRenderer at the bind pose. Characters:
+        // a SkinnedMeshRenderer over one Transform per model node, at the bind pose. Attachments hang
+        // from their character's socket node, posed at their own animation 0, frame 0 (attachment models
+        // keep their geometry where it sits on the body and move it to the socket with that pose).
         void BuildModels(string exportRoot)
         {
             if (Data.models == null || Data.models.Length == 0) return;
@@ -167,8 +170,10 @@ namespace Tron
             root.transform.SetParent(Root.transform, false);
             var styleMaterials = new Dictionary<(int, string, string), Material>();
             var models = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
-            foreach (var inst in Data.models)
+            var built = new (LoadedModel model, Transform[] bones)[Data.models.Length];
+            for (int n = 0; n < Data.models.Length; n++)
             {
+                var inst = Data.models[n];
                 var model = ModelLibrary.Load(exportRoot, inst.file, models, owned);
                 if (model == null) continue;
                 if (inst.pieces == null || inst.pieces.Length != model.data.pieces.Length)
@@ -178,11 +183,17 @@ namespace Tron
                 }
                 var obj = Data.objects[inst.obj];
                 var go = new GameObject($"{obj.name} [{obj.cls}: {inst.file}]");
-                go.transform.SetParent(root.transform, false);
-                go.transform.localPosition = obj.Position;
-                go.transform.localRotation = obj.Rotation;
-                if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
-                go.AddComponent<MeshFilter>().sharedMesh = model.mesh;
+                if (inst.parent >= 0)
+                {
+                    if (!AttachToSocket(go.transform, inst, built[inst.parent])) { UnityEngine.Object.Destroy(go); continue; }
+                }
+                else
+                {
+                    go.transform.SetParent(root.transform, false);
+                    go.transform.localPosition = obj.Position;
+                    go.transform.localRotation = obj.Rotation;
+                    if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
+                }
                 var mats = new Material[inst.pieces.Length];
                 for (int i = 0; i < mats.Length; i++)
                 {
@@ -193,13 +204,96 @@ namespace Tron
                         styleMaterials[key] = m = CreateModelMaterial(Data.renderStyles[p.style], t1, t2);
                     mats[i] = m;
                 }
-                var mr = go.AddComponent<MeshRenderer>();
-                mr.sharedMaterials = mats;
-                mr.shadowCastingMode = ShadowCastingMode.Off;
-                mr.receiveShadows = false;
-                mr.lightProbeUsage = LightProbeUsage.Off;
-                mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                Renderer r;
+                if (inst.skinned != 0)
+                {
+                    var bones = BuildBones(go.transform, model, inst.parent >= 0);
+                    built[n] = (model, bones);
+                    var smr = go.AddComponent<SkinnedMeshRenderer>();
+                    smr.sharedMesh = model.mesh;
+                    smr.bones = bones;
+                    smr.localBounds = SkinnedBounds(go.transform, model, bones);
+                    r = smr;
+                }
+                else
+                {
+                    go.AddComponent<MeshFilter>().sharedMesh = model.mesh;
+                    r = go.AddComponent<MeshRenderer>();
+                }
+                r.sharedMaterials = mats;
+                r.shadowCastingMode = ShadowCastingMode.Off;
+                r.receiveShadows = false;
+                r.lightProbeUsage = LightProbeUsage.Off;
+                r.reflectionProbeUsage = ReflectionProbeUsage.Off;
             }
+        }
+
+        // One Transform per model node, parented like the node tree. Bind pose: local = parent bind^-1 x bind.
+        // Otherwise the exported first-frame pose (parent-relative position + rotation).
+        static Transform[] BuildBones(Transform owner, LoadedModel model, bool firstFramePose)
+        {
+            var nodes = model.data.nodes;
+            var bones = new Transform[nodes.Length];
+            for (int i = 0; i < nodes.Length; i++)
+            {
+                var b = new GameObject(nodes[i].name).transform;
+                int parent = nodes[i].parent;
+                b.SetParent(parent >= 0 ? bones[parent] : owner, false);
+                if (firstFramePose)
+                {
+                    var q = nodes[i].pose;
+                    b.localPosition = new Vector3(q[0], q[1], q[2]);
+                    b.localRotation = new Quaternion(q[3], q[4], q[5], q[6]);
+                }
+                else
+                {
+                    var local = parent >= 0 ? model.BindMatrix(parent).inverse * model.BindMatrix(i) : model.BindMatrix(i);
+                    b.localPosition = local.GetColumn(3);
+                    b.localRotation = local.rotation;
+                }
+                bones[i] = b;
+            }
+            return bones;
+        }
+
+        // CLTCommonShared::GetAttachmentTransform: the attachment sits at the parent's socket (node x socket
+        // rotation/position, zero offset) and takes the socket's scale (r_ProcessAttachment).
+        static bool AttachToSocket(Transform t, ModelInstanceJson inst, (LoadedModel model, Transform[] bones) parent)
+        {
+            if (parent.model == null || parent.bones == null) return false;
+            var socket = Array.Find(parent.model.data.sockets, s => string.Equals(s.name, inst.socket, StringComparison.OrdinalIgnoreCase));
+            if (socket == null)
+            {
+                Debug.LogWarning($"Attachment {inst.file}: no socket {inst.socket} on {parent.model.data.file}");
+                return false;
+            }
+            t.SetParent(parent.bones[socket.node], false);
+            t.localPosition = new Vector3(socket.pos[0], socket.pos[1], socket.pos[2]);
+            t.localRotation = new Quaternion(socket.rot[0], socket.rot[1], socket.rot[2], socket.rot[3]);
+            t.localScale = new Vector3(socket.scale[0], socket.scale[1], socket.scale[2]);
+            return true;
+        }
+
+        // The bind-pose mesh bounds carried by each bone's skin matrix, in the renderer's space: exact at
+        // the bind pose, and covers attachments whose first-frame pose moves the geometry.
+        static Bounds SkinnedBounds(Transform owner, LoadedModel model, Transform[] bones)
+        {
+            var mb = model.mesh.bounds;
+            var bindposes = model.mesh.bindposes;
+            var toOwner = owner.worldToLocalMatrix;
+            var result = new Bounds();
+            for (int i = 0; i < bones.Length; i++)
+            {
+                var skin = toOwner * bones[i].localToWorldMatrix * bindposes[i];
+                for (int c = 0; c < 8; c++)
+                {
+                    var corner = new Vector3((c & 1) != 0 ? mb.max.x : mb.min.x, (c & 2) != 0 ? mb.max.y : mb.min.y, (c & 4) != 0 ? mb.max.z : mb.min.z);
+                    var p = skin.MultiplyPoint3x4(corner);
+                    if (i == 0 && c == 0) result = new Bounds(p, Vector3.zero);
+                    else result.Encapsulate(p);
+                }
+            }
+            return result;
         }
 
         // A Tron/Model material for one compiled render style and the piece's texture list.
