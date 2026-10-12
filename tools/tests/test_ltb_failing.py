@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+import export_models
 import ltb
 
 
@@ -41,7 +42,31 @@ ENGINE_REJECTS = [
 ]
 
 
+def test_seeker_exports_every_piece(extracted, tmp_path):
+    meta = export_models.export_model(extracted, "chars/models/seeker.ltb", str(tmp_path))
+    assert len(meta["pieces"]) == 14
+    assert (tmp_path / "models/chars/models/seeker.ltb.bin").stat().st_size > 0
+
+
 @pytest.mark.parametrize("rel,why", ENGINE_REJECTS)
 def test_models_the_engine_rejects_raise_unsupported(extracted, rel, why):
     with pytest.raises(ltb.Unsupported, match=why):
         load(extracted, rel)
+
+
+def test_every_model_file_loads_or_is_one_the_engine_rejects(extracted):
+    rejected = []
+    for root, _dirs, files in os.walk(extracted):
+        for f in files:
+            path = os.path.join(root, f)
+            if not f.lower().endswith(".ltb"):
+                continue
+            with open(path, "rb") as fh:
+                head = fh.read(4)
+            if head[0] != 1 or head[2] != 9:  # render styles (type 5) and non-D3D files
+                continue
+            try:
+                ltb.load(path)
+            except ltb.Unsupported:
+                rejected.append(os.path.relpath(path, extracted))
+    assert sorted(rejected) == sorted(rel for rel, _why in ENGINE_REJECTS)
