@@ -48,6 +48,13 @@ class Resolver:
         self.missing_sockets = {}  # (character model, position) -> attachments dropped for want of a socket
         self.undrawn_attachments = {}   # object attachment class without a model -> count
 
+    def template(self, name):
+        """(model file, skins, render styles) of a modelbutes.txt template, as the game's
+        CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
+        t = self.templates[name.lower()]
+        return norm(t["modelfile"]), [norm(x) for x in butes.indexed(t, "skin")], \
+            [norm(x) for x in butes.indexed(t, "renderstyle")]
+
     @staticmethod
     def _skins(value):
         return [norm(s) for s in value.split(";") if s.strip()] if value else []
@@ -76,6 +83,16 @@ class Resolver:
                 return None
             return norm(t["modelfile"]), [norm(x) for x in butes.indexed(t, "skin")], \
                 [norm(x) for x in butes.indexed(t, "renderstyle")]
+        if cls == "IONode":
+            # IONode::ReadProp (object.lto 0x10022650) takes the hard-coded template "IONode"; its first
+            # update (state 0, 0x10023090) sets the "off" skins: Skin4 in slot 0, then Skin1..3.
+            file, skins, rs = self.template("IONode")
+            return file, skins[4:5] + skins[1:4], rs
+        if cls == "Optimizer":
+            # Optimizer::ReadProp (0x100301ec): the hard-coded template "Optimizer", its first three skins
+            # (the "on" set; death switches to Skin3..5, 0x10031128).
+            file, skins, rs = self.template("Optimizer")
+            return file, skins[:3], rs
         if cls in ("PropType", "Finder"):
             t = self.proptypes.get(s("Type").lower())
             if not t or "filename" not in t:
