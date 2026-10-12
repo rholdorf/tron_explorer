@@ -27,13 +27,15 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
+import animation  # noqa: E402
 import butes  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
+import floor  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -309,18 +311,36 @@ def template_model(resolver, name):
         [export_models.norm(x) for x in butes.indexed(t, "renderstyle")]
 
 
-def model_instances(objects, resolver, styles, extracted, sun_amount=None):
+def moves_to_floor(o, resolver):
+    """Whether the object runs MoveToFloor when it spawns: CCharacter and Prop read the object's
+    MoveToFloor (default TRUE, character.cpp / prop.cpp); a PropType (and Finder) takes its type's
+    proptypes.txt entry. ArchiveBin / SecRezzer (Tron classes without source) aren't moved."""
+    p = {q["k"].lower(): q for q in o["props"]}
+    if o["cls"] in ("CAIHuman", "Prop", "Alarm"):
+        q = p.get("movetofloor")
+        return bool(q["v"][0]) if q and q["t"] == "b" and q["v"] else True
+    if o["cls"] in ("PropType", "Finder"):
+        t = resolver.proptypes.get(p["type"]["s"].lower()) if "type" in p else None
+        return bool(t.get("movetofloor", 1)) if t else False
+    return False
+
+
+def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor_caster=None, idle=None):
     """Objects that show an .ltb the exporter can find (see export_models.Resolver), and the render
     styles their pieces use. Characters are skinned (bones = the model's nodes) and are followed by
     their attachments: parent = the character's entry, socket = the parent model socket they sit at.
 
+    pos: where the instance spawns, after MoveToFloor (floor.py) against floor_caster with its model's
+    dims (animation 0's, times its scale). anim (characters): the animation it loops, the idle that
+    idle (animation.IdleSelector) picks, else animation 0, the one a model spawns in.
+
     Every instance carries its lighting inputs (modellight.py): dims (its model's, times its scale),
-    the model's visRadius and sunAmount = sun_amount(object, dims) (0 without one). Attachments and the
-    ArchiveBin frame use their own model's dims at their object's (the character's, the bin's) position:
-    the exporter doesn't pose sockets, so the parent object's position stands in for theirs."""
+    the model's visRadius and sunAmount = sun_amount(object, dims) (0 without one), at pos. Attachments
+    and the ArchiveBin frame use their own model's dims at their object's (the character's, the bin's)
+    position: the exporter doesn't pose sockets, so the parent object's position stands in for theirs."""
     models, render_styles, style_index = [], [], {}
 
-    def add(i, r, scale, skinned, parent=-1, socket=""):
+    def add(i, r, scale, skinned, parent=-1, socket="", pos=None):
         if not os.path.isfile(os.path.join(extracted, r[0])):
             return False
         try:
@@ -333,10 +353,16 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None):
         pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
         m = styles.model(r[0])
         dims = [d * s for d, s in zip(export_models.model_dims(m), scale)]
+        o = objects[i]
+        if pos is None:
+            pos = list(o["pos"])
+            if floor_caster is not None and moves_to_floor(o, resolver):
+                pos = floor.move_to_floor(pos, dims[1], floor_caster)
         models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
                        "pieces": pieces, "skinned": int(skinned), "parent": parent, "socket": socket,
+                       "pos": [float(x) for x in pos], "anim": "",
                        "dims": dims, "visRadius": m.vis_radius,
-                       "sunAmount": sun_amount(objects[i], dims) if sun_amount else 0.0})
+                       "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount else 0.0})
         return True
 
     for i, o in enumerate(objects):
@@ -347,25 +373,43 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None):
         character = o["cls"] == "CAIHuman"
         if not add(i, r, scale, character):
             continue
+        placed = models[-1]["pos"]
         # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
         # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
         # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
         # border the game shows around the bin's glass.
         if o["cls"] == "ArchiveBin":
-            add(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1], False)
+            add(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1], False, pos=placed)
         if not character:
             continue
         parent = len(models) - 1
+        models[parent]["anim"] = character_anim(styles, extracted, r[0], idle.idle(o, i) if idle else None)
         sockets = {s.name.lower() for s in styles.model(r[0]).sockets}
         for socket, *att in resolver.attachments(o):
             if socket.lower() not in sockets:   # CreateAttachment fails: "unable to create socket"
                 resolver.missing_sockets[(r[0], socket)] = resolver.missing_sockets.get((r[0], socket), 0) + 1
                 continue
-            add(i, att, [1, 1, 1], True, parent, socket)
+            add(i, att, [1, 1, 1], True, parent, socket, pos=placed)
     return models, render_styles
 
 
-def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
+MISSING_ANIMS = {}   # (model file, animation) -> characters falling back to animation 0
+
+
+def character_anim(styles, extracted, rel, name):
+    """The animation a character model loops: `name` if the model or its child models have it, else
+    animation 0."""
+    m = styles.model(rel)
+    if name:
+        children = animation.load_children(extracted, rel, m, styles.model)
+        _owner, a = animation.find_anim(m, children, name)
+        if a is not None:
+            return a.name
+        MISSING_ANIMS[(rel, name)] = MISSING_ANIMS.get((rel, name), 0) + 1
+    return m.anims[0].name if m.anims else ""
+
+
+def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
     w = dat85.load(dat_path)
     wr = Writer()
 
@@ -415,7 +459,10 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
             return 0.0
         return sky.sun_amount(o["pos"], sun["dir"], modellight.euler_right(o["rot"]), float(np.linalg.norm(dims)))
 
-    models, render_styles = model_instances(objects, resolver, styles, extracted, sun_amount)
+    # Characters and props that ask for it stand on the floor (floor.py); characters loop their idle.
+    models, render_styles = model_instances(objects, resolver, styles, extracted, sun_amount,
+                                            floor.FloorCaster.from_world(w),
+                                            idle or animation.IdleSelector(extracted, resolver))
 
     meta = {
         "version": FORMAT_VERSION,
@@ -454,24 +501,30 @@ def main():
     index = []
     resolver = export_models.Resolver(root)
     styles = export_models.Styles(root)
-    model_files = set()
+    idle = animation.IdleSelector(root, resolver)
+    model_files = {}   # model file -> the animations its instances play
     worlds_dir = os.path.join(root, "worlds")
     for dat in sorted(glob.glob(os.path.join(worlds_dir, "**", "*.dat"), recursive=True)):
         rel = os.path.relpath(dat, worlds_dir)[:-4]
         if only and not any(s in rel for s in only):
             continue
-        meta = export(dat, os.path.join(out_root, "levels", rel), rel, resolver, styles, root)
+        meta = export(dat, os.path.join(out_root, "levels", rel), rel, resolver, styles, root, idle)
         tris = sum(s["count"] for m in meta["meshes"] for s in m["subs"]) // 3
         print(f"{rel:45} meshes={len(meta['meshes']):4} tris={tris:7} colliders={len(meta['colliders']):4} "
               f"objects={len(meta['objects'])} models={len(meta['models'])}")
         index.append(rel)
-        model_files.update(m["file"] for m in meta["models"])
-    for rel in sorted(model_files):
+        for m in meta["models"]:
+            anims = model_files.setdefault(m["file"], set())
+            if m["anim"]:
+                anims.add(m["anim"])
+    for rel, anims in sorted(model_files.items()):
         try:
-            export_models.export_model(root, rel, out_root)
+            export_models.export_model(root, rel, out_root, sorted(anims), styles.model)
         except Exception as e:  # noqa: BLE001 - report and keep exporting the rest
             print(f"model {rel}: {e}")
-    print(f"{len(model_files)} models")
+    print(f"{len(model_files)} models, {sum(len(a) for a in model_files.values())} animation clips")
+    for (f, name), n in sorted(MISSING_ANIMS.items()):
+        print(f"idle animation {name} not in {f} or its child models, animation 0 instead: {n}")
     for rs, pieces in sorted(styles.pass0_only.items()):
         print(f"two-pass style drawn with pass 0 only (#11): {rs}: "
               + ", ".join(f"{f} x{n}" for f, n in sorted(pieces.items())))

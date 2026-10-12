@@ -162,3 +162,38 @@ def test_right_hand_weapon_comes_from_the_level_object(extracted):
     r = export_models.Resolver(extracted)
     assert r.weapon_at(human("IC_Regular", RightHand="ICRegularDisc"), "RightHand") == "ICRegularDisc"
     assert r.weapon_at(human("IC_Regular"), "RightHand") is None
+
+
+def read_exported_clip(base, name):
+    """Rebuilds a clip from export/models/<file>.json + .bin (the viewer's ModelLibrary layout)."""
+    import json
+    import struct
+    meta = json.load(open(base + ".json"))
+    data = open(base + ".bin", "rb").read()
+    _magic, version, nv, ni, ninf, nanim = struct.unpack_from("<4s5I", data)
+    assert version == meta["version"] == 3
+    off = 24 + nv * 44 + ni * 4 + nv + ninf * 8
+    floats = np.frombuffer(data, "<f4", nanim, off)
+    assert off + nanim * 4 == len(data)
+    a = next(x for x in meta["anims"] if x["name"] == name)
+    times = floats[a["times"]:a["times"] + a["keys"]] * 1000.0
+    ch = np.array(a["channels"]).reshape(-1, 4)
+    pos = [floats[o:o + 3 * n].reshape(n, 3).astype(np.float64) for o, n, _, _ in ch]
+    rot = [floats[o:o + 4 * n].reshape(n, 4).astype(np.float64) for _, _, o, n in ch]
+    return a, animation.Clip(name, times, pos, rot)
+
+
+def test_exported_clip_round_trips(extracted, tmp_path):
+    import export_models
+    rel = "chars/models/zlot3.ltb"
+    export_models.export_model(extracted, rel, str(tmp_path), ["Zlt_Idle4"])
+    a, got = read_exported_clip(str(tmp_path / "models" / rel), "Zlt_Idle4")
+    m = ltb.load(chars(extracted, "zlot3.ltb"))
+    want = animation.clip(m, animation.load_children(extracted, rel, m), "Zlt_Idle4")
+    assert a["length"] == pytest.approx(want.length / 1000.0)
+    assert a["keys"] == len(want.times)
+    assert sum(len(p) > 1 for p in got.pos) + sum(len(q) > 1 for q in got.rot) > 0   # it moves
+    for t in np.linspace(0, want.length, 13):
+        for (p1, q1), (p2, q2) in zip(animation.sample(got, t), animation.sample(want, t)):
+            assert p1 == pytest.approx(p2, abs=1e-3)
+            assert q1 == pytest.approx(q2, abs=1e-4)

@@ -46,3 +46,51 @@ def test_world_floors_face_up(world):
     tank = next(o for o in w.objects if o["props"].get("Name") == "Tank01.Body")
     assert c.floor_below(tank["props"]["Pos"]) == pytest.approx(0)
     assert floor.move_to_floor(tank["props"]["Pos"], 43, c) == tank["props"]["Pos"]
+
+
+@pytest.fixture(scope="module")
+def m01_01(extracted, tmp_path_factory):
+    import export_level
+    import export_models
+    rel = "retailsingleplayer/m01-01"
+    out = tmp_path_factory.mktemp("m01-01")
+    return export_level.export(f"{extracted}/worlds/{rel}.dat", str(out), rel, export_models.Resolver(extracted),
+                               export_models.Styles(extracted), extracted)
+
+
+def instance(meta, name):
+    return next(m for m in meta["models"] if meta["objects"][m["obj"]]["name"] == name and m["parent"] < 0)
+
+
+def test_level_characters_stand_on_the_floor_and_loop_their_idle(m01_01):
+    z = instance(m01_01, "ZLotTemplate03")                    # zealot, origin 64 above the floor
+    assert m01_01["objects"][z["obj"]]["pos"][1] == 4832
+    assert z["pos"][1] == pytest.approx(4816.1)                # floor 4768 + dims.y 48 + 0.1
+    assert z["anim"] == "Zlt_Idle4"
+
+
+def test_attachments_take_their_character_position(m01_01):
+    models = m01_01["models"]
+    atts = [m for m in models if m["parent"] >= 0]
+    assert atts
+    for a in atts:
+        assert a["pos"] == models[a["parent"]]["pos"] and a["anim"] == ""
+
+
+def test_move_to_floor_off_leaves_the_character(m01_01):
+    byte = instance(m01_01, "IONodeActors00.ByteActor")        # MoveToFloor False
+    assert byte["pos"] == m01_01["objects"][byte["obj"]]["pos"]
+    assert byte["anim"] == "Hover"
+
+
+def test_prop_types_follow_their_type_move_to_floor(extracted):
+    import export_level
+    import export_models
+    r = export_models.Resolver(extracted)
+
+    def prop(t, mtf=True):
+        return {"cls": "PropType", "props": [{"k": "Type", "t": "s", "s": t, "v": []},
+                                             {"k": "MoveToFloor", "t": "b", "s": "", "v": [1.0 if mtf else 0.0]}]}
+    assert export_level.moves_to_floor(prop("Tank"), r)
+    assert not export_level.moves_to_floor(prop("m0502Forcefield"), r)   # level says True, type says 0
+    assert not export_level.moves_to_floor({"cls": "ArchiveBin", "props": []}, r)

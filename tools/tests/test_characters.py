@@ -69,11 +69,11 @@ def read_skin(out_root, rel):
     with open(os.path.join(out_root, "models", rel + ".bin"), "rb") as f:
         b = f.read()
     assert b[:4] == b"TRMD"
-    _version, nv, ni, ninf = struct.unpack_from("<4I", b, 4)
-    p = 20 + nv * 44 + ni * 4
+    _version, nv, ni, ninf, nanim = struct.unpack_from("<5I", b, 4)
+    p = 24 + nv * 44 + ni * 4
     counts = np.frombuffer(b, np.uint8, nv, p)
     w = np.frombuffer(b, np.dtype([("weight", "<f4"), ("bone", "<i4")]), ninf, p + nv)
-    assert p + nv + ninf * 8 == len(b)
+    assert p + nv + ninf * 8 + nanim * 4 == len(b)
     starts = [0] + np.cumsum(counts, dtype=np.int64).tolist()
     return [[(int(b), float(x)) for b, x in w[starts[i]:starts[i + 1]][["bone", "weight"]].tolist()]
             for i in range(nv)]
