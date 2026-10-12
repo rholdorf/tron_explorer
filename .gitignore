@@ -1,0 +1,50 @@
+# Game data: copyrighted, never commit (regenerate with ./setup.sh <game dir>)
+/extracted/
+/export/
+*.rez
+*.REZ
+*.dat
+*.dtx
+
+# Builds
+/Build/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Unity (project lives in TronViewer/)
+TronViewer/[Ll]ibrary/
+TronViewer/[Tt]emp/
+TronViewer/[Oo]bj/
+TronViewer/[Bb]uild/
+TronViewer/[Bb]uilds/
+TronViewer/[Ll]ogs/
+TronViewer/[Uu]ser[Ss]ettings/
+TronViewer/[Mm]emoryCaptures/
+TronViewer/[Rr]ecordings/
+TronViewer/Assets/Temp/
+TronViewer/Assets/Temp.meta
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+.vs/
+.idea/
+.vscode/
+*.apk
+*.aab
+*.unitypackage
+crashlytics-build.properties
+
+# macOS
+.DS_Store
