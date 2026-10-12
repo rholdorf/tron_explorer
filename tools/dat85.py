@@ -113,6 +113,11 @@ class Reader:
 
 # ---------------------------------------------------------------- BSP world models
 
+def fan(vs):
+    """A convex polygon's triangles as a fan from its first vertex: (vs[0], vs[k], vs[k + 1])."""
+    return [(vs[0], vs[k], vs[k + 1]) for k in range(1, len(vs) - 1)]
+
+
 class WorldBsp:
     def __init__(self):
         self.flags = 0
@@ -133,8 +138,7 @@ class WorldBsp:
             sflags = int(self.surfaces[surf_i]["flags"])
             if not (sflags & SURF_SOLID) or (sflags & exclude_flags):
                 continue
-            for k in range(1, len(vs) - 1):
-                tris.append((vs[0], vs[k], vs[k + 1]))
+            tris.extend(fan(vs))
         return self.points, np.array(tris, dtype=np.uint32).reshape(-1, 3)
 
 

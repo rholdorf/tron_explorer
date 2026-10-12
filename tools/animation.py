@@ -11,11 +11,8 @@ import os
 import numpy as np
 
 import butes
+from butes import norm
 import ltb
-
-
-def norm(path):
-    return path.replace("\\", "/").strip().lower()
 
 
 def load_children(extracted, rel, m, load=None):

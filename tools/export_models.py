@@ -19,6 +19,7 @@ import numpy as np
 
 import animation
 import butes
+from butes import norm
 import ltb
 import renderstyle
 
@@ -26,10 +27,6 @@ FORMAT_VERSION = 3
 
 OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4), ("uv", "<f4", 2),
                        ("uv2", "<f4", 2)])
-
-
-def norm(path):
-    return path.replace("\\", "/").strip().lower()
 
 
 class Resolver:

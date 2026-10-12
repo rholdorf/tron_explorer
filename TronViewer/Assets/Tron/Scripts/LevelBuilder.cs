@@ -15,7 +15,8 @@ namespace Tron
         public const int FormatVersion = 10;
         const int HeaderSize = 32, VertexSize = 44;
 
-        // World model classes that collide like solid brushes (WorldModel family).
+        // World model classes that collide like solid brushes (WorldModel family). Kept in step with
+        // tools/floor.py SOLID_CLASSES / HIDDEN_CLASSES (the exporter's MoveToFloor caster).
         static readonly HashSet<string> SolidClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "WorldModel", "SlidingDoor", "RotatingDoor", "Door", "SlidingWorldModel", "RotatingWorldModel",

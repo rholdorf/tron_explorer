@@ -288,8 +288,7 @@ def polys_to_tris(polys):
     for _plane, verts in polys:
         b = len(pts)
         pts.extend(verts.tolist())
-        for k in range(1, len(verts) - 1):
-            tris.append((b, b + k, b + k + 1))
+        tris.extend(dat85.fan(range(b, b + len(verts))))
     return np.array(pts, np.float32).reshape(-1, 3), np.array(tris, np.uint32).reshape(-1, 3)
 
 
@@ -307,8 +306,8 @@ def template_model(resolver, name):
     """(model file, skins, render styles) of a modelbutes.txt template, as the game's
     CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
     t = resolver.templates[name.lower()]
-    return export_models.norm(t["modelfile"]), [export_models.norm(x) for x in butes.indexed(t, "skin")], \
-        [export_models.norm(x) for x in butes.indexed(t, "renderstyle")]
+    return butes.norm(t["modelfile"]), [butes.norm(x) for x in butes.indexed(t, "skin")], \
+        [butes.norm(x) for x in butes.indexed(t, "renderstyle")]
 
 
 def moves_to_floor(o, resolver):
