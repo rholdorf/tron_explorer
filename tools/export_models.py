@@ -29,6 +29,13 @@ OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4
                        ("uv2", "<f4", 2)])
 
 
+def model_entry(section, model_key, prefix=""):
+    """(model file, skins, render styles) of an attribute-file entry: its `model_key` and its
+    <prefix>SkinN / <prefix>RenderStyleN slots, kept in position (empty slots too)."""
+    return norm(section[model_key]), [norm(x) for x in butes.indexed(section, prefix + "skin")], \
+        [norm(x) for x in butes.indexed(section, prefix + "renderstyle")]
+
+
 class Resolver:
     """Maps a level object to (model file, skins, render styles), following the game's sources:
     the object's own Filename/Skin, a PropType entry (proptypes.txt) or a ModelTemplate
@@ -51,9 +58,7 @@ class Resolver:
     def template(self, name):
         """(model file, skins, render styles) of a modelbutes.txt template, as the game's
         CModelButeMgr::GetModelFilename / CopySkinFilenames / CopyRenderStyleFilenames give them."""
-        t = self.templates[name.lower()]
-        return norm(t["modelfile"]), [norm(x) for x in butes.indexed(t, "skin")], \
-            [norm(x) for x in butes.indexed(t, "renderstyle")]
+        return model_entry(self.templates[name.lower()], "modelfile")
 
     @staticmethod
     def bin_items(obj):
@@ -97,8 +102,7 @@ class Resolver:
             t = self.templates.get(s("ModelTemplate").lower())
             if not t or "modelfile" not in t:
                 return None
-            return norm(t["modelfile"]), [norm(x) for x in butes.indexed(t, "skin")], \
-                [norm(x) for x in butes.indexed(t, "renderstyle")]
+            return model_entry(t, "modelfile")
         if cls == "IONode":
             # IONode::ReadProp (object.lto 0x10022650) takes the hard-coded template "IONode"; its first
             # update (state 0, 0x10023090) sets the "off" skins: Skin4 in slot 0, then Skin1..3.
@@ -114,8 +118,7 @@ class Resolver:
             t = self.proptypes.get(s("PropType" if cls == "TronTurret" else "Type").lower())
             if not t or "filename" not in t:
                 return None
-            return norm(t["filename"]), [norm(x) for x in butes.indexed(t, "skin")], \
-                [norm(x) for x in butes.indexed(t, "renderstyle")]
+            return model_entry(t, "filename")
         if cls in ("Prop", "Alarm") and s("Filename"):
             return norm(s("Filename")), self._skins(s("Skin")), []
         return None
@@ -185,16 +188,14 @@ class Resolver:
                 if not w.get("hhmodel"):
                     self.hidden_weapons += 1
                     continue
-                out.append((pos, norm(w["hhmodel"]), [norm(x) for x in butes.indexed(w, "hhskin")],
-                            [norm(x) for x in butes.indexed(w, "hhrenderstyle")]))
+                out.append((pos, *model_entry(w, "hhmodel", "hh")))
                 continue
             # Type 0 is a Prop; type 1 creates its Class, which only draws the model if it's a Prop.
             if a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES:
                 self.undrawn_attachments[a.get("class")] = self.undrawn_attachments.get(a.get("class"), 0) + 1
                 continue
             if "model" in a:
-                out.append((pos, norm(a["model"]), [norm(x) for x in butes.indexed(a, "skin")],
-                            [norm(x) for x in butes.indexed(a, "renderstyle")]))
+                out.append((pos, *model_entry(a, "model")))
         return out
 
 
