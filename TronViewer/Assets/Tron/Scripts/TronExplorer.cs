@@ -282,7 +282,13 @@ namespace Tron
             level.ConnectPlayer(PlayerId, player);
             ApplyWorldProperties();
             Spawn();
-            fade.Start(true, LevelStartFadeTime);   // the game fades in at level start
+            // The start point's Command runs at the player's first update (Relays.StartCommand), once per
+            // load: R and T only move the player. The level's StartupCommands run in the same frame, before it.
+            var start = spawnPoints.Count > 0 ? spawnPoints[0] : null;
+            level.Relays.StartCommand = start != null && start.cls == "GameStartPoint" ? start.Str("Command") : null;
+            // The game fades in at level start; a fade in a startup or start point command (m01-01's
+            // "fadeIn 2.0") replaces this one on the first frame, as a new fade does.
+            fade.Start(true, LevelStartFadeTime);
             status = $"{match}: {sw.ElapsedMilliseconds} ms, {level.MissingTextures.Count} texturas ausentes";
             Debug.Log(status + (level.MissingTextures.Count > 0 ? "\n" + string.Join("\n", level.MissingTextures.Take(30)) : ""));
             if (SoundLoader.Missing.Count > 0)

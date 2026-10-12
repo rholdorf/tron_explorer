@@ -2,8 +2,9 @@ using UnityEngine;
 
 namespace Tron
 {
-    // Ticks the level's triggers once per frame after the pending-command table, with the player's box (its
-    // CharacterController, in LT units) for their touch; no player before the spawn.
+    // Ticks the level's objects (Relays.UpdateObjects: startup commands, triggers, the start point's command)
+    // once per frame after the pending-command table, with the player's box (its CharacterController, in LT
+    // units) for the triggers' touch; no player before the spawn.
     [DefaultExecutionOrder(-90)]
     public class TriggerTicker : MonoBehaviour
     {

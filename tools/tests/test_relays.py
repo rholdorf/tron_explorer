@@ -11,6 +11,7 @@ Driver lines (tab-separated):
                                   with control characters
   deaf <name> <class>             join an object that handles no message
   player                          join the player ("player")
+  start <command>                 the start point's command, for the player's first update
   frame <dt> [<x y z>]            one frame: timelines, the pending-command table, then triggers with the
                                   player's box centred at x y z (half-extents 24 53 24), or no player
   run <command>                   run a command string with no sender
@@ -95,6 +96,9 @@ static class Driver
                     else relays.UpdateObjects(-1, default(LTVec), default(LTVec));
                     break;
                 }
+                case "start":
+                    relays.StartCommand = a[1];
+                    break;
                 case "run":
                     mgr.Run(a[1]);
                     break;
@@ -325,3 +329,15 @@ def test_a_startup_command_runs_once_at_its_first_update_as_its_own_sender(drive
     # pending-command table), sender and active target itself, and the object is removed. Its delay starts
     # counting at the next frame's table tick.
     assert out == [("loaded",), ("got", "a", "s", "now"), ("f1",), ("got", "a", "s", "later"), ("f2",), ("f3",)]
+
+
+def test_the_start_points_command_runs_at_the_players_first_update_after_the_level_objects(driver):
+    out = driver([("obj", "a", "WorldModel"),
+                  ("relay", "s", "StartupCommand", "0 0 0", "$Command=msg a startup"),
+                  trigger("t", "$Command1=msg a touched"), ("player",), ("start", "msg a start;delay 0.1 (msg a later)"),
+                  ("frame", 0.1), ("echo", "spawned"), ("frame", 0.1, INSIDE), ("echo", "f2"),
+                  ("frame", 0.1, INSIDE), ("echo", "f3"), ("frame", 0.1, INSIDE)])
+    # CPlayerObj::Update: SendStartLevelCommand on the player's first update, once, sender and active target
+    # the player. The player is created after the level's objects, so it updates after them.
+    assert out == [("got", "a", "s", "startup"), ("spawned",), ("got", "a", "player", "touched"),
+                   ("got", "a", "player", "start"), ("f2",), ("got", "a", "player", "later"), ("f3",)]

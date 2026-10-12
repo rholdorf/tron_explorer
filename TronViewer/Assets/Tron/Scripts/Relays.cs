@@ -68,8 +68,15 @@ namespace Tron
                 if (timelines[i].Active) timelines[i].Update();
         }
 
-        // The objects' update: startup commands, then the triggers with the player's touch. player is its
-        // command-manager id (-1: no player, as before the spawn), playerMin / playerMax its box (LT units).
+        // The start point's Command (GameStartPoint), run once at the player's first update
+        // (CPlayerObj::SendStartLevelCommand), sender and active target the player; then cleared. Single
+        // player: only the start point the player spawned at, never again on a respawn.
+        public string StartCommand { get; set; }
+
+        // The objects' update: startup commands, the triggers with the player's touch, then the player's
+        // (created after the level's objects, so it updates last): its first update runs StartCommand.
+        // player is its command-manager id (-1: no player, as before the spawn), playerMin / playerMax its
+        // box (LT units).
         public void UpdateObjects(int player, LTVec playerMin, LTVec playerMax)
         {
             // StartupCommand (startupcommand.cpp): its Command runs at its first update, sender and active
@@ -81,6 +88,12 @@ namespace Tron
                 foreach (var s in run) commands.Run(s.command, s.id, s.id);
             }
             foreach (var t in triggers) t.Update(player, playerMin, playerMax);
+            if (player >= 0 && StartCommand != null)
+            {
+                var command = StartCommand;
+                StartCommand = null;
+                commands.Run(command, player, player);
+            }
         }
 
         readonly struct Props
