@@ -66,6 +66,10 @@ class Resolver:
             q = p.get(key)
             return bool(q["v"][0]) if q and q["t"] == "b" and q["v"] else default
 
+        # GameBase::ReadProp: a Template object is saved as a spawner template and never created;
+        # in single player an object with SinglePlayer off isn't created either.
+        if b("Template", False) or not b("SinglePlayer"):
+            return None
         if not b("Visible") or b("StartHidden", False):
             return None
         cls = obj["cls"]

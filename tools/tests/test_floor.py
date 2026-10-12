@@ -63,10 +63,10 @@ def instance(meta, name):
 
 
 def test_level_characters_stand_on_the_floor_and_loop_their_idle(m01_01):
-    z = instance(m01_01, "ZLotTemplate03")                    # zealot, origin 64 above the floor
-    assert m01_01["objects"][z["obj"]]["pos"][1] == 4832
-    assert z["pos"][1] == pytest.approx(4816.1)                # floor 4768 + dims.y 48 + 0.1
-    assert z["anim"] == "Zlt_Idle4"
+    z = instance(m01_01, "12073TP")                           # program, origin 80 above the floor
+    assert m01_01["objects"][z["obj"]]["pos"][1] == 6120
+    assert z["pos"][1] == pytest.approx(6092.1)                # floor 6040 + dims.y 52 + 0.1
+    assert z["anim"] == "Gen_Idle01"
 
 
 def test_attachments_take_their_character_position(m01_01):
@@ -78,7 +78,7 @@ def test_attachments_take_their_character_position(m01_01):
 
 
 def test_move_to_floor_off_leaves_the_character(m01_01):
-    byte = instance(m01_01, "IONodeActors00.ByteActor")        # MoveToFloor False
+    byte = instance(m01_01, "Byte")        # MoveToFloor False
     assert byte["pos"] == m01_01["objects"][byte["obj"]]["pos"]
     assert byte["anim"] == "Hover"
 
