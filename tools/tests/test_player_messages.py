@@ -1,0 +1,136 @@
+"""The player's messages the viewer keeps (TronViewer/.../PlayerMessages.cs): teleport, screen fades, the
+render-variable table with its ramps and sines, and the WorldProperties fog messages. Compiled with Mono
+next to Commands.cs and driven through the command manager, as a level's commands reach them. Rules:
+docs/research/player-messages.md (branch research/player-messages; ltjs playerobj.cpp, interfacemgr.cpp,
+wavefn.cpp, worldproperties.cpp, gameclientshell.cpp; Tron's object.lto / cshell.dll for the ramps and
+sines). Expected values are worked by hand from those rules.
+
+Driver lines (tab-separated):
+  run <command>        run a command string (no sender)
+  tick <seconds>       one frame: pending commands, then the render variables and the fade
+  var <name>           print "var <name> <value>"
+  alpha                print "alpha <fade alpha>"
+  report               print the unhandled counts: "unhandled <verb> <class> <word> <count>"
+The level: the player ("player"), a WorldProperties named "WorldProperties0" seeded with FogR/G/B 10 20 30,
+FogNearZ 100, FogFarZ 1000, FarZ 5000; teleport points "tp1" and "TP2" (the teleport callback prints
+"teleport <name>" and accepts only names starting with "tp", in any case).
+"""
+import os
+import shutil
+import subprocess
+
+import pytest
+
+SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+
+DRIVER = r"""
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using Tron;
+static class Driver
+{
+    static void Main()
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var mgr = new CommandMgr(() => 0.0);
+        var world = new Dictionary<string, float>
+        {
+            { "FogR", 10 }, { "FogG", 20 }, { "FogB", 30 }, { "FogNearZ", 100 }, { "FogFarZ", 1000 }, { "FarZ", 5000 },
+        };
+        var vars = new RenderVars(world);
+        var fade = new ScreenFade();
+        int wp = mgr.Join("WorldProperties0", "WorldProperties");
+        PlayerMessages.HandleWorldProperties(mgr, wp, vars);
+        int player = mgr.Join("player", "Player");
+        PlayerMessages.Handle(mgr, player, vars, fade, name =>
+        {
+            Console.WriteLine("teleport\t" + name);
+            return name.StartsWith("tp", StringComparison.OrdinalIgnoreCase);
+        });
+        string line;
+        while ((line = Console.ReadLine()) != null)
+        {
+            var a = line.Split('\t');
+            switch (a[0])
+            {
+                case "run": mgr.Run(a[1]); break;
+                case "tick":
+                {
+                    float dt = float.Parse(a[1], inv);
+                    mgr.Update(dt);
+                    vars.Update(dt);
+                    fade.Update(dt);
+                    break;
+                }
+                case "var": Console.WriteLine("var\t" + a[1] + "\t" + vars[a[1]].ToString("0.####", inv)); break;
+                case "alpha": Console.WriteLine("alpha\t" + fade.Alpha.ToString("0.####", inv)); break;
+                case "report":
+                    foreach (var u in mgr.Unhandled)
+                        Console.WriteLine("unhandled\t" + u.Verb + "\t" + u.Class + "\t" + u.Word + "\t" + u.Count);
+                    break;
+            }
+        }
+    }
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def driver(tmp_path_factory):
+    mcs, mono = shutil.which("mcs"), shutil.which("mono")
+    if not mcs or not mono:
+        pytest.skip("Mono (mcs, mono) not installed")
+    d = tmp_path_factory.mktemp("player_messages")
+    (d / "Driver.cs").write_text(DRIVER)
+    exe = str(d / "driver.exe")
+    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
+                        os.path.join(SCRIPTS, "Commands.cs"), os.path.join(SCRIPTS, "PlayerMessages.cs")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    def run(lines):
+        text = "".join("\t".join(map(str, line)) + "\n" for line in lines)
+        out = subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
+        return [tuple(x.split("\t")) for x in out.splitlines()]
+    return run
+
+
+def values(out, kind):
+    return [float(o[-1]) for o in out if o[0] == kind]
+
+
+# ---- Teleport ----
+
+def test_teleport_asks_for_the_named_point(driver):
+    out = driver([("run", "msg player (teleport TP2)")])
+    assert out == [("teleport", "TP2")]
+
+
+def test_a_teleport_to_something_that_isnt_a_teleport_point_is_counted(driver):
+    out = driver([("run", "msg player (teleport DS1.EndTP)"), ("report",)])
+    assert out == [("teleport", "DS1.EndTP"), ("unhandled", "MSG", "Player", "TELEPORT", "1")]
+
+
+# ---- Fades ----
+# alpha = 1 - SlowOn(1 - p), p = elapsed/total for a fade-out, remaining/total for a fade-in;
+# SlowOn(v) = v < 0.5 ? (1 - cos(pi v)) / 2 : v. So SlowOn(0.25) = 0.146447, SlowOn(0.75) = 0.75.
+
+def test_a_fade_out_eases_to_black_and_stays_black(driver):
+    out = driver([("alpha",), ("run", "msg player (fadeout 1)"), ("alpha",),
+                  ("tick", 0.25), ("alpha",), ("tick", 0.25), ("alpha",), ("tick", 0.25), ("alpha",),
+                  ("tick", 0.25), ("alpha",), ("tick", 5), ("alpha",)])
+    assert values(out, "alpha") == pytest.approx([0, 0, 0.25, 0.5, 0.853553, 1, 1], abs=1e-4)
+
+
+def test_a_fade_in_eases_from_black_and_replaces_the_fade_out(driver):
+    out = driver([("run", "msg player (fadeout .5)"), ("tick", 0.25),
+                  ("run", "msg player (fadein 1 1)"), ("alpha",), ("tick", 0.25), ("alpha",),
+                  ("tick", 0.5), ("alpha",), ("tick", 0.25), ("alpha",), ("tick", 1), ("alpha",)])
+    assert values(out, "alpha") == pytest.approx([1, 0.853553, 0.25, 0, 0], abs=1e-4)
+
+
+def test_a_fade_shorter_than_a_tenth_of_a_second_and_fadein_5_are_not_fades(driver):
+    out = driver([("run", "msg player (fadeout 0.05); msg player fadein.5"), ("tick", 1), ("alpha",), ("report",)])
+    assert out == [("alpha", "0"), ("unhandled", "MSG", "Player", "FADEIN.5", "1"),
+                   ("unhandled", "MSG", "Player", "FADEOUT", "1")]
