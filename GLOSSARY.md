@@ -133,3 +133,15 @@ _Avoid_: activate (that is also a message), interact
 **Permission set**:
 One of eight keys (`Key1`..`Key8`) a door, switch or other object can require; the player gets them from archive bins or scripts. The viewer grants all of them.
 _Avoid_: keycard, access level
+
+**Teleport**:
+The player's move to a `TeleportPoint` on a `teleport` message: on its next update, facing the point's pitch and yaw, dropped to the floor, stopped.
+_Avoid_: warp, respawn (the viewer's R/T keys pick a start point, not a teleport)
+
+**Screen fade**:
+The black overlay `fadein`/`fadeout` ease over a time; after a fade-out the screen stays black until a fade-in.
+_Avoid_: blackout, transition
+
+**Render variable**:
+A client console variable the renderer reads every frame (fog color and distances, FarZ, sky and glow fog, glow filter). Ramps and sines move it; a WorldProperties message copies every world variable back from the level's values.
+_Avoid_: cvar alone (most console variables aren't render variables), world property (that's the server's copy)
