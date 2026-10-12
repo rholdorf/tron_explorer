@@ -93,6 +93,50 @@ def test_goto_names_a_key_by_base_name_and_index():
     assert keyframer.self_commands("msg K (goto BaseKey20)", "K", "BaseKey", 15) == []
 
 
+def test_live_keyframers_carry_their_settings_targets_and_keys(world):
+    import keyframer
+    w = world("retailsingleplayer/m05-02")
+    kf = {k["name"]: k for k in keyframer.keyframers(w.objects, w.blind)}["target01kf"]
+    obj = next(o["props"] for o in w.objects if o["props"].get("Name") == "target01kf")
+    assert kf["targets"] == [n for n in obj["ObjectName"].split(";") if n]
+    assert kf["looping"] == obj["Looping"] and kf["totalPathTime"] == obj["TotalPathTime"] == 0.0
+    assert len(kf["keys"]) == 13
+    assert kf["keys"][0]["commands"] == [{"verb": "FORWARD", "delay": 0.0, "key": -1}]
+    assert kf["keys"][12]["commands"] == [{"verb": "BACKWARD", "delay": 0.0, "key": -1}]
+    assert kf["keys"][5]["commands"] == []
+    assert set(kf["keys"][0]) == {"pos", "pyr", "time", "bezPrev", "bezNext", "commands"}
+
+
+def test_wavetype_and_active_sound(world):
+    import keyframer
+    found = [k for level in single_player_levels() for k in keyframer.keyframers(world(level).objects,
+                                                                                   world(level).blind)]
+    assert sum(k["wave"] == 1 for k in found) == 9        # Sine (Linear 0, Sine 1, SlowOff 2, SlowOn 3)
+    sounds = [k for k in found if k["activeSound"]]
+    assert len(sounds) == 30
+    assert all(k["soundRadius"] > 0 for k in sounds)
+
+
+def test_a_keyframer_that_also_starts_paused_is_not_live(world):
+    # KeyFramer::Update's first pass: GoActive, then Pause (GoInActive) for StartPaused; nothing runs
+    # until something resumes it.
+    import keyframer
+    w = world("retailsingleplayer/m03-01")
+    names = {k["name"] for k in keyframer.keyframers(w.objects, w.blind)}
+    assert "port01kf" not in names and "display01kf" not in names
+
+
+def test_single_player_levels_have_138_live_keyframers(world):
+    # 147 StartActive, 9 of them also StartPaused (m03-01's port/display keyframers, m08-01 Finder07KF).
+    import keyframer
+    found = {level: keyframer.keyframers(world(level).objects, world(level).blind)
+             for level in single_player_levels()}
+    assert sum(len(v) for v in found.values()) == 138
+    assert all(k["keys"] for v in found.values() for k in v)
+    selfish = [k for v in found.values() for k in v if any(key["commands"] for key in k["keys"])]
+    assert len(selfish) == 34
+
+
 def test_messages_the_keyframer_does_not_handle_are_left_out():
     import keyframer
     assert keyframer.self_commands("msg K TRIGGER; msg K (hidden 1); ", "K", "k", 3) == []

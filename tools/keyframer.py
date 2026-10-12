@@ -93,6 +93,44 @@ def self_commands(command, name, base_key_name, n_keys, delay=0.0):
     return out
 
 
+CLASS = "KeyFramer"
+WAVES = ["Linear", "Sine", "SlowOff", "SlowOn"]   # KFWAVE_*
+
+
+def keyframers(objects, blind):
+    """The level's keyframers that start active (StartActive, not StartPaused), for the viewer: name,
+    targets (the ObjectName list; each name can match several objects), looping, alignToPath, ignoreOffsets,
+    pushObjects, totalPathTime (> 0: velocity mode), wave (index into WAVES), activeSound, soundRadius,
+    and keys: pos, pyr, time, bezPrev, bezNext and commands (self_commands of the key's command)."""
+    out = []
+    for o in objects:
+        p = o["props"]
+        # Update's first pass: GoActive if StartActive, then Pause if StartPaused (nothing resumes it).
+        if o["class"] != CLASS or not p.get("StartActive", False) or p.get("StartPaused", False):
+            continue
+        index = p.get("KeyDataIndex", -1.0)
+        if index < 0 or int(index) >= len(blind):
+            continue
+        targets = [n.strip() for n in p.get("ObjectName", "").split(";") if n.strip()]
+        name, base = p.get("Name", ""), p.get("BaseKeyName", "")
+        keys = read_keys(blind[int(index)][1])
+        if not targets or not keys or not base:
+            continue
+        wave = p.get("Wavetype", "Linear")
+        out.append({
+            "name": name, "targets": targets,
+            "looping": bool(p.get("Looping", False)), "alignToPath": bool(p.get("AlignToPath", False)),
+            "ignoreOffsets": bool(p.get("IgnoreOffsets", False)), "pushObjects": bool(p.get("PushObjects", False)),
+            "totalPathTime": float(p.get("TotalPathTime", 0.0)),
+            "wave": next((i for i, w in enumerate(WAVES) if w.lower() == wave.lower()), 0),
+            "activeSound": p.get("ActiveSound", "").strip(), "soundRadius": float(p.get("SoundRadius", 1000.0)),
+            "keys": [{"pos": k["pos"], "pyr": k["pyr"], "time": k["time"], "bezPrev": k["bezPrev"],
+                      "bezNext": k["bezNext"],
+                      "commands": self_commands(k["command"], name, base, len(keys))} for k in keys],
+        })
+    return out
+
+
 def read_keys(blob):
     """A keyframer chunk's keys: pos, pyr, time (running sum of the time stamps), sound, soundRadius,
     command, and Bezier controls bezPrev/bezNext (absolute; [] when absent)."""
