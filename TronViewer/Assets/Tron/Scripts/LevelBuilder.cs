@@ -96,6 +96,7 @@ namespace Tron
             BuildSoundFX();
             BuildSoundButeFX();
             BuildKeyframers();
+            RelayTicker.Build(this);
         }
 
         // Every level object joins the command manager by name and class, in level order, so an object's

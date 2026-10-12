@@ -443,7 +443,7 @@ namespace Tron
         int RandomInt(int min, int max) => Math.Min(max, min + (int)(random() * (max - min + 1)));
 
         // C atof / atol: the longest leading number, 0 if there's none.
-        static float Atof(string s)
+        public static float Atof(string s)
         {
             int i = 0, n = s.Length;
             while (i < n && char.IsWhiteSpace(s[i])) i++;
