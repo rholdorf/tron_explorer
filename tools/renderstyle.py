@@ -34,11 +34,14 @@ ALPHA_OPS = {0: OP_DISABLE, 1: OP_SEL1, 2: OP_SEL2, 3: OP_MOD, 4: OP_BLEND_CUR_A
 # Stage arguments: 0 CURRENT, 1 DIFFUSE, 2 TEXTURE, 3 TFACTOR (same codes in the shader).
 UV_SETS = {0: 0, 6: 1, 9: 1}   # UV set 1 -> 0; camera/world-space reflection -> 1 (identical without a UV transform)
 # Unity BlendMode factors per engine blend mode.
+# (renderstylelookuptables.cpp: MOD_SRCCOLOR = SRCCOLOR, INVSRCCOLOR; MUL_SRCCOL_DSTCOL = SRCCOLOR, DESTCOLOR)
 UNITY_BLEND = {"opaque": (1, 0), "alpha": (5, 10), "add": (1, 1), "mul_srcalpha_one": (5, 1),
-               "saturate": (8, 1), "mul_srccol_one": (3, 1), "mul_srcalpha_zero": (5, 0)}
+               "saturate": (8, 1), "mul_srccol_one": (3, 1), "mul_srcalpha_zero": (5, 0),
+               "mod_srccolor": (3, 6), "mul_srccol_dstcol": (3, 2)}
 # Unity CompareFunction for the alpha test enum (0 none, 1 LESS, 2 LESSEQUAL, 3 GREATER, 4 GREATEREQUAL, ...).
 UNITY_CMP = {1: 2, 2: 4, 3: 5, 4: 7, 5: 3, 6: 6}
-ZFUNC = {0: 8, **UNITY_CMP}   # ZBufferTestMode uses the same enum, 0 = always
+ZFUNC = {0: 8, **UNITY_CMP}
+IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)   # ZBufferTestMode uses the same enum, 0 = always
 
 
 class Stage:
@@ -84,6 +87,7 @@ def load(path):
             st = Stage()
             (st.texture, st.color_op, st.color_arg1, st.color_arg2, st.alpha_op, st.alpha_arg1, st.alpha_arg2,
              st.uv_source, st.u_address, st.v_address, st.filter, st.uv_transform) = f[:12]
+            st.uv_matrix = f[12:28]
             ps.stages.append(st)
         t = PASS_TAIL.unpack_from(d, p)
         p += PASS_TAIL.size
@@ -131,7 +135,9 @@ def _stages(ps, where):
             raise ValueError(f"{where}: stage {i} argument {args} not supported")
         if st.texture > 2:
             raise ValueError(f"{where}: stage {i} texture param {st.texture:#x} not supported")
-        if st.uv_source not in UV_SETS or st.uv_transform:
+        # An identity texture matrix on a stored UV set changes nothing (thorn_corruption stores one).
+        transform = st.uv_transform and not (st.uv_source == 0 and getattr(st, "uv_matrix", None) == IDENTITY)
+        if st.uv_source not in UV_SETS or transform:
             raise ValueError(f"{where}: stage {i} uv source {st.uv_source} (transform {st.uv_transform}) "
                              f"not supported")
         out.append([[COLOR_OPS[st.color_op], st.color_arg1, st.color_arg2, st.texture],

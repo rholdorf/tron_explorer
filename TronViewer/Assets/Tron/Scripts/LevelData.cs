@@ -25,7 +25,9 @@ namespace Tron
 
     // A level object that shows a model: object index, model file, skin and render style slots,
     // and per exported piece its render style (index into renderStyles) and texture list.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; }
+    // skinned: drawn by a SkinnedMeshRenderer over the model's nodes (characters and their attachments).
+    // parent >= 0: an attachment, carried by that instance at its model socket `socket`.
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; }
     [Serializable] public class PieceStyleJson { public int style; public string[] tex; }
 
     // A render style compiled for the model shader (tools/renderstyle.py compile_style).
@@ -100,7 +102,7 @@ namespace Tron
     [Serializable] public class LevelIndexJson { public string[] levels; }
 
     // Mirrors tools/export_models.py (export/models/<file>.json).
-    [Serializable] public class ModelJson { public int version; public string file; public ModelPieceJson[] pieces; public ModelNodeJson[] nodes; }
+    [Serializable] public class ModelJson { public int version; public string file; public ModelPieceJson[] pieces; public ModelNodeJson[] nodes; public ModelSocketJson[] sockets; }
     [Serializable] public class ModelPieceJson
     {
         public string name;
@@ -108,5 +110,9 @@ namespace Tron
         public int style, kind, bone, vtxOffset, vtxCount, idxOffset, idxCount;
         public float[] min, max;
     }
-    [Serializable] public class ModelNodeJson { public string name; public int parent; public float[] transform; }
+    // transform: model-space bind matrix, row-major m[row][col] (column vectors, translation in column 3).
+    // pose: parent-relative position xyz + quaternion xyzw at frame 0 of animation 0.
+    [Serializable] public class ModelNodeJson { public string name; public int parent; public float[] transform, pose; }
+    // Relative to node `node`: rotation quaternion xyzw, position, scale (ModelInstance::GetSocketTransform).
+    [Serializable] public class ModelSocketJson { public string name; public int node; public float[] pos, rot, scale; }
 }

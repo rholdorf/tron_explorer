@@ -31,7 +31,7 @@ import dat85  # noqa: E402
 import export_models  # noqa: E402
 import ltb  # noqa: E402
 
-FORMAT_VERSION = 5
+FORMAT_VERSION = 6
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -304,6 +304,53 @@ def template_model(resolver, name):
         [export_models.norm(x) for x in butes.indexed(t, "renderstyle")]
 
 
+def model_instances(objects, resolver, styles, extracted):
+    """Objects that show an .ltb the exporter can find (see export_models.Resolver), and the render
+    styles their pieces use. Characters are skinned (bones = the model's nodes) and are followed by
+    their attachments: parent = the character's entry, socket = the parent model socket they sit at."""
+    models, render_styles, style_index = [], [], {}
+
+    def add(i, r, scale, skinned, parent=-1, socket=""):
+        if not os.path.isfile(os.path.join(extracted, r[0])):
+            return False
+        try:
+            styles.model(r[0])
+        except ltb.Unsupported:  # the engine refuses it too: the game draws nothing there
+            return False
+        except Exception as e:  # noqa: BLE001 - report and leave the instance out
+            print(f"model {r[0]}: {e}")
+            return False
+        pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
+        models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
+                       "pieces": pieces, "skinned": int(skinned), "parent": parent, "socket": socket})
+        return True
+
+    for i, o in enumerate(objects):
+        r = resolver.resolve(o)
+        if not r:
+            continue
+        scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
+        character = o["cls"] == "CAIHuman"
+        if not add(i, r, scale, character):
+            continue
+        # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
+        # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
+        # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
+        # border the game shows around the bin's glass.
+        if o["cls"] == "ArchiveBin":
+            add(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1], False)
+        if not character:
+            continue
+        parent = len(models) - 1
+        sockets = {s.name.lower() for s in styles.model(r[0]).sockets}
+        for socket, *att in resolver.attachments(o):
+            if socket.lower() not in sockets:   # CreateAttachment fails: "unable to create socket"
+                resolver.missing_sockets[(r[0], socket)] = resolver.missing_sockets.get((r[0], socket), 0) + 1
+                continue
+            add(i, att, [1, 1, 1], True, parent, socket)
+    return models, render_styles
+
+
 def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
     w = dat85.load(dat_path)
     wr = Writer()
@@ -341,33 +388,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
             "props": [encode_prop(k, v) for k, v in p.items() if k not in ("Name", "Pos", "Rotation")],
         })
 
-    # Model instances: objects that show an .ltb the exporter can find (see export_models.Resolver).
-    models, render_styles, style_index = [], [], {}
-
-    def add_model(i, r, scale):
-        if not r or not os.path.isfile(os.path.join(extracted, r[0])):
-            return
-        try:
-            styles.model(r[0])
-        except ltb.Unsupported:  # the engine refuses it too: the game draws nothing there
-            return
-        except Exception as e:  # noqa: BLE001 - report and leave the instance out
-            print(f"model {r[0]}: {e}")
-            return
-        pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
-        models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
-                       "pieces": pieces})
-
-    for i, o in enumerate(objects):
-        r = resolver.resolve(o)
-        scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
-        add_model(i, r, scale)
-        # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
-        # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
-        # is the identity: the frame sits at the bin's position and rotation, scale 1. It is the dark
-        # border the game shows around the bin's glass.
-        if r and o["cls"] == "ArchiveBin":
-            add_model(i, template_model(resolver, "ArchiveBin_Frame"), [1, 1, 1])
+    models, render_styles = model_instances(objects, resolver, styles, extracted)
 
     meta = {
         "version": FORMAT_VERSION,
@@ -420,6 +441,17 @@ def main():
         except Exception as e:  # noqa: BLE001 - report and keep exporting the rest
             print(f"model {rel}: {e}")
     print(f"{len(model_files)} models")
+    for rs, pieces in sorted(styles.pass0_only.items()):
+        print(f"two-pass style drawn with pass 0 only (#11): {rs}: "
+              + ", ".join(f"{f} x{n}" for f, n in sorted(pieces.items())))
+    for rs, glow in sorted(styles.glow_fallbacks):
+        print(f"two-pass glow style (#11) replaced by the default glow: {rs} -> {glow}")
+    for (f, socket), n in sorted(resolver.missing_sockets.items()):
+        print(f"attachment dropped, no socket {socket} on {f}: {n}")
+    for cls, n in sorted(resolver.undrawn_attachments.items()):
+        print(f"{n} {cls} attachments not drawn (not a model object)")
+    if resolver.skipped_weapons:
+        print(f"{resolver.skipped_weapons} weapon attachments not drawn (weapons.txt hand-held models)")
     if not only:
         with open(os.path.join(out_root, "levels.json"), "w") as f:
             json.dump({"levels": index}, f, indent=1)

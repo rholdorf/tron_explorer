@@ -252,7 +252,96 @@ def load(path):
     m.child_models = [r.str() for _ in range(n_child - 1)]
     m.anims_offset = r.p   # animation data follows (parsed by load_anims)
     m.data = data
+    first = read_anims(r, len(m.nodes))
+    m.sockets = []
+    for _ in range(r.u32()):   # LoadSockets
+        s = Socket()
+        s.node = r.u32()
+        s.name = r.str()
+        s.rot = r.fmt("<4f")   # quaternion x, y, z, w, relative to the node
+        s.pos = r.fmt("<3f")
+        s.scale = r.fmt("<3f")
+        m.sockets.append(s)
+    root_offset = (0.0, 0.0, 0.0)
+    for c in range(n_child):   # LoadAnimBindings: self, then each child model
+        for k in range(r.u32()):
+            r.str()
+            r.p += 12          # dims
+            t = r.fmt("<3f")   # added to the root node's position (TransformMaker::InitTransform)
+            if c == 0 and k == 0:
+                root_offset = t
+    m.end = r.p
+    m.first_pose = first_pose(m, first, root_offset)
     return m
+
+
+def first_pose(m, keys, root_offset):
+    """Each node's parent-relative (position, quaternion) at frame 0 of animation 0, the pose a model
+    spawns in (TransformMaker::Recurse). MNODE_ROTATIONONLY nodes keep their bind offset from the
+    parent (Model::SetNodeParentOffsets)."""
+    if keys is None:
+        return None
+    out = []
+    for n, (pos, rot) in zip(m.nodes, keys):
+        if n.flags & 2:
+            pos = (0.0, 0.0, 0.0) if n.parent < 0 else tuple(
+                (np.linalg.inv(m.nodes[n.parent].transform.astype(np.float64)) @ n.transform)[:3, 3].tolist())
+        if n.parent < 0:
+            pos = tuple(a + b for a, b in zip(pos, root_offset))
+        out.append((pos, rot))
+    return out
+
+
+class Socket:
+    pass
+
+
+# Position / rotation key formats for each ANCMPRS_* compression (AnimNode::Load; model.h decoding:
+# i16 positions are 1.11.4 fixed point (/16), i16 quaternions /32767).
+_KEYS = {1: (("<3f", 1.0), ("<4f", 1.0)), 2: (("<3h", 16.0), ("<4h", 32767.0)), 3: (("<3f", 1.0), ("<4h", 32767.0))}
+
+
+def read_anims(r, n_nodes):
+    """Step over the animation block (Model::Load; ModelAnim::Load, AnimNode::Load in ltjs) and return
+    the first key of animation 0 per node as (position, quaternion x y z w), parent-relative. A null
+    channel is the zero position / identity rotation."""
+    first = None
+    for a in range(r.u32()):
+        r.p += 12                      # user dims
+        r.str()
+        compression, _interp_ms, n_keys = r.fmt("<3I")
+        for _ in range(n_keys):
+            r.p += 4                   # time
+            r.str()                    # command string
+        keys = []
+        for _ in range(n_nodes):
+            pos, rot = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0)
+            if compression == 0:
+                if r.u8():             # vertex animation
+                    for _ in range(n_keys):
+                        n = r.u32()
+                        r.p += 12 * n
+                elif n_keys:
+                    pos = r.fmt("<3f")
+                    r.p += (n_keys - 1) * 12
+                    rot = r.fmt("<4f")
+                    r.p += (n_keys - 1) * 16
+            elif compression in _KEYS:
+                for which, (f, scale) in enumerate(_KEYS[compression]):
+                    n = r.u32()
+                    if n:
+                        v = tuple(x / scale for x in r.fmt(f))
+                        r.p += (n - 1) * struct.calcsize(f)
+                        if which:
+                            rot = v
+                        else:
+                            pos = v
+            else:
+                raise ValueError(f"animation compression {compression} not supported")
+            keys.append((pos, rot))
+        if a == 0:
+            first = keys
+    return first
 
 
 if __name__ == "__main__":

@@ -10,14 +10,25 @@ namespace Tron
     public class LoadedModel
     {
         public ModelJson data;
-        public Mesh mesh;   // one submesh per piece, LOD 0, bind pose, LithTech units
+        public Mesh mesh;   // one submesh per piece, LOD 0, bind pose, LithTech units; bones = data.nodes
+
+        // A node's model-space bind matrix (the exporter writes it row-major).
+        public Matrix4x4 BindMatrix(int node)
+        {
+            var t = data.nodes[node].transform;
+            var m = new Matrix4x4();
+            for (int r = 0; r < 4; r++)
+                for (int c = 0; c < 4; c++)
+                    m[r, c] = t[r * 4 + c];
+            return m;
+        }
     }
 
     // Reads exported models (export/models/<file>.json + .bin, see tools/export_models.py).
     public static class ModelLibrary
     {
-        public const int FormatVersion = 1;
-        const int HeaderSize = 16, VertexSize = 44;
+        public const int FormatVersion = 2;
+        const int HeaderSize = 20, VertexSize = 44, BoneWeightSize = 8;
 
         // Loaded once per level; the meshes go to `owned` so the level frees them.
         public static LoadedModel Load(string exportRoot, string file, Dictionary<string, LoadedModel> cache, List<UnityEngine.Object> owned)
@@ -31,7 +42,7 @@ namespace Tron
                 if (data.version != FormatVersion) throw new Exception($"model format v{data.version}, expected v{FormatVersion}");
                 var bin = File.ReadAllBytes(basePath + ".bin");
                 if (bin[0] != 'T' || bin[1] != 'R' || bin[2] != 'M' || bin[3] != 'D') throw new Exception("bad model .bin");
-                int nv = BitConverter.ToInt32(bin, 8), ni = BitConverter.ToInt32(bin, 12);
+                int nv = BitConverter.ToInt32(bin, 8), ni = BitConverter.ToInt32(bin, 12), nInf = BitConverter.ToInt32(bin, 16);
                 var mesh = new Mesh { name = file };
                 owned.Add(mesh);
                 mesh.SetVertexBufferParams(nv,
@@ -51,6 +62,20 @@ namespace Tron
                     NativeArray<byte>.Copy(bin, HeaderSize + nv * VertexSize, ib, 0, ib.Length);
                     mesh.SetIndexBufferData(ib, 0, 0, ib.Length);
                 }
+                // Skin: influences per vertex, then Unity BoneWeight1s (heaviest first); bones are the
+                // model's nodes, bind poses their inverse bind matrices.
+                int skinBase = HeaderSize + nv * VertexSize + ni * 4;
+                using (var counts = new NativeArray<byte>(nv, Allocator.Temp))
+                using (var weights = new NativeArray<byte>(nInf * BoneWeightSize, Allocator.Temp))
+                {
+                    NativeArray<byte>.Copy(bin, skinBase, counts, 0, nv);
+                    NativeArray<byte>.Copy(bin, skinBase + nv, weights, 0, weights.Length);
+                    mesh.SetBoneWeights(counts, weights.Reinterpret<BoneWeight1>(1));
+                }
+                var result0 = new LoadedModel { data = data, mesh = mesh };
+                var bindposes = new Matrix4x4[data.nodes.Length];
+                for (int i = 0; i < bindposes.Length; i++) bindposes[i] = result0.BindMatrix(i).inverse;
+                mesh.bindposes = bindposes;
                 mesh.subMeshCount = data.pieces.Length;
                 var bounds = new Bounds();
                 for (int i = 0; i < data.pieces.Length; i++)
@@ -65,8 +90,8 @@ namespace Tron
                     }, MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices);
                 }
                 mesh.bounds = bounds;
-                mesh.UploadMeshData(true);
-                result = new LoadedModel { data = data, mesh = mesh };
+                mesh.UploadMeshData(false);   // kept readable: SkinnedMeshRenderers draw it too
+                result = result0;
             }
             catch (Exception e)
             {
