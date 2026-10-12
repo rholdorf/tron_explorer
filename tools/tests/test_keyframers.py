@@ -47,3 +47,52 @@ def test_every_keyframer_path_parses_to_the_end_of_its_chunk(world):
             if o["class"] == "KeyFramer":
                 keys += len(keyframer.read_keys(w.blind[int(o["props"]["KeyDataIndex"])][1]))
     assert keys == 179216
+
+
+# Key commands go through the command manager (g_pCmdMgr->Process). Only messages to the keyframer itself
+# are part of how its path runs; messages to any other object belong to the behavior map.
+def test_a_key_command_keeps_only_the_messages_to_its_own_keyframer():
+    import keyframer
+    cmds = keyframer.self_commands("msg CubeWM03 (hidden 0); msg CubeWM03KF PAUSE; msg Track02Control TRIGGER",
+                                   "CubeWM03KF", "Cube03_Key", 4)
+    assert cmds == [{"verb": "PAUSE", "delay": 0.0, "key": -1}]
+
+
+def test_self_messages_match_the_name_in_any_case_and_take_parenthesized_arguments():
+    import keyframer
+    assert keyframer.self_commands("msg port01kf pause;msg com01use02enabler unlock", "Port01KF", "k", 5) == [
+        {"verb": "PAUSE", "delay": 0.0, "key": -1}]
+    assert keyframer.self_commands("msg plat1framer (resume)", "plat1framer", "k", 3) == [
+        {"verb": "RESUME", "delay": 0.0, "key": -1}]
+
+
+def test_a_delayed_self_message_runs_that_many_seconds_later():
+    import keyframer
+    cmds = keyframer.self_commands("msg plat1framer (pause);delay 2 (msg plat1framer (resume))",
+                                   "plat1framer", "plat1key", 3)
+    assert cmds == [{"verb": "PAUSE", "delay": 0.0, "key": -1}, {"verb": "RESUME", "delay": 2.0, "key": -1}]
+    assert keyframer.self_commands("delay .5 (msg DC01.DCube01KF RESUME)", "DC01.DCube01KF", "k", 4) == [
+        {"verb": "RESUME", "delay": 0.5, "key": -1}]
+
+
+def test_reverse_is_backward():
+    import keyframer
+    assert keyframer.self_commands("msg TranslucentKF reverse", "TranslucentKF", "k", 5) == [
+        {"verb": "BACKWARD", "delay": 0.0, "key": -1}]
+
+
+def test_goto_names_a_key_by_base_name_and_index():
+    # KeyFramer::FindKey: the base name (any case), then "0", "01".."09", "10".. by key index.
+    import keyframer
+    assert keyframer.self_commands("msg AFinder05KF (Goto AFinder05Key02)", "AFinder05KF", "AFinder05Key", 15) == [
+        {"verb": "GOTO", "delay": 0.0, "key": 2}]
+    assert keyframer.self_commands("msg K (goto basekey12)", "K", "BaseKey", 15) == [
+        {"verb": "GOTO", "delay": 0.0, "key": 12}]
+    # A key that isn't there: the engine prints an error and does nothing.
+    assert keyframer.self_commands("msg K (goto BaseKey2)", "K", "BaseKey", 15) == []
+    assert keyframer.self_commands("msg K (goto BaseKey20)", "K", "BaseKey", 15) == []
+
+
+def test_messages_the_keyframer_does_not_handle_are_left_out():
+    import keyframer
+    assert keyframer.self_commands("msg K TRIGGER; msg K (hidden 1); ", "K", "k", 3) == []
