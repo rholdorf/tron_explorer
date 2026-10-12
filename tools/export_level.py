@@ -34,7 +34,7 @@ import floor  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 
-FORMAT_VERSION = 10
+FORMAT_VERSION = 11
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}

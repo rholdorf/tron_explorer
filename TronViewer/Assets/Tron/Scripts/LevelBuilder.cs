@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 10;
+        public const int FormatVersion = 11;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -181,9 +181,10 @@ namespace Tron
 
         // Model instances (see tools/export_models.py), at their spawn position (after MoveToFloor). Props:
         // a MeshRenderer at the bind pose. Characters: a SkinnedMeshRenderer over one Transform per model
-        // node, looping their clip (ModelAnimator). Attachments hang from their character's socket node,
-        // posed at their own animation 0, frame 0 (attachment models keep their geometry where it sits on
-        // the body and move it to the socket with that pose), and follow it as the character moves.
+        // node, looping their clip (ModelAnimator). Attachments hang from their parent's socket node (a
+        // prop's nodes stay at the bind pose); a character's are posed at their own animation 0, frame 0
+        // (attachment models keep their geometry where it sits on the body and move it to the socket with
+        // that pose), and follow it as the character moves.
         void BuildModels(string exportRoot)
         {
             if (Data.models == null || Data.models.Length == 0) return;
@@ -266,6 +267,10 @@ namespace Tron
                 }
                 else
                 {
+                    // A prop with sockets can carry attachments (bin berries, tank turrets): its node
+                    // Transforms at the bind pose, the pose its mesh is drawn in.
+                    if (model.data.sockets != null && model.data.sockets.Length > 0)
+                        built[n] = (model, BuildBones(go.transform, model, false));
                     go.AddComponent<MeshFilter>().sharedMesh = mesh;
                     r = go.AddComponent<MeshRenderer>();
                 }
