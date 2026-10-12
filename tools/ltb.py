@@ -29,6 +29,10 @@ VERT_UV = (0x10, 0x20, 0x40, 0x80)
 VERT_BASIS = 0x100
 
 
+class Unsupported(ValueError):
+    """A file the engine itself refuses to load as a model, so the game never draws it."""
+
+
 class Reader:
     def __init__(self, data, pos=0):
         self.d, self.p = data, pos
@@ -138,6 +142,8 @@ def read_mesh(r, kind):
                 if f:
                     m.streams.append(r.array(vertex_dtype(f, blend, indexed=True), nv))
         else:
+            if not 1 <= max_tri <= 4:  # CD3DSkelMesh::Load_RD fails, and with it Model::Load
+                raise Unsupported(f"skeletal mesh with {max_tri} bones per triangle")
             blend = max_tri - 1
             for f in flags:
                 if f:
@@ -208,8 +214,8 @@ def load(path):
         raise ValueError(f"not a D3D LTB model (type {file_type}, version {ltb_version})")
     m = Model()
     m.version = r.u32()
-    if m.version < 23:
-        raise ValueError(f"model version {m.version} not supported")
+    if m.version < 23:  # MIN_MODEL_FILE_VERSION (model.h)
+        raise Unsupported(f"model version {m.version} (the engine loads 23+)")
     m.allocs = r.fmt("<15I")
     m.command = r.str()
     m.vis_radius = r.f32()

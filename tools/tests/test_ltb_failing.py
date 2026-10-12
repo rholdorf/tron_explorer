@@ -29,3 +29,19 @@ def test_models_with_obbs_load(extracted, rel, n_pieces, first, n_nodes, anim):
     assert r.u32() > 0
     r.p += 12
     assert r.str() == anim
+
+
+# Files the engine itself refuses (no level or FX references them; each has a v23 sibling that is used).
+ENGINE_REJECTS = [
+    ("fx/models/pda_towertrails.ltb", "version 18"),
+    ("fx/models/lightcyclerezin_cube.ltb", "version 21"),
+    ("weapons/rod/fx/pv_model/pv_snipertube.ltb", "version 22"),
+    ("weapons/rod/fx/pv_model/snipertube2.ltb", "version 22"),
+    ("fx/models/rectorscript_shards.ltb", "0 bones per triangle"),
+]
+
+
+@pytest.mark.parametrize("rel,why", ENGINE_REJECTS)
+def test_models_the_engine_rejects_raise_unsupported(extracted, rel, why):
+    with pytest.raises(ltb.Unsupported, match=why):
+        load(extracted, rel)
