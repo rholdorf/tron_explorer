@@ -221,3 +221,58 @@ def test_a_locked_event_counter_ignores_steps_and_reset_goes_back_to_the_startin
                   ("run", "msg c lock; msg c inc"), ("echo", "unlocked"), ("run", "msg c unlock; msg c inc"),
                   ("echo", "reset"), ("run", "msg c reset"), ("echo", "inc"), ("run", "msg c inc")])
     assert out == [("unlocked",), ("got", "a", "c", "two"), ("reset",), ("inc",), ("got", "a", "c", "two")]
+
+
+def command_object(name="co", *props):
+    return ("relay", name, "CommandObject", "0 0 0", *props)
+
+
+TIMELINE = ("$EventT0E0=0|msg a e0", "$EventT0E1=500|msg a e2", "$EventT1E0=250|msg a e1",
+            "$FinishedCommand=msg a done")
+
+
+def frames(n, dt=0.125):
+    return [x for i in range(n) for x in (("frame", dt), ("echo", f"f{i + 1}"))]
+
+
+def test_a_command_object_runs_its_events_on_time_then_its_finished_command(driver):
+    out = driver([("obj", "a", "WorldModel"), command_object("co", *TIMELINE, "NumberOfActivations=-1"),
+                  ("run", "msg co on")] + frames(4) + [("run", "msg co start")] + frames(1))
+    # Each frame's lite update sees the frame's time: started at 0, the event at 0 runs at 0.125. The
+    # sender (and active target) is the command object. At the end the events are re-armed.
+    assert out == [("got", "a", "co", "e0"), ("f1",), ("got", "a", "co", "e1"), ("f2",), ("f3",),
+                   ("got", "a", "co", "e2"), ("got", "a", "co", "done"), ("f4",),
+                   ("got", "a", "co", "e0"), ("f1",)]
+
+
+def test_on_doesnt_restart_a_running_timeline_and_off_stops_it_without_rearming(driver):
+    out = driver([("obj", "a", "WorldModel"), command_object("co", *TIMELINE),
+                  ("run", "msg co on")] + frames(1) + [("run", "msg co on")] + frames(1) +
+                 [("run", "msg co off; msg co on")] + frames(4))
+    # Restarted at 0.25 with e0 and e1 already run: e2 waits for 0.5 s from the restart.
+    assert out == [("got", "a", "co", "e0"), ("f1",), ("got", "a", "co", "e1"), ("f1",),
+                   ("f1",), ("f2",), ("f3",), ("got", "a", "co", "e2"), ("got", "a", "co", "done"), ("f4",)]
+
+
+def test_pause_freezes_the_timeline_and_resume_continues_it(driver):
+    out = driver([("obj", "a", "WorldModel"), command_object("co", *TIMELINE),
+                  ("run", "msg co on")] + frames(1) + [("run", "msg co pause")] + frames(2) +
+                 [("run", "msg co resume")] + frames(3))
+    # Paused at 0.125 for 0.25 s: e1 (0.25) runs at 0.5 and e2 (0.5) at 0.75.
+    assert out == [("got", "a", "co", "e0"), ("f1",), ("f1",), ("f2",),
+                   ("got", "a", "co", "e1"), ("f1",), ("f2",), ("got", "a", "co", "e2"), ("got", "a", "co", "done"),
+                   ("f3",)]
+
+
+def test_a_command_object_is_removed_after_number_of_activations_and_ignores_on_while_locked(driver):
+    out = driver([("obj", "a", "WorldModel"), command_object("co", "$EventT0E0=0|msg a e0", "NumberOfActivations=1",
+                                                             "Locked=1"),
+                  ("run", "msg co on")] + frames(1) + [("run", "msg co unlock; msg co on")] + frames(2) +
+                 [("run", "msg co on")] + frames(1))
+    assert out == [("f1",), ("got", "a", "co", "e0"), ("f1",), ("f2",), ("f1",)]
+
+
+def test_an_events_delay_0_runs_in_the_same_frame_the_command_table_ticks_after_the_timelines(driver):
+    out = driver([("obj", "a", "WorldModel"), command_object("co", "$EventT0E0=0|delay 0 (msg a later)"),
+                  ("run", "msg co on")] + frames(1))
+    assert out == [("got", "a", "co", "later"), ("f1",)]

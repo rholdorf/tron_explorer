@@ -16,6 +16,7 @@ namespace Tron
 
         readonly CommandMgr commands;
         readonly List<Trigger> triggers = new List<Trigger>();
+        readonly List<CommandObject> timelines = new List<CommandObject>();
 
         public Relays(CommandMgr commands) => this.commands = commands;
 
@@ -40,6 +41,13 @@ namespace Tron
                 case "eventcounter":
                     commands.Handle(id, new EventCounter(commands, id, p).OnMessage);
                     return true;
+                case "commandobject":
+                {
+                    var co = new CommandObject(this, id, p);
+                    timelines.Add(co);
+                    commands.Handle(id, co.OnMessage);
+                    return true;
+                }
                 default:
                     return false;
             }
@@ -49,6 +57,9 @@ namespace Tron
         public void UpdateTimelines(float frameTime)
         {
             Time += Math.Min(frameTime, MaxFrameTime);
+            // A timeline started by another's event this frame updates this frame if it comes later.
+            for (int i = 0; i < timelines.Count; i++)
+                if (timelines[i].Active) timelines[i].Update();
         }
 
         // The triggers' update and the player's touch: player is its command-manager id (-1: no player, as
@@ -137,6 +148,133 @@ namespace Tron
                 var cmds = by > 0 ? inc : dec;
                 for (int i = 0; i < MaxEvents; i++)
                     if (values[i] == count && !string.IsNullOrEmpty(cmds[i])) commands.Run(cmds[i], id, id);
+            }
+        }
+
+        // CommandObject (commandobject.cpp, a lite object): a timeline of EventTnEm = "<ms>|<command>" (6
+        // tracks of 10) that runs each event once its time has passed since ON, then FinishedCommand; the
+        // events re-arm, and after NumberOfActivations runs (<= 0: no limit) the object is gone. The timer is
+        // the engine's CTimer (timer.h), on the server clock.
+        sealed class CommandObject
+        {
+            sealed class Event
+            {
+                public float Time;
+                public string Command;
+                public bool Processed;
+            }
+
+            readonly Relays relays;
+            readonly int id;
+            readonly List<Event> events = new List<Event>();
+            readonly string finished;
+            readonly int numActivations;
+            readonly float totalTime;
+            bool locked, removed;
+            int timesActivated;
+            // CTimer: start t1, duration dt, pause time tp (paused while tp > 0 in the engine; a flag here,
+            // since this clock starts at 0).
+            float t1, dt, tp;
+            bool on, paused;
+
+            public bool Active { get; private set; }   // updated each frame (Activate / Deactivate)
+
+            public CommandObject(Relays relays, int id, Props p)
+            {
+                this.relays = relays;
+                this.id = id;
+                for (int track = 0; track < 6; track++)
+                    for (int n = 0; n < 10; n++)
+                    {
+                        // strtok(s, "|") then strtok(NULL, "\0"): leading '|'s are skipped, the time ends at the
+                        // next '|', the command is the rest; either missing skips the event.
+                        var s = p.Str($"EventT{track}E{n}").TrimStart('|');
+                        int bar = s.IndexOf('|');
+                        if (bar <= 0 || bar == s.Length - 1) continue;
+                        var e = new Event { Time = Atol(s.Substring(0, bar)) / 1000f, Command = s.Substring(bar + 1) };
+                        events.Add(e);
+                        totalTime = Math.Max(totalTime, e.Time);
+                    }
+                finished = p.Str("FinishedCommand");
+                numActivations = (int)p.Num("NumberOfActivations", -1);
+                locked = p.Bool("Locked", false);
+            }
+
+            float Now => relays.Time;
+            float Elapsed => (paused ? tp : Now) - t1;
+            bool Stopped => Elapsed >= dt;
+
+            public bool OnMessage(Message m)
+            {
+                if (removed) return true;
+                if (m.Is("ON") || m.Is("START"))
+                {
+                    if (events.Count == 0 || locked) return true;
+                    if (!on)
+                    {
+                        t1 = Now;
+                        dt = totalTime;
+                        on = true;
+                        timesActivated++;
+                    }
+                    Active = true;
+                }
+                else if (m.Is("OFF") || m.Is("STOP") || m.Is("ABORT"))
+                {
+                    Stop();
+                    Active = false;
+                }
+                else if (m.Is("PAUSE"))
+                {
+                    if (on && !paused)
+                    {
+                        tp = Now;
+                        paused = true;
+                        Active = false;
+                    }
+                }
+                else if (m.Is("RESUME"))
+                {
+                    if (on && paused)
+                    {
+                        t1 += Now - tp;
+                        paused = false;
+                        Active = true;
+                    }
+                }
+                else if (m.Is("LOCK")) locked = true;
+                else if (m.Is("UNLOCK")) locked = false;
+                else if (m.Is("REMOVE")) Remove();
+                else return false;
+                return true;
+            }
+
+            void Stop()
+            {
+                dt = 0;
+                on = paused = false;
+            }
+
+            void Remove()
+            {
+                removed = true;
+                Active = false;
+            }
+
+            public void Update()
+            {
+                foreach (var e in events)
+                {
+                    if (e.Processed || e.Time > Elapsed) continue;
+                    e.Processed = true;
+                    relays.commands.Run(e.Command, id, id);
+                }
+                if (!Stopped) return;
+                Stop();
+                if (!string.IsNullOrEmpty(finished)) relays.commands.Run(finished, id, id);
+                Active = false;
+                foreach (var e in events) e.Processed = false;
+                if (numActivations > 0 && timesActivated >= numActivations) Remove();
             }
         }
 
