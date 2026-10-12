@@ -88,7 +88,8 @@ namespace Tron
     [Serializable] public class WorldModelJson { public string name; public int flags, mesh, collider; }
 
     // A SpinningWorldModel that starts on: its world model, final angular velocity per axis (rad/s, pitch
-    // yaw roll in its own frame), the spin-up time (s) and its curve (0 Linear, 1 Sine, 2 SlowOff, 3 SlowOn).
+    // yaw roll in its own frame), the spin-up time (s) and its wave (tools/waveform.py: 0 Linear, 1 Sine,
+    // 2 SlowOff, 3 SlowOn).
     [Serializable] public class SpinnerJson { public string worldModel; public float[] velocity; public float powerOnTime; public int waveform; }
 
     // A SoundFX that starts on: the game's file path, radii (LT units), Volume 0-100, PitchShift, the
@@ -100,8 +101,8 @@ namespace Tron
     [Serializable] public class SoundButeFXJson { public string name; public string[] files; public float[] pos; public float inner, outer, minDelay, maxDelay; public int ambient; }
 
     // A KeyFramer live at start (tools/keyframer.py): the names of the objects it moves, its settings
-    // (totalPathTime > 0: velocity mode; wave 0 Linear, 1 Sine, 2 SlowOff, 3 SlowOn), its ActiveSound
-    // ("" for none) and its keys.
+    // (totalPathTime > 0: velocity mode) and wave (tools/waveform.py: 0 Linear, 1 Sine, 2 SlowOff,
+    // 3 SlowOn), its ActiveSound ("" for none) and its keys.
     [Serializable] public class KeyframerJson
     {
         public string name;
