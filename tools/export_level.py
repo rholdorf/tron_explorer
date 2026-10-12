@@ -9,6 +9,7 @@
     collider verts (f32x3)
     collider idx  (u32, relative to the owning collider's first vertex)
     lightmap atlas (lmWidth * lmHeight * 4 bytes RGBA32, first row = v 0)
+    light grid    (lightGrid.dims x*y*z RGB u8, x fastest then y then z; light groups added)
 
 Lightmapping (d3d_renderblock.cpp): a lightmapped polygon is stored twice in its render block, once
 in a "lightmap" section (shader 2: uv0 = lightmap coords, one RLE RGB lightmap per section) and once
@@ -28,8 +29,9 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 import dat85  # noqa: E402
 import export_models  # noqa: E402
+import modellight  # noqa: E402
 
-FORMAT_VERSION = 5
+FORMAT_VERSION = 6
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -130,6 +132,7 @@ class Writer:
         self.lightmaps = [np.full((2, 2, 3), 128, np.uint8)]  # NEUTRAL_LIGHTMAP
         self.lm_fixups = []  # (vertex array, lmid array): local lightmap uv -> atlas uv at write time
         self.lm_atlas = None
+        self.light_grid = None
         self.unmatched_lm_tris = 0
 
     def material(self, s):
@@ -272,6 +275,8 @@ class Writer:
                 f.write(np.ascontiguousarray(a).tobytes())
             if lm is not None:
                 f.write(np.ascontiguousarray(lm).tobytes())
+            if self.light_grid is not None:
+                f.write(np.ascontiguousarray(self.light_grid.data).tobytes())
 
 
 def polys_to_tris(polys):
@@ -331,6 +336,14 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
             "props": [encode_prop(k, v) for k, v in p.items() if k not in ("Name", "Pos", "Rotation")],
         })
 
+    # Model lighting (modellight.py): the light grid, the static object lights and the sun; the
+    # viewer lights each instance from these. The sun's sky visibility needs the world polygons, so
+    # it's computed here per instance.
+    wr.light_grid = modellight.with_light_groups(w.light_grid, w.grid_light_groups)
+    lights = modellight.static_lights(w.objects, modellight.light_group_colors(w))
+    sun = modellight.sun_light(w.objects)
+    sky = modellight.SkyCaster.from_bsp(physics) if sun else None
+
     # Model instances: objects that show an .ltb the exporter can find (see export_models.Resolver).
     models, render_styles, style_index = [], [], {}
     for i, o in enumerate(objects):
@@ -342,8 +355,12 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
                 continue
             pieces = styles.instance_pieces(r[0], r[1], r[2], render_styles, style_index)
             scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
+            m = styles.model(r[0])
+            dims = [d * s for d, s in zip(export_models.model_dims(m), scale)]
+            sun_amount = sky.sun_amount(o["pos"], sun["dir"], modellight.euler_right(o["rot"]),
+                                        float(np.linalg.norm(dims))) if sky else 0.0
             models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
-                           "pieces": pieces})
+                           "pieces": pieces, "dims": dims, "visRadius": m.vis_radius, "sunAmount": sun_amount})
 
     meta = {
         "version": FORMAT_VERSION,
@@ -360,6 +377,10 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted):
         "objects": objects,
         "models": models,
         "renderStyles": render_styles,
+        "lightGrid": {"origin": list(w.light_grid.base), "cell": list(w.light_grid.cell),
+                      "dims": list(w.light_grid.dims)},
+        "lights": lights,
+        "sun": sun or {"dir": [0.0, -1.0, 0.0], "color": [0.0, 0.0, 0.0], "toAmbient": 0.0},
     }
     wr.finish_lightmaps()
     meta["lightmap"] = list(wr.lm_atlas.shape[1::-1]) if wr.lm_atlas is not None else [0, 0]

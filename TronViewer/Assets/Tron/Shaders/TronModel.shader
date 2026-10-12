@@ -8,8 +8,10 @@
 //   uv set: 0 = model UVs, 1 = camera-space reflection vector xy (D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR)
 // A second pass that blends over an opaque first pass is folded in (exact, fog included). Each draw is
 // fogged with the world fog color before blending, like D3D fixed-function fog on every model pass.
-// Diffuse is the D3D lighting result for lit passes (emissive + material diffuse * light) and white for
-// unlit ones. Until the light grid lands, the light is the vertex color x2 (neutral 128).
+// Diffuse is the D3D fixed-function lighting result for lit passes and white for unlit ones, per vertex:
+// emissive + material ambient * ambient light + sum of material diffuse * light * max(0, N.L), saturated.
+// The ambient light and up to 4 directional lights are per instance (ModelLighting.cs, set through a
+// MaterialPropertyBlock): the light grid sample, the static object lights and the sun.
 // The glow buffer draws the style's [GlowRSMap] replacement pass (black when unmapped).
 Shader "Tron/Model"
 {
@@ -76,12 +78,17 @@ Shader "Tron/Model"
             float4 _LTFogParams;
             float _LTGlowPass;
 
+            // Per instance (MaterialPropertyBlock, LevelBuilder.BuildModels), 0-1: the D3D ambient light and
+            // directional lights (xyz = direction the light travels, world space; unused lights are black).
+            float4 _LTAmbient;
+            float4 _LTLightDir[4];
+            float4 _LTLightColor[4];
+
             struct appdata
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
-                float4 color : COLOR;
             };
 
             struct v2f
@@ -90,7 +97,7 @@ Shader "Tron/Model"
                 float2 uv : TEXCOORD0;
                 float2 refl : TEXCOORD1;
                 float fog : TEXCOORD2;
-                float4 color : COLOR;
+                float4 lit : TEXCOORD3;
             };
 
             v2f vert (appdata v)
@@ -102,11 +109,16 @@ Shader "Tron/Model"
                 // Camera-space reflection of the eye vector; x and y are the same in D3D's left-handed
                 // view space and Unity's right-handed one. Used unscaled as u, v (no texture transform).
                 float3 vpos = TransformWorldToView(wpos);
-                float3 vn = normalize(TransformWorldToViewDir(TransformObjectToWorldNormal(v.normal)));
+                float3 wn = TransformObjectToWorldNormal(v.normal);
+                float3 vn = normalize(TransformWorldToViewDir(wn));
                 o.refl = reflect(normalize(vpos), vn).xy;
                 float dist = -vpos.z / _LTFogParams.w;
                 o.fog = _LTFogParams.z > 0 ? saturate((_LTFogParams.y - dist) / max(_LTFogParams.y - _LTFogParams.x, 1e-3)) : 1;
-                o.color = v.color;
+                // D3D lighting (D3DRS_LIGHTING, material colors, no vertex color), Gouraud like the device.
+                float3 light = 0;
+                [unroll] for (int k = 0; k < 4; k++)
+                    light += _LTLightColor[k].rgb * max(0, dot(wn, -_LTLightDir[k].xyz));
+                o.lit = float4(saturate(_MatEmissive.rgb + _MatAmbient.rgb * _LTAmbient.rgb + _MatDiffuse.rgb * light), _MatDiffuse.a);
                 return o;
             }
 
@@ -140,8 +152,7 @@ Shader "Tron/Model"
 
             float4 EvalPass(float4 s0a, float4 s0b, float4 s1a, float4 s1b, float4 tf, float lit, v2f i)
             {
-                // D3D lighting: emissive + material diffuse * light (ambient light arrives with the light grid).
-                float4 dif = lit > 0 ? float4(saturate(_MatEmissive.rgb + _MatDiffuse.rgb * i.color.rgb * 2), _MatDiffuse.a) : 1;
+                float4 dif = lit > 0 ? i.lit : 1;
                 float4 cur = dif;
                 if (s0a.x > 0) cur = Stage(s0a, s0b, cur, dif, tf, i.uv, i.refl);
                 if (s0a.x > 0 && s1a.x > 0) cur = Stage(s1a, s1b, cur, dif, tf, i.uv, i.refl);

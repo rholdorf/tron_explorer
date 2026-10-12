@@ -4,12 +4,14 @@ Sections (offsets from header):
   world info + extents + world tree + world models (BSPs: physics, vis, doors...)
   objects        (class name + typed properties)
   blind objects  (skipped)
-  light grid     (skipped)
+  light grid     (RGB samples for model lighting)
   blockers       (SURF_PHYSICSBLOCKER polys: invisible player blockers)
   particle blockers
   render data    (render blocks: vertices w/ uv0/uv1/normal, triangles, sections
-                  with texture names + lightmaps; plus one render world per world model)
-Reference: ltjs (bibendovsky/ltjs) world_shared_bsp.cpp, de_mainworld.cpp, d3d_renderblock.cpp
+                  with texture names + lightmaps; plus one render world per world model),
+                 then the light grid's light groups, to EOF
+Reference: ltjs (bibendovsky/ltjs) world_shared_bsp.cpp, de_mainworld.cpp, d3d_renderblock.cpp,
+light_table.cpp
 """
 import struct
 
@@ -250,8 +252,13 @@ def read_render_world(r, name=""):
 
 def decompress_lightmap(data, w, h):
     """TGA-style RLE of 24-bit RGB (lightmap_compress.cpp)."""
-    out = bytearray(w * h * 3)
-    o = i = 0
+    return decompress_rgb(data, w * h)[0]
+
+
+def decompress_rgb(data, count, i=0):
+    """TGA-style RLE of `count` RGB triples starting at data[i]. Returns (bytes, end offset)."""
+    out = bytearray(count * 3)
+    o = 0
     n = len(data)
     while i < n and o < len(out):
         tag = data[i]
@@ -264,7 +271,49 @@ def decompress_lightmap(data, w, h):
             out[o:o + span * 3] = data[i:i + span * 3]
             i += span * 3
         o += span * 3
-    return bytes(out)
+    return bytes(out), i
+
+
+# ---------------------------------------------------------------- light grid
+
+class GridLightGroup:
+    """A switchable light group's share of the light grid (CLightTable::LoadLightGroup): `samples`
+    [z, y, x] (0-255) over the `ext` nodes from grid node `min`, added to the grid as color * sample."""
+    __slots__ = ("name", "color", "min", "ext", "samples")
+
+
+def read_grid_light_groups(r):
+    """The light grid fix-ups after the render data (CWorldClientBSP::LoadRenderData)."""
+    groups = []
+    for _ in range(r.u32()):
+        lg = GridLightGroup()
+        lg.name = r.str16()
+        lg.color = r.vec3()
+        lg.min, lg.ext = r.fmt("<3i"), r.fmt("<3i")
+        ex, ey, ez = lg.ext
+        lg.samples = r.array(np.uint8, ex * ey * ez).reshape(ez, ey, ex)
+        groups.append(lg)
+    return groups
+
+
+class LightGrid:
+    """CLightTable (light_table.cpp): RGB samples (0-255) on a regular grid over the world box.
+    data[z, y, x] is node (x, y, z); node (0, 0, 0) sits at `base`, spaced `cell` apart."""
+    __slots__ = ("base", "cell", "dims", "data")
+
+
+def read_light_grid(r):
+    """CLightTable::Load. Raises if the RLE stream doesn't match its stored compressed size."""
+    g = LightGrid()
+    g.base, g.cell = r.vec3(), r.vec3()
+    g.dims = r.fmt("<3i")
+    size = r.u32()
+    start = r.p
+    raw, r.p = decompress_rgb(r.d, g.dims[0] * g.dims[1] * g.dims[2], start)
+    if r.p - start != size:
+        raise ValueError(f"light grid: RLE stream is {r.p - start} bytes, header says {size}")
+    g.data = np.frombuffer(raw, np.uint8).reshape(g.dims[2], g.dims[1], g.dims[0], 3)
+    return g
 
 
 # ---------------------------------------------------------------- objects
@@ -342,11 +391,15 @@ def load(path):
         r.u32()  # dummy
         w.bsps.append(read_world_bsp(r))
     w.objects = read_objects(Reader(data, obj_pos))
+    w.light_grid = read_light_grid(Reader(data, lgrid_pos))
     w.blockers = read_polys_section(Reader(data, coll_pos))
     w.particle_blockers = read_polys_section(Reader(data, pblock_pos))
     rr = Reader(data, render_pos)
     w.render = read_render_world(rr)
     w.render_end = rr.p
+    w.grid_light_groups = read_grid_light_groups(rr)
+    if rr.p != len(data):
+        raise ValueError(f"{len(data) - rr.p} bytes after the light grid's light groups")
     w.file_size = len(data)
     return w
 

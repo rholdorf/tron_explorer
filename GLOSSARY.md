@@ -38,3 +38,10 @@ _Avoid_: material, shader (those are the viewer's side)
 **Light grid**:
 The level's grid of precomputed light samples that the engine uses to light models.
 _Avoid_: light probes, lightmap (lightmaps are for world geometry)
+
+**Static light**:
+A `Light`, `DirLight` or `ObjectLight` level object that lights models directly (LightObjects on, FastLightObjects off), on top of the light grid.
+_Avoid_: dynamic light (that is a runtime light object, such as a muzzle flash)
+
+**Sun**:
+The level's `StaticSunLight`: a directional light on models, scaled by how much sky each model sees toward it.
