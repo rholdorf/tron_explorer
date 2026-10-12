@@ -12,7 +12,7 @@ namespace Tron
     public class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 13;
+        public const int FormatVersion = 14;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -90,6 +90,7 @@ namespace Tron
             bin = null;
             BuildModels(exportRoot);
             BuildSoundFX();
+            BuildSoundButeFX();
         }
 
         // One RGBA atlas of all section lightmaps (see tools/export_level.py); raw values, like the DTX path.
@@ -556,6 +557,24 @@ namespace Tron
                 go.transform.SetParent(parent.transform, false);
                 go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
                 AmbientSound.Add(go, s.inner, s.outer, s.volume, s.ambient != 0, s.priority).Play(clip, s.loop != 0, s.pitch);
+            }
+        }
+
+        // SoundButeFX that start on: random files of their soundbute from level start (SoundButeFX). Missing
+        // files are listed in SoundLoader.Missing; one with none of its files exported is skipped.
+        void BuildSoundButeFX()
+        {
+            if (Data.soundButeFX == null || Data.soundButeFX.Length == 0) return;
+            var parent = new GameObject("SoundButeFX");
+            parent.transform.SetParent(Root.transform, false);
+            foreach (var s in Data.soundButeFX)
+            {
+                var clips = Array.ConvertAll(s.files ?? new string[0], SoundLoader.Load);
+                if (!Array.Exists(clips, c => c)) continue;
+                var go = new GameObject(s.name);
+                go.transform.SetParent(parent.transform, false);
+                go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
+                SoundButeFX.Add(go, s, clips);
             }
         }
 

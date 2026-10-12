@@ -4,6 +4,7 @@ A sound name (SoundFX Sound, SoundButeFX SoundBute, KeyFramer ActiveSound) is lo
 first and taken as a file path otherwise (CGameSoundMgr FillPSIFromButeOrParams). A soundbute plays one
 of its Path0..N files; missing keys come from its Parent chain (CHierarchicalButeMgr).
 """
+import functools
 import os
 import shutil
 import struct
@@ -71,16 +72,21 @@ class SoundButes:
         self.sections = {k.lower(): v for k, v in
                          butes.load(os.path.join(extracted, "attributes", "soundbutes.txt")).items()}
 
-    def _paths(self, name):
+    def _chain(self, name):
+        """The soundbute's section, then its Parent's, and so on."""
         seen = set()
         while name and name.lower() in self.sections and name.lower() not in seen:
             seen.add(name.lower())
             s = self.sections[name.lower()]
-            paths = butes.indexed(s, "path")
-            if paths:
-                return paths
+            yield s
             name = s.get("parent")
-        return []
+
+    def _paths(self, name):
+        return next((p for p in (butes.indexed(s, "path") for s in self._chain(name)) if p), [])
+
+    def get(self, name, key, default=None):
+        """A soundbute's key (lower case), inherited from its Parent chain when it doesn't set it."""
+        return next((s[key] for s in self._chain(name.strip()) if key in s), default)
 
     def is_soundbute(self, name):
         return name.strip().lower() in self.sections
@@ -90,6 +96,12 @@ class SoundButes:
         if self.is_soundbute(name):
             return [butes.norm(p) for p in self._paths(name.strip())]
         return [butes.norm(name)]
+
+
+@functools.lru_cache(maxsize=None)
+def soundbutes(extracted):
+    """The game's soundbutes, read once per game data directory."""
+    return SoundButes(extracted)
 
 
 def export_sounds(extracted, level_objects, out_root):
