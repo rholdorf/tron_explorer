@@ -7,7 +7,9 @@ Driver lines (tab-separated):
   obj <name> <class>              join an object that handles every message (prints "got")
   relay <name> <class> <x y z> <prop>...
                                   join a level object and hand it to Relays; a prop is "$Key=text" (a string)
-                                  or "Key=1,2,3" (a number, bool or vector)
+                                  or "Key=1,2,3" (a number, bool or vector); "$$Key=<base64>" for a string
+                                  with control characters
+  deaf <name> <class>             join an object that handles no message
   player                          join the player ("player")
   frame <dt> [<x y z>]            one frame: timelines, the pending-command table, then triggers with the
                                   player's box centred at x y z (half-extents 24 53 24), or no player
@@ -15,6 +17,8 @@ Driver lines (tab-separated):
   echo <text>                     print <text>
 Handlers print "got <receiver> <sender> <message words joined by |>".
 """
+import base64
+import glob
 import os
 import shutil
 import subprocess
@@ -54,6 +58,9 @@ static class Driver
                     });
                     break;
                 }
+                case "deaf":
+                    mgr.Join(a[1], a[2]);
+                    break;
                 case "player":
                     player = mgr.Join("player", "Player");
                     break;
@@ -64,7 +71,8 @@ static class Driver
                     foreach (var p in a.Skip(4))
                     {
                         int eq = p.IndexOf('=');
-                        if (p[0] == '$') strs[p.Substring(1, eq - 1)] = p.Substring(eq + 1);
+                        if (p.StartsWith("$$")) strs[p.Substring(2, eq - 2)] = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(p.Substring(eq + 1)));
+                        else if (p[0] == '$') strs[p.Substring(1, eq - 1)] = p.Substring(eq + 1);
                         else nums[p.Substring(0, eq)] = p.Substring(eq + 1).Split(',').Select(v => float.Parse(v, inv)).ToArray();
                     }
                     var pos = a[3].Split(' ').Select(v => float.Parse(v, inv)).ToArray();
@@ -276,3 +284,34 @@ def test_an_events_delay_0_runs_in_the_same_frame_the_command_table_ticks_after_
     out = driver([("obj", "a", "WorldModel"), command_object("co", "$EventT0E0=0|delay 0 (msg a later)"),
                   ("run", "msg co on")] + frames(1))
     assert out == [("got", "a", "co", "later"), ("f1",)]
+
+
+def test_every_relay_in_the_levels_builds_and_fires(driver, extracted):
+    """Every object of the 38 single-player levels joins (relays with their props); then every trigger gets
+    TRIGGER, every command object ON and every counter INC, and the timelines run for 60 s: nothing throws
+    or recurses for ever."""
+    import dat85
+    for f in sorted(glob.glob(os.path.join(extracted, "worlds", "retailsingleplayer", "*.dat"))):
+        w = dat85.load(f)
+        lines, fire = [("player",)], []
+        for o in w.objects:
+            p, cls = o["props"], o["class"]
+            name = p.get("Name", "")
+            if cls not in ("Trigger", "NoPlayerTrigger", "ExitTrigger", "EventCounter", "CommandObject"):
+                lines.append(("deaf", name, cls))
+                continue
+            props = []
+            for k, v in p.items():
+                if isinstance(v, str):
+                    props.append(f"$${k}=" + base64.b64encode(v.encode()).decode())
+                elif isinstance(v, (bool, int, float)):
+                    props.append(f"{k}={float(v)}")
+                elif isinstance(v, list) and len(v) >= 3 and k != "Rotation":
+                    props.append(f"{k}=" + ",".join(str(float(x)) for x in v))
+            lines.append(("relay", name, cls, " ".join(str(float(x)) for x in p.get("Pos", [0, 0, 0])), *props))
+            word = {"EventCounter": "inc", "CommandObject": "on"}.get(cls, "trigger")
+            if name and "\t" not in name:
+                fire.append(("run", f"msg ({name}) {word}"))
+        lines += fire + [("frame", 0.1, "0 0 0")] * 600 + [("echo", "end")]
+        out = driver(lines)
+        assert out[-1] == ("end",), f
