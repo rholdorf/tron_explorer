@@ -76,7 +76,7 @@ namespace Tron
                 var o = Data.objects[kv.Key];
                 var awm = kv.Value;
                 // DoorLink: the first object with the name, if it is a door.
-                if (byIndex.TryGetValue(FirstNamed(awm.Awm.S.DoorLink), out var link) && link.Awm.S.Door)
+                if (byIndex.TryGetValue(FirstNamed(awm.Awm.DoorLink), out var link) && link.Awm.IsDoor)
                     awm.Awm.Link = link.Awm;
                 // Attached world models move with it, and the use ray on them reaches it.
                 foreach (var name in o.Str("Attachments").Split(';'))

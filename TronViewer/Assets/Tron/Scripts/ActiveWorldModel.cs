@@ -102,7 +102,7 @@ namespace Tron
         const float NextFrame = 0.001f;   // UPDATE_NEXT_FRAME
         const float Never = float.PositiveInfinity;
 
-        public readonly Settings S;
+        readonly Settings settings;
         readonly IHost host;
         readonly int self;
         readonly LTQuat initRot;
@@ -121,6 +121,10 @@ namespace Tron
         public int Activator { get; private set; } = -1;   // m_hActivateObj
         public ActiveWorldModel Link;                       // DoorLink, resolved by the host
         public int Player { get; set; }                     // the player's command-manager id
+        public bool CanBeUsed => settings.PlayerActivate;   // the player's use drives it
+        public bool IsDoor => settings.Door;
+        public string DoorLink => settings.DoorLink;        // the name of the door it opens too ("" for none)
+        public float SoundRadius => settings.SoundRadius;
         // The use prompt's state (ActivateTypeHandler): on while on or powering on.
         public bool PromptOn => Current == State.On || Current == State.PowerOn || (Current == State.Pause && (lastState == State.PowerOn));
 
@@ -128,7 +132,7 @@ namespace Tron
         // position, null for none. self, player: command-manager ids of the AWM and of the player.
         public ActiveWorldModel(Settings s, LTVec pos, LTVec pyr, LTVec? rotationPoint, int self, int player, IHost host)
         {
-            S = s;
+            settings = s;
             this.host = host;
             this.self = self;
             Player = player;
@@ -160,7 +164,7 @@ namespace Tron
         // The end of OnObjectCreated, once every object exists: power on, or sit off silently.
         public void Start()
         {
-            if (S.StartOn) SetPowerOn();
+            if (settings.StartOn) SetPowerOn();
             else SetOff(true);
         }
 
@@ -187,7 +191,7 @@ namespace Tron
             }
             else if (m.Is("PAUSE")) HandlePause();
             else if (m.Is("RESUME")) HandleResume();
-            else if (S.Door && m.Is("TRIGGERCLOSE")) TriggerClose();
+            else if (settings.Door && m.Is("TRIGGERCLOSE")) TriggerClose();
             else return false;
             return true;
         }
@@ -196,14 +200,14 @@ namespace Tron
         // PlayerActivate. Tron's permission-set gate always passes: the viewer grants every set.
         public void Activate(int obj)
         {
-            if (obj < 0 || obj != Player || !S.PlayerActivate) return;
+            if (obj < 0 || obj != Player || !settings.PlayerActivate) return;
             Activator = obj;
             HandleTriggerMsg();
         }
 
         void HandleTriggerMsg()
         {
-            if (S.Door) HandleLinkTriggerMsg(true);
+            if (settings.Door) HandleLinkTriggerMsg(true);
             else BaseTriggerMsg();
         }
 
@@ -212,24 +216,24 @@ namespace Tron
             if (Locked)
             {
                 // No key controls anything in Tron: locked is locked.
-                StartSound(S.LockedSound, false);
-                RunCommand(S.LockedCommand);
+                StartSound(settings.LockedSound, false);
+                RunCommand(settings.LockedCommand);
                 return;
             }
             float now = host.Time;
             switch (Current)
             {
                 case State.Off:
-                    if (now >= moveStopTm + S.OffWaitTime) SetPowerOn();
+                    if (now >= moveStopTm + settings.OffWaitTime) SetPowerOn();
                     break;
                 case State.PowerOff:
                 case State.PowerOn:
                     ChangeDir();
                     break;
                 case State.On:
-                    if (S.TriggerOff)
+                    if (settings.TriggerOff)
                     {
-                        if (now >= moveStopTm + S.OnWaitTime) SetPowerOff();
+                        if (now >= moveStopTm + settings.OnWaitTime) SetPowerOff();
                     }
                     else SetOn(true);   // re-arms the auto-off
                     break;
@@ -252,7 +256,7 @@ namespace Tron
 
         void TriggerClose()
         {
-            if ((Current == State.On || Current == State.PowerOn) && host.Time > moveStopTm + S.OnWaitTime) SetPowerOff();
+            if ((Current == State.On || Current == State.PowerOn) && host.Time > moveStopTm + settings.OnWaitTime) SetPowerOff();
         }
 
         void HandlePause()
@@ -281,12 +285,12 @@ namespace Tron
             if (Current == State.Off)
             {
                 originalPos = offPos = Pos;
-                onPos = offPos + moveDir * S.MoveDist;
+                onPos = offPos + moveDir * settings.MoveDist;
             }
-            if (S.Type == Kind.Rotating)
+            if (settings.Type == Kind.Rotating)
             {
                 if (Current == State.Off) rotationPt = originalPos - rotPtOffset;
-                if (S.RotateAway && Activator >= 0 && host.PositionOf(Activator) is LTVec objPos)
+                if (settings.RotateAway && Activator >= 0 && host.PositionOf(Activator) is LTVec objPos)
                 {
                     // Open away from the activator: whichever way ends farther from it (a one-radian turn
                     // each way; the roll's sign follows the yaw's, as in the engine).
@@ -308,22 +312,22 @@ namespace Tron
                     }
                 }
             }
-            StartSound(S.PowerOnSound, S.LoopSounds);
+            StartSound(settings.PowerOnSound, settings.LoopSounds);
             nextUpdate = host.Time + NextFrame;
             Current = State.PowerOn;
-            RunCommand(S.PowerOnCommand);
-            moveStartTm = host.Time + S.MoveDelay;
+            RunCommand(settings.PowerOnCommand);
+            moveStartTm = host.Time + settings.MoveDelay;
             curTm = 0;
         }
 
         void SetOn(bool initialize = false)
         {
-            nextUpdate = S.TriggerOff || S.RemainOn ? Never : host.Time + S.OnWaitTime + NextFrame;
+            nextUpdate = settings.TriggerOff || settings.RemainOn ? Never : host.Time + settings.OnWaitTime + NextFrame;
             Current = State.On;
             powerOnMultiplier = 1;
             if (initialize) return;
-            StartSound(S.OnSound, S.LoopSounds);
-            RunCommand(S.OnCommand);
+            StartSound(settings.OnSound, settings.LoopSounds);
+            RunCommand(settings.OnCommand);
             moveStopTm = host.Time;
         }
 
@@ -332,13 +336,13 @@ namespace Tron
             if (Current == State.On)
             {
                 onPos = Pos;
-                offPos = onPos - moveDir * S.MoveDist;
+                offPos = onPos - moveDir * settings.MoveDist;
             }
-            StartSound(S.PowerOffSound, S.LoopSounds);
+            StartSound(settings.PowerOffSound, settings.LoopSounds);
             nextUpdate = host.Time + NextFrame;
             Current = State.PowerOff;
-            RunCommand(S.PowerOffCommand);
-            moveStartTm = host.Time + S.MoveDelay;
+            RunCommand(settings.PowerOffCommand);
+            moveStartTm = host.Time + settings.MoveDelay;
             curTm = 0;
         }
 
@@ -347,13 +351,13 @@ namespace Tron
             nextUpdate = Never;
             Current = State.Off;
             if (initialize) return;
-            if (S.Type == Kind.Rotating)
+            if (settings.Type == Kind.Rotating)
             {
                 onAngles = initOnAngles;
                 rotateDir = initRotDir;
             }
-            StartSound(S.OffSound, S.LoopSounds);
-            RunCommand(S.OffCommand);
+            StartSound(settings.OffSound, settings.LoopSounds);
+            RunCommand(settings.OffCommand);
             moveStopTm = host.Time;
         }
 
@@ -378,18 +382,18 @@ namespace Tron
         void UpdatePowerOn(float now)
         {
             if (now < moveStartTm) return;
-            float total = S.PowerOnTime * powerOnMultiplier;
+            float total = settings.PowerOnTime * powerOnMultiplier;
             float percent = total > 0.001f ? Clamp01(curTm / total) : 1;
-            Step(onPos, offAngles, onAngles, rotateDir, total, percent, !S.ForceMove && !S.ForceMoveOn, SetOnDone);
+            Step(onPos, offAngles, onAngles, rotateDir, total, percent, !settings.ForceMove && !settings.ForceMoveOn, SetOnDone);
         }
 
         // Power-off checks the delay against a start that already includes it: it waits twice MoveDelay.
         void UpdatePowerOff(float now)
         {
-            if (now < moveStartTm + S.MoveDelay) return;
-            float total = S.PowerOffTime;
+            if (now < moveStartTm + settings.MoveDelay) return;
+            float total = settings.PowerOffTime;
             float percent = total > 0.001f ? Clamp01(curTm / total) : 1;
-            Step(offPos, onAngles, offAngles, -rotateDir, total, percent, !S.ForceMove && !S.ForceMoveOff, SetOffDone);
+            Step(offPos, onAngles, offAngles, -rotateDir, total, percent, !settings.ForceMove && !settings.ForceMoveOff, SetOffDone);
         }
 
         void SetOnDone() => SetOn();
@@ -409,14 +413,14 @@ namespace Tron
                 return;
             }
             Pos = newPos;
-            if ((S.Type == Kind.Sliding && newPos == finalPos) || (S.Type == Kind.Rotating && dx && dy && dz)) arrive();
+            if ((settings.Type == Kind.Sliding && newPos == finalPos) || (settings.Type == Kind.Rotating && dx && dy && dz)) arrive();
             curTm += frameTime;
         }
 
         // CalcAngle: one frame's turn of an axis toward its target; true once it was already there.
         bool CalcAngle(ref float angle, float initial, float target, float dir, float total, float percent)
         {
-            if (S.Type != Kind.Rotating) return true;
+            if (settings.Type != Kind.Rotating) return true;
             if (percent >= 1) { angle = target; return true; }
             float rate = target - initial;
             if (total > 0.001f) rate /= total;
@@ -435,15 +439,15 @@ namespace Tron
         // (sliding); false if the new pose would hit the player.
         bool NewPos(LTVec finalPos, float total, float percent, bool testCollision, out LTVec pos)
         {
-            if (S.Type == Kind.Rotating) pos = RotatedPos();
-            else if (S.Type == Kind.Sliding)
+            if (settings.Type == Kind.Rotating) pos = RotatedPos();
+            else if (settings.Type == Kind.Sliding)
             {
                 var d = finalPos - Pos;
                 float left = d.Length();
-                float rate = total > 0.001f ? S.MoveDist / total : S.MoveDist;
+                float rate = total > 0.001f ? settings.MoveDist / total : settings.MoveDist;
                 float move = Wave(rate, percent) * frameTime;
                 pos = move >= left || percent >= 1 ? finalPos : Pos + d / left * move;
-                if (S.MoveDist == 0) return true;
+                if (settings.MoveDist == 0) return true;
             }
             else pos = Pos;
             return !testCollision || !HitsPlayer(pos, Rot, false);
@@ -462,7 +466,7 @@ namespace Tron
         {
             if (activatorOnly && Activator != Player) return false;
             if (!host.PlayerInside(pos, rot)) return false;
-            if (S.Type != Kind.Rotating) return true;
+            if (settings.Type != Kind.Rotating) return true;
             if (!activatorOnly && Activator != Player) return true;
             var p = host.PositionOf(Player) ?? pos;
             return !(Dist2(p, Pos) <= Dist2(p, pos));
@@ -471,9 +475,9 @@ namespace Tron
         // ChangeDir: reverse, unless forced to finish or reversing would hit the activator.
         void ChangeDir()
         {
-            if (S.ForceMove) return;
-            if (Current == State.PowerOn && S.ForceMoveOn) return;
-            if (Current == State.PowerOff && S.ForceMoveOff) return;
+            if (settings.ForceMove) return;
+            if (Current == State.PowerOn && settings.ForceMoveOn) return;
+            if (Current == State.PowerOff && settings.ForceMoveOff) return;
             if (Activator >= 0 && TestPose(out var pos, out var rot) && HitsPlayer(pos, rot, true)) return;
             if (Current == State.PowerOff) SetPowerOn();
             else if (Current == State.PowerOn) SetPowerOff();
@@ -488,7 +492,7 @@ namespace Tron
             if (Current == State.PowerOn)
             {
                 final = offPos;
-                time = S.PowerOffTime;
+                time = settings.PowerOffTime;
                 CalcAngle(ref pitch, pitch, offAngles.x, -rotateDir.x, time, 0.1f);
                 CalcAngle(ref yaw, yaw, offAngles.y, -rotateDir.y, time, 0.1f);
                 CalcAngle(ref roll, roll, offAngles.z, -rotateDir.z, time, 0.1f);
@@ -496,7 +500,7 @@ namespace Tron
             else if (Current == State.PowerOff)
             {
                 final = onPos;
-                time = S.PowerOnTime;
+                time = settings.PowerOnTime;
                 CalcAngle(ref pitch, pitch, onAngles.x, rotateDir.x, time, 0.1f);
                 CalcAngle(ref yaw, yaw, onAngles.y, rotateDir.y, time, 0.1f);
                 CalcAngle(ref roll, roll, onAngles.z, rotateDir.z, time, 0.1f);
@@ -517,7 +521,7 @@ namespace Tron
         float Wave(float rate, float percent)
         {
             const float halfPi = (float)(Math.PI / 2);
-            switch (S.Waveform)
+            switch (settings.Waveform)
             {
                 case 1: return halfPi * rate * (float)Math.Sin(percent * Math.PI);
                 case 2: return halfPi * rate * (float)Math.Cos(percent * halfPi) - rate * 0.001f;

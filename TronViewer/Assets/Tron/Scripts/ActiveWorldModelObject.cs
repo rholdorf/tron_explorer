@@ -69,7 +69,7 @@ namespace Tron
         {
             var clip = SoundLoader.Load(name);
             if (!clip) return;
-            float outer = Awm.S.SoundRadius;
+            float outer = Awm.SoundRadius;
             if (looped)
             {
                 if (!loop) loop = AmbientSound.Add(gameObject, 0.25f * outer, outer, 100, false, 1);
