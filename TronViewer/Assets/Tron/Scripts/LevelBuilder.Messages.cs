@@ -15,6 +15,34 @@ namespace Tron
         // Object ids that have their GameBase handler.
         readonly HashSet<int> withFlags = new HashSet<int>();
 
+        // The level's object ids by name (any case), in level order: built once, on first use.
+        Dictionary<string, List<int>> objectsByName;
+        static readonly List<int> NoObjects = new List<int>();
+
+        // The ids of every object with this name, in level order (none: empty).
+        List<int> ObjectsNamed(string name)
+        {
+            if (objectsByName == null)
+            {
+                objectsByName = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < Data.objects.Length; i++)
+                {
+                    var n = Data.objects[i].name;
+                    if (string.IsNullOrEmpty(n)) continue;
+                    if (!objectsByName.TryGetValue(n, out var list)) objectsByName[n] = list = new List<int>();
+                    list.Add(i);
+                }
+            }
+            return !string.IsNullOrEmpty(name) && objectsByName.TryGetValue(name, out var ids) ? ids : NoObjects;
+        }
+
+        // The first object with this name, -1 if none.
+        int FirstNamed(string name)
+        {
+            var ids = ObjectsNamed(name);
+            return ids.Count > 0 ? ids[0] : -1;
+        }
+
         // The GameBase flags an object starts with (its Visible, Solid and Rayhit props; StartHidden).
         [Flags]
         enum StartFlags { None = 0, Visible = 1, Solid = 2, RayHit = 4, Hidden = 8 }
@@ -65,12 +93,14 @@ namespace Tron
         // characters, with their attachments; drawn as built, solid as their props say).
         void JoinObjectMessages()
         {
-            var index = new Dictionary<ObjectJson, int>();
-            for (int i = 0; i < Data.objects.Length; i++) index[Data.objects[i]] = i;
             foreach (var kv in worldModelOwners)
             {
                 var obj = kv.Value;
-                if (obj == null || !index.TryGetValue(obj, out int id) || withFlags.Contains(id)) continue;
+                if (obj == null) continue;
+                var named = ObjectsNamed(obj.name);
+                int k = named.FindIndex(i => Data.objects[i] == obj);   // the owner, of the objects with its name
+                if (k < 0 || withFlags.Contains(named[k])) continue;
+                int id = named[k];
                 if (!WorldModelObjects.TryGetValue(kv.Key, out var wm)) continue;
                 var gos = new[] { wm };
                 var start = If(obj.Bool("Visible", true), StartFlags.Visible) |
@@ -143,14 +173,6 @@ namespace Tron
         void BuildKeyframers()
         {
             if (Data.keyframers == null || Data.keyframers.Length == 0) return;
-            var byName = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < Data.objects.Length; i++)
-            {
-                var n = Data.objects[i].name;
-                if (string.IsNullOrEmpty(n)) continue;
-                if (!byName.TryGetValue(n, out var list)) byName[n] = list = new List<int>();
-                list.Add(i);
-            }
             var worldModels = new Dictionary<string, GameObject>(WorldModelObjects, StringComparer.OrdinalIgnoreCase);
             var parent = new GameObject("Keyframers");
             parent.transform.SetParent(Root.transform, false);
@@ -166,8 +188,7 @@ namespace Tron
                 var shown = new List<Transform[]>();
                 foreach (var name in kf.targets)
                 {
-                    if (!byName.TryGetValue(name, out var objs)) continue;
-                    foreach (int i in objs)
+                    foreach (int i in ObjectsNamed(name))
                     {
                         var obj = Data.objects[i];
                         Transform[] gos;
