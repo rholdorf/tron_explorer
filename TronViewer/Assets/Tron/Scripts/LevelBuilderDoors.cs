@@ -62,10 +62,7 @@ namespace Tron
 
                 LTVec? rotationPoint = null;
                 if (!string.IsNullOrEmpty(s.RotationPoint) && firstByName.TryGetValue(s.RotationPoint, out int pi))
-                {
-                    var p = Data.objects[pi].pos;
-                    rotationPoint = new LTVec(p[0], p[1], p[2]);
-                }
+                    rotationPoint = Data.objects[pi].LTPosition;
                 var awm = go.AddComponent<ActiveWorldModelObject>();
                 awm.Init(s, o, i, rotationPoint, Commands, Data);
                 if (prompts.TryGetValue(s.ActivateType ?? "", out var prompt))

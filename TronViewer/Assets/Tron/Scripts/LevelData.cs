@@ -199,6 +199,7 @@ namespace Tron
         }
 
         public Vector3 Position => new Vector3(pos[0], pos[1], pos[2]);
+        public LTVec LTPosition => new LTVec(pos[0], pos[1], pos[2]);   // the same, for the plain C# cores
         // LithTech stores (pitch, yaw, roll) in radians; both engines are left-handed Y-up.
         public Quaternion Rotation => Quaternion.Euler(rot[0] * Mathf.Rad2Deg, rot[1] * Mathf.Rad2Deg, rot[2] * Mathf.Rad2Deg);
     }

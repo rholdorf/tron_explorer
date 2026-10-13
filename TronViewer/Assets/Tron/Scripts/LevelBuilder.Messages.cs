@@ -99,7 +99,7 @@ namespace Tron
                     if (p.t == "s") strs[p.k] = p.s;
                     else nums[p.k] = p.v;
                 }
-                Relays.Add(i, o.cls, new LTVec(o.pos[0], o.pos[1], o.pos[2]), strs, nums);
+                Relays.Add(i, o.cls, o.LTPosition, strs, nums);
             }
             var timelines = Root.AddComponent<TimelineTicker>();
             timelines.Commands = Commands;

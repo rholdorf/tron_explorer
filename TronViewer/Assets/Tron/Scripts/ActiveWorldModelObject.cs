@@ -29,7 +29,7 @@ namespace Tron
             this.commands = commands;
             this.data = data;
             var pyr = new LTVec(o.rot[0], o.rot[1], o.rot[2]);
-            Awm = new ActiveWorldModel(s, new LTVec(o.pos[0], o.pos[1], o.pos[2]), pyr, rotationPoint, self, -1, this);
+            Awm = new ActiveWorldModel(s, o.LTPosition, pyr, rotationPoint, self, -1, this);
             shownPos = transform.localPosition;
             shownRot = transform.localRotation;
         }
@@ -120,7 +120,7 @@ namespace Tron
         {
             if (obj < 0) return null;
             if (obj == Awm.Player) return player ? V(player.transform.position / LT.Scale) : (LTVec?)null;
-            if (obj < data.objects.Length) return new LTVec(data.objects[obj].pos[0], data.objects[obj].pos[1], data.objects[obj].pos[2]);
+            if (obj < data.objects.Length) return data.objects[obj].LTPosition;
             return null;
         }
 
