@@ -18,12 +18,11 @@ The player's command-manager id is 1000.
 """
 import math
 import os
-import shutil
-import subprocess
 
 import pytest
 
-SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+from conftest import mono_driver
+
 PLAYER = 1000
 
 DRIVER = r"""
@@ -110,20 +109,11 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def run(tmp_path_factory):
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
-    d = tmp_path_factory.mktemp("awm")
-    (d / "Driver.cs").write_text(DRIVER)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
-                        *(os.path.join(SCRIPTS, f) for f in ("ActiveWorldModel.cs", "Commands.cs", "KeyframerMotion.cs"))],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
+    run_driver = mono_driver(tmp_path_factory, "awm", DRIVER, "ActiveWorldModel.cs", "Commands.cs", "KeyframerMotion.cs")
 
     def go(*lines):
         text = "".join("\t".join(str(x) for x in line) + "\n" for line in lines)
-        out = subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
+        out = run_driver(text)
         return [ln.split("\t") for ln in out.splitlines()]
     return go
 
