@@ -50,7 +50,7 @@ namespace Tron
         {
             // Moved by someone else (a keyframer): the state machine starts from there.
             if (transform.localPosition != shownPos) Awm.Pos = V(transform.localPosition);
-            Awm.Update(Mathf.Min(Time.deltaTime, CommandMgr.MaxFrameTime));
+            Awm.Update(commands.FrameTime);
             var pos = new Vector3(Awm.Pos.x, Awm.Pos.y, Awm.Pos.z);
             var r = Awm.Rot;
             var rot = new Quaternion(r.x, r.y, r.z, r.w);
@@ -63,7 +63,7 @@ namespace Tron
 
         // ---- IHost ----
 
-        float ActiveWorldModel.IHost.Time => Time.time;
+        float ActiveWorldModel.IHost.Time => commands.Time;   // the server clock the relays and delayed commands run on
 
         public void PlaySound(string name, bool looped)
         {

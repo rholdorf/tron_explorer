@@ -73,7 +73,8 @@ static class Driver
                     Console.WriteLine("ran\t" + mgr.Run(a[3], a[1] == "" ? -1 : ids[a[1]], ids[a[2]]));
                     break;
                 case "tick":
-                    mgr.Update(float.Parse(a[1], System.Globalization.CultureInfo.InvariantCulture));
+                    mgr.BeginFrame(float.Parse(a[1], System.Globalization.CultureInfo.InvariantCulture));
+                    mgr.Update();
                     break;
                 case "rand":
                     foreach (var v in a.Skip(1)) randoms.Enqueue(double.Parse(v, System.Globalization.CultureInfo.InvariantCulture));

@@ -88,8 +88,9 @@ static class Driver
                 case "frame":
                 {
                     float dt = float.Parse(a[1], inv);
-                    relays.UpdateTimelines(dt);
-                    mgr.Update(dt);
+                    mgr.BeginFrame(dt);
+                    relays.UpdateTimelines();
+                    mgr.Update();
                     if (a.Length > 2)
                     {
                         var p = a[2].Split(' ').Select(v => float.Parse(v, inv)).ToArray();

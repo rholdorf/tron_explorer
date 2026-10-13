@@ -8,12 +8,18 @@ Driver lines (tab-separated):
   start <name>           the end of its creation (StartOn powers on)
   link <a> <b>           a's DoorLink is b
   tick <seconds>         one frame: the clock advances, then every AWM updates in creation order
+  frame <seconds>        one server frame on the command manager's clock, as the viewer runs it: the clock
+                         advances by the clamped frame time, the pending-command table runs, then every AWM
+                         updates with the clamped frame time and the clock's time
+  obj <name>             join an object to the command manager that prints "got <name> <words joined by |>"
+  echo <text>            print <text>
   use <name>             the player's use
   msg <name> <sender> <word>...   a message (sender: player, - for none, or a number); prints "handled"
   block <0|1>            whether the player is in the way of any new pose
   player <x,y,z>         the player's position
   pose <name>            prints "pose <x> <y> <z> <qx> <qy> <qz> <qw> <state>"
-Host events print as "sound <name> <file> <loop>", "stop <name>", "run <name> <command> <activator>".
+Host events print as "sound <name> <file> <loop>", "stop <name>", "run <name> <command> <activator>"; the
+commands also run through the command manager.
 The player's command-manager id is 1000.
 """
 import math
@@ -45,13 +51,18 @@ class Host : ActiveWorldModel.IHost
     public float Time => Driver.Now;
     public void PlaySound(string name, bool loop) => Console.WriteLine("sound\t" + Name + "\t" + name + "\t" + loop);
     public void StopLoop() => Console.WriteLine("stop\t" + Name);
-    public void Run(string command, int activator) => Console.WriteLine("run\t" + Name + "\t" + command + "\t" + activator);
+    public void Run(string command, int activator)
+    {
+        Console.WriteLine("run\t" + Name + "\t" + command + "\t" + activator);
+        Driver.Mgr.Run(command, -1, activator);
+    }
     public bool PlayerInside(LTVec pos, LTQuat rot) => Driver.Blocked;
     public LTVec? PositionOf(int obj) => obj == 1000 ? Driver.Player : (LTVec?)null;
 }
 static class Driver
 {
     public static float Now;
+    public static readonly CommandMgr Mgr = new CommandMgr(() => 0.0);
     public static bool Blocked;
     public static LTVec Player;
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -84,6 +95,19 @@ static class Driver
                     Now += F(a[1]);
                     foreach (var w in order) w.Update(F(a[1]));
                     break;
+                case "frame":
+                    Mgr.BeginFrame(F(a[1]));
+                    Now = Mgr.Time;
+                    Mgr.Update();
+                    foreach (var w in order) w.Update(Mgr.FrameTime);
+                    break;
+                case "obj":
+                {
+                    string n = a[1];
+                    Mgr.Handle(Mgr.Join(n, "WorldModel"), m => { Console.WriteLine("got\t" + n + "\t" + string.Join("|", m.Words)); return true; });
+                    break;
+                }
+                case "echo": Console.WriteLine(a[1]); break;
                 case "use": awms[a[1]].Activate(1000); break;
                 case "msg":
                 {
@@ -274,6 +298,18 @@ def test_a_door_waits_its_move_delay_before_opening_and_twice_that_before_closin
     p = [x[1] for x in poses(out)]
     assert p[:6] == [0, 16, 32, 48, 64, 64]          # starts at t=0.5
     assert p[6:] == [64, 64, 64, 48, 32]             # 2 x 0.5 s after the use
+
+
+def test_a_door_waits_on_the_command_managers_clock_so_its_wait_and_a_delay_stay_paired_after_a_hitch(run):
+    # Open at t=1 (8 frames of 1/8 s); its OpenCommand queues a 2 s delay as it starts its 2 s wait. A 3 s
+    # hitch counts 0.2 s for both (the server's frame clamp), so both end 15 frames later (0.2 + 15/8 >= 2.001):
+    # the delayed message first (the pending-command table runs before the objects), then the door closes.
+    out = run(door("OpenCommand=delay 2 (msg x closing)"), ("obj", "x"), ("start", "d"), ("use", "d"),
+              *[("frame", 0.125)] * 8, ("frame", 3.0),
+              *[x for i in range(15) for x in (("echo", f"f{i + 1}"), ("frame", 0.125))])
+    ev = [e for e in events(out) if e[0] in ("got", "sound") or e[0].startswith("f")]
+    i = ev.index(["got", "x", "closing"])
+    assert ev[i - 1] == ["f15"] and ev[i + 1] == ["sound", "d", "snd\\close.wav", "False"]
 
 
 def test_a_door_that_starts_open_opens_at_load_with_its_sound_and_command(run):

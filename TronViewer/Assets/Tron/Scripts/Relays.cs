@@ -8,13 +8,12 @@ using System.Collections.Generic;
 namespace Tron
 {
     // Level load: Add each level object after it joined the command manager; it takes the relay classes and
-    // adds their message handlers. Each frame: UpdateTimelines before the command manager's Update (the lite
-    // objects update first), then UpdateObjects with the player's box (the objects' update: startup
+    // adds their message handlers. Each frame, after the command manager's BeginFrame (the server clock they
+    // all time on): UpdateTimelines before the command manager's Update (the lite objects update first), then
+    // UpdateObjects with the player's box (the objects' update: startup
     // commands, triggers).
     public sealed class Relays
     {
-        const float MaxFrameTime = CommandMgr.MaxFrameTime;
-
         readonly CommandMgr commands;
         readonly List<Trigger> triggers = new List<Trigger>();
         readonly List<CommandObject> timelines = new List<CommandObject>();
@@ -22,8 +21,8 @@ namespace Tron
 
         public Relays(CommandMgr commands) => this.commands = commands;
 
-        // The server clock (s since the level loaded): clamped frame times, as the pending-command table's.
-        public float Time { get; private set; }
+        // The server clock (CommandMgr.Time): the timers of command objects and triggers.
+        float Time => commands.Time;
 
         // A level object (its command-manager id, class, position and props: strings, and numbers, bools
         // and vectors as floats). False if it isn't a relay class.
@@ -59,10 +58,9 @@ namespace Tron
             }
         }
 
-        // The lite objects' update (CommandObject timelines); it advances the clock.
-        public void UpdateTimelines(float frameTime)
+        // The lite objects' update (CommandObject timelines).
+        public void UpdateTimelines()
         {
-            Time += Math.Min(frameTime, MaxFrameTime);
             // A timeline started by another's event this frame updates this frame if it comes later.
             for (int i = 0; i < timelines.Count; i++)
                 if (timelines[i].Active) timelines[i].Update();

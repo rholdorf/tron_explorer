@@ -5,11 +5,14 @@ using UnityEngine;
 namespace Tron
 {
     // The level's triggers and relays (Relays): every level object of a relay class is handed to them at
-    // load. This ticks the command objects' timelines once per frame before the pending-command table (the
-    // server shell updates the lite objects first); TriggerTicker ticks the triggers after it.
+    // load. This starts each server frame: the command manager's clock (CommandMgr.BeginFrame, which the
+    // relays, the pending-command table and the doors all time on), then the command objects' timelines,
+    // before the pending-command table (the server shell updates the lite objects first); TriggerTicker
+    // ticks the triggers after it.
     [DefaultExecutionOrder(-110)]
     public class RelayTicker : MonoBehaviour
     {
+        public CommandMgr Commands;
         public Relays Relays;
 
         public static Relays Build(LevelBuilder level)
@@ -28,11 +31,17 @@ namespace Tron
                 }
                 relays.Add(i, o.cls, new LTVec(o.pos[0], o.pos[1], o.pos[2]), strs, nums);
             }
-            level.Root.AddComponent<RelayTicker>().Relays = relays;
+            var ticker = level.Root.AddComponent<RelayTicker>();
+            ticker.Commands = level.Commands;
+            ticker.Relays = relays;
             level.Root.AddComponent<TriggerTicker>().Relays = relays;
             return relays;
         }
 
-        void Update() => Relays?.UpdateTimelines(Time.deltaTime);
+        void Update()
+        {
+            Commands?.BeginFrame(Time.deltaTime);
+            Relays?.UpdateTimelines();
+        }
     }
 }

@@ -10,6 +10,6 @@ namespace Tron
     {
         public CommandMgr Commands;
 
-        void Update() => Commands?.Update(Time.deltaTime);
+        void Update() => Commands?.Update();
     }
 }

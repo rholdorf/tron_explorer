@@ -57,7 +57,7 @@ static class Driver
                 case "tick":
                 {
                     float dt = float.Parse(a[1], inv);
-                    mgr.Update(dt);
+                    mgr.BeginFrame(dt); mgr.Update();
                     vars.Update(dt);
                     fade.Update(dt);
                     break;

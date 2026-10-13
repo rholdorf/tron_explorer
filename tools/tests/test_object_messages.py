@@ -78,7 +78,7 @@ static class Driver
                 case "frame":
                 {
                     float dt = float.Parse(a[1], inv);
-                    mgr.Update(dt);
+                    mgr.BeginFrame(dt); mgr.Update();
                     foreach (var sp in spinners)
                     {
                         var name = sp.name;

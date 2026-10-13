@@ -100,7 +100,7 @@ static class Driver
                     build();
                     for (int n = 0; n < int.Parse(a[2]); n++)
                     {
-                        mgr.Update(F(1));
+                        mgr.BeginFrame(F(1)); mgr.Update();
                         m.Update(F(1));
                     }
                     Console.WriteLine("ok " + (m.Active ? 1 : 0));
@@ -123,7 +123,7 @@ static class Driver
                     build();
                     for (int n = 0; n < int.Parse(a[2]); n++)
                     {
-                        mgr.Update(F(1));
+                        mgr.BeginFrame(F(1)); mgr.Update();
                         m.Update(F(1));
                         var t = m.Targets[0];
                         Console.WriteLine(string.Join(" ", new[] { t.Pos.x, t.Pos.y, t.Pos.z, t.Rot.x, t.Rot.y, t.Rot.z, t.Rot.w,

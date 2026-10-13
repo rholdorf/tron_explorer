@@ -131,8 +131,8 @@ namespace Tron
     //
     // Level load: every level object joins once, in level order (Join; its id is its index in the level's
     // objects), then each builder adds handlers to the objects it builds (Handle). Running: Run(command,
-    // sender, activeTarget) for a command property (a trigger's, a key's, the startup command); Update
-    // once per frame before the objects update.
+    // sender, activeTarget) for a command property (a trigger's, a key's, the startup command). Each
+    // frame: BeginFrame first (the server clock), then Update before the objects update.
     public sealed class CommandMgr
     {
         public const int MaxPending = 100;        // CMDMGR_MAX_PENDING_COMMANDS
@@ -285,11 +285,25 @@ namespace Tron
             foreach (var id in found) Deliver(sender, id, message);
         }
 
-        // The pending-command table, once per frame before the objects update (the server shell's
-        // CCommandMgr::Update): slots in index order, each delay counted down by the (clamped) frame time.
-        public void Update(float frameTime)
+        // ---- The server clock ----
+
+        // The server's time (s since the level loaded) and this frame's time, both from clamped frame times.
+        // Everything timed on the server runs on it: the pending-command table, the relays' timers, doors.
+        public float Time { get; private set; }
+        public float FrameTime { get; private set; }
+
+        // A new server frame, before anything updates: the clock advances by the frame time, clamped.
+        public void BeginFrame(float frameTime)
         {
-            float dt = Math.Min(frameTime, MaxFrameTime);
+            FrameTime = Math.Min(frameTime, MaxFrameTime);
+            Time += FrameTime;
+        }
+
+        // The pending-command table, once per frame before the objects update (the server shell's
+        // CCommandMgr::Update): slots in index order, each delay counted down by the frame time.
+        public void Update()
+        {
+            float dt = FrameTime;
             for (int i = 0; i < MaxPending; i++)
             {
                 var p = pending[i];
