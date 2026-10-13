@@ -213,6 +213,14 @@ def test_an_exit_trigger_runs_its_commands_on_trigger_only(driver):
     assert out == [("touch does nothing",), ("got", "a", "-", "on")]
 
 
+def test_an_exit_trigger_counts_the_level_switch_it_skips_after_running_its_commands(driver):
+    # The 39 ExitTriggers all have ExitMission FALSE: a level switch. Once per activation, not per message.
+    out = driver([("obj", "a", "WorldModel"),
+                  trigger("x", "$Command1=msg a on", cls="ExitTrigger"),
+                  ("run", "msg x trigger"), ("run", "msg x trigger"), ("report",)])
+    assert out == [("got", "a", "-", "on"), ("unhandled", "EXIT", "ExitTrigger", "LEVEL", "1")]
+
+
 def counter(name="c", *props):
     return ("relay", name, "EventCounter", "0 0 0", *props)
 

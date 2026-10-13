@@ -304,7 +304,7 @@ namespace Tron
         }
 
         // Trigger (trigger.cpp), NoPlayerTrigger (noplayertrigger.cpp) and ExitTrigger (its touch is off; the
-        // level switch is out of scope). A box of half-extents Dims around its position, axis-aligned.
+        // level switch is out of scope, counted in the report). A box of half-extents Dims around its position, axis-aligned.
         sealed class Trigger
         {
             const int MaxCommands = 10;
@@ -313,6 +313,7 @@ namespace Tron
             readonly Relays relays;
             readonly int id;
             readonly bool noPlayer, touchable;
+            readonly string exitSwitch;   // an ExitTrigger's switch for the report (LEVEL / MISSION), else null
             readonly LTVec min, max;
             readonly string[] commandList = new string[MaxCommands];
             readonly float triggerDelay, sendDelay;
@@ -331,6 +332,7 @@ namespace Tron
                 noPlayer = string.Equals(cls, "NoPlayerTrigger", StringComparison.OrdinalIgnoreCase);
                 bool exit = string.Equals(cls, "ExitTrigger", StringComparison.OrdinalIgnoreCase);
                 touchable = !noPlayer && !exit && p.Bool("PlayerTriggerable", true);
+                if (exit) exitSwitch = p.Bool("ExitMission", false) ? "MISSION" : "LEVEL";
                 var dims = p.Vec("Dims", new LTVec(5, 5, 5));
                 min = pos - dims;
                 max = pos + dims;
@@ -425,6 +427,8 @@ namespace Tron
                 toucher = -1;
                 foreach (var c in commandList)
                     if (!string.IsNullOrEmpty(c)) relays.commands.Run(c, sender, id);
+                // ExitTrigger::Activate then switches level (or mission, ExitMission): out of scope, counted.
+                if (exitSwitch != null) relays.commands.Count("EXIT", relays.commands.Class(id), exitSwitch);
             }
         }
     }

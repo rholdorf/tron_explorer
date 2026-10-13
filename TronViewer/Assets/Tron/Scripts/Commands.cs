@@ -326,7 +326,8 @@ namespace Tron
         // ---- Report ----
 
         // Messages no handler took (verb MSG, the target's class or NoObject, the message word) and verbs
-        // the viewer doesn't run (variables: INT, SET, ADD, SUB, IF, WHEN, OBJ, VMSG...), most frequent first.
+        // the viewer doesn't run (variables: INT, SET, ADD, SUB, IF, WHEN, OBJ, VMSG...), and what objects count
+        // themselves (an ExitTrigger's level switch), most frequent first.
         public IEnumerable<UnhandledCount> Unhandled =>
             unhandled.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key.Item1).ThenBy(kv => kv.Key.Item2)
                 .ThenBy(kv => kv.Key.Item3)
@@ -343,7 +344,8 @@ namespace Tron
             return sb.ToString();
         }
 
-        void Count(string verb, string cls, string word)
+        // Counts something the viewer skips for the report: one row per (verb, class, word).
+        public void Count(string verb, string cls, string word)
         {
             var key = (verb.ToUpperInvariant(), cls, word.ToUpperInvariant());
             unhandled.TryGetValue(key, out int n);
