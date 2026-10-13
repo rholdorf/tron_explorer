@@ -4,10 +4,10 @@ namespace Tron
 {
     // A door, switch or sliding/rotating world model in the level: runs its ActiveWorldModel once per
     // frame and puts the world model where it says (its collider moves with it; a solid one has a kinematic
-    // body, so the player rides it). Plays the state sounds from the object through AmbientSound (3D,
-    // priority 1, volume 100, inner 0.25 x SoundRadius, outer SoundRadius; a looping sound on one source,
-    // one-shots on another so they play out), runs the state commands through the level's CommandMgr
-    // (the AWM as sender, its activator as target), and tests the player against a new pose.
+    // body, so the player rides it). Plays the state sounds from the object (AmbientSound.AddObjectSound
+    // with its SoundRadius; a looping sound on one source, one-shots on another so they play out), runs the
+    // state commands through the level's CommandMgr (the AWM as sender, its activator as target), and tests
+    // the player against a new pose.
     public class ActiveWorldModelObject : MonoBehaviour, ActiveWorldModel.IHost
     {
         public ActiveWorldModel Awm { get; private set; }
@@ -69,15 +69,14 @@ namespace Tron
         {
             var clip = SoundLoader.Load(name);
             if (!clip) return;
-            float outer = Awm.SoundRadius;
             if (looped)
             {
-                if (!loop) loop = AmbientSound.Add(gameObject, 0.25f * outer, outer, 100, false, 1);
+                if (!loop) loop = AmbientSound.AddObjectSound(gameObject, Awm.SoundRadius);
                 loop.Play(clip, true);
             }
             else
             {
-                if (!shots) shots = AmbientSound.Add(gameObject, 0.25f * outer, outer, 100, false, 1);
+                if (!shots) shots = AmbientSound.AddObjectSound(gameObject, Awm.SoundRadius);
                 shots.Source.PlayOneShot(clip);
             }
         }

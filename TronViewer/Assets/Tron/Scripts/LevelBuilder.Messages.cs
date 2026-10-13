@@ -226,7 +226,7 @@ namespace Tron
                         host.transform.localPosition = new Vector3(t0.x, t0.y, t0.z);
                         shown[0] = new[] { host.transform };
                     }
-                    sound = AmbientSound.Add(host, 0.25f * kf.soundRadius, kf.soundRadius, 100, false, 1);
+                    sound = AmbientSound.AddObjectSound(host, kf.soundRadius);
                 }
                 keyframer = go.AddComponent<Keyframer>();
                 keyframer.Init(motion, shown.ToArray(), sound, clip);
