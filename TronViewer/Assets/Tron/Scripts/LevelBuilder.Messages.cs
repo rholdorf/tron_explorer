@@ -88,6 +88,10 @@ namespace Tron
             for (int i = 0; i < Data.objects.Length; i++)
             {
                 var o = Data.objects[i];
+                // One of three ways the viewer reads object props, not unified yet: here as string and number
+                // tables (Relays.Props, so Relays stays plain C#); doors through ActiveWorldModel.IProps
+                // (ObjectProps); keyframers, spinners and sounds pre-read by the exporter (tools/keyframer.py,
+                // spinner.py, sounds.py, ambient.py).
                 var strs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var nums = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
                 foreach (var p in o.props)
