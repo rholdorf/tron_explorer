@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 // The level's triggers and relays, as the engine runs them (docs/research/triggers-doors.md,
 // docs/research/command-language.md; ltjs trigger.cpp, noplayertrigger.cpp, eventcounter.cpp,
-// commandobject.cpp, startupcommand.cpp, game/shared/timer.h, and Tron's EventCounter RESET). Groups are the command manager's
+// commandobject.cpp, startupcommand.cpp, game/shared/timer.h, and Tron's EventCounter RESET and IONode CINEACTIVATE). Groups are the command manager's
 // (CommandMgr.JoinGroup). Plain C#, no Unity, so tools/tests/test_relays.py compiles it with Mono.
 namespace Tron
 {
@@ -53,6 +53,21 @@ namespace Tron
                     // Tron's StartupCommand has only Command (no NOLF2 SafeExecute / RoundCondition).
                     startups.Add((id, p.Str("Command")));
                     return true;
+                case "ionode":
+                {
+                    // Tron's IONode (object.lto OnTrigger 0x10022960): CINEACTIVATE activates the node with no
+                    // checks (0x10022ff0: TriggerCommand runs at once, the node as sender, no active target; then
+                    // the node's open look, which the viewer doesn't show). CINEDEACTIVATE only sets its closing
+                    // look. The player's ACTIVATE (a use, with permission and facing checks) is not handled.
+                    string command = p.Str("TriggerCommand");
+                    commands.Handle(id, m =>
+                    {
+                        if (m.Is("CINEACTIVATE")) commands.Run(command, id);
+                        else if (!m.Is("CINEDEACTIVATE")) return false;
+                        return true;
+                    });
+                    return true;
+                }
                 default:
                     return false;
             }
