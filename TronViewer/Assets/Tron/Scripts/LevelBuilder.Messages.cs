@@ -259,18 +259,7 @@ namespace Tron
                 };
                 if (s.startOn) play();
                 JoinFlags(s.obj, StartFlags.Visible, null, () => { sound.Source.Stop(); go.SetActive(false); });
-                Commands.Handle(s.obj, m =>
-                {
-                    if (m.Is("ON") || m.Is("TRIGGER")) play();
-                    else if (m.Is("OFF") || m.Is("KILL")) sound.Source.Stop();
-                    else if (m.Is("TOGGLE"))
-                    {
-                        if (sound.IsPlaying) sound.Source.Stop();
-                        else play();
-                    }
-                    else return false;
-                    return true;
-                });
+                Commands.Handle(s.obj, OnOffToggle(play, () => sound.Source.Stop(), () => sound.IsPlaying, "TRIGGER", "KILL"));
             }
         }
 
@@ -291,15 +280,23 @@ namespace Tron
                 go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
                 var fx = SoundButeFX.Add(go, s, clips);
                 JoinFlags(s.obj, StartFlags.Visible, null, () => go.SetActive(false));
-                Commands.Handle(s.obj, m =>
-                {
-                    if (m.Is("ON")) fx.On = true;
-                    else if (m.Is("OFF")) fx.On = false;
-                    else if (m.Is("TOGGLE")) fx.On = !fx.On;
-                    else return false;
-                    return true;
-                });
+                Commands.Handle(s.obj, OnOffToggle(() => fx.On = true, () => fx.On = false, () => fx.On));
             }
         }
+
+        // A sound's messages (SoundFX / SoundButeFX::OnTrigger): ON (or alsoOn) switches it on, OFF (or
+        // alsoOff) off, TOGGLE off if it is on, else on.
+        static MessageHandler OnOffToggle(Action on, Action off, Func<bool> isOn, string alsoOn = null, string alsoOff = null) => m =>
+        {
+            if (m.Is("ON") || (alsoOn != null && m.Is(alsoOn))) on();
+            else if (m.Is("OFF") || (alsoOff != null && m.Is(alsoOff))) off();
+            else if (m.Is("TOGGLE"))
+            {
+                if (isOn()) off();
+                else on();
+            }
+            else return false;
+            return true;
+        };
     }
 }
