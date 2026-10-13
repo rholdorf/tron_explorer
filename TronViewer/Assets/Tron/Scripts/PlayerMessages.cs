@@ -144,25 +144,46 @@ namespace Tron
     // The black screen fade (ltjs interfacemgr.cpp): a new fade replaces the running one; its overlay's
     // alpha eases as 1 - SlowOn(1 - p), p = elapsed/total for a fade-out (0 -> 1) and remaining/total for a
     // fade-in (1 -> 0). After a fade-out the screen stays black until a fade-in. Input is never blocked.
+    //
+    // The viewer's safety net (not the game's): many fade-ins come from systems the viewer doesn't run
+    // (cameras, dialogue, the next level; docs/research/fade-sweep.md). Black for SafetyNetDelay seconds after
+    // a fade-out finished, with no fade-in pending (FadeInPending), the screen fades in over SafetyNetFadeTime
+    // and SafetyNetFired is called. Any new fade cancels the wait; a new fade-out starts it again.
     public sealed class ScreenFade
     {
+        // Well past every gap between a fade-out's end and its fade-in that the levels reach through what the
+        // viewer runs (at most 3.7 s, m01-01's ExitTrigger; docs/research/fade-sweep.md).
+        public const float SafetyNetDelay = 10;
+        public const float SafetyNetFadeTime = 1;
+
         bool fadeIn = true;
-        float total = 1, elapsed = 1;
+        float total = 1, elapsed = 1, black;
 
         public float Alpha { get; private set; }
+
+        // True while a fade-in is on its way (a pending command): the safety net waits.
+        public Func<bool> FadeInPending;
+        public Action SafetyNetFired;
 
         public void Start(bool fadeIn, float time)
         {
             this.fadeIn = fadeIn;
             total = time;
             elapsed = 0;
+            black = 0;
             Alpha = AlphaAt(0);
         }
 
         public void Update(float frameTime)
         {
+            float before = elapsed;
             elapsed = Math.Min(elapsed + frameTime, total);
             Alpha = AlphaAt(elapsed);
+            if (fadeIn || elapsed < total) return;
+            black += frameTime - (elapsed - before);   // the part of this frame after the fade-out ended
+            if (black < SafetyNetDelay || (FadeInPending != null && FadeInPending())) return;
+            Start(true, SafetyNetFadeTime);
+            SafetyNetFired?.Invoke();
         }
 
         float AlphaAt(float t)
@@ -182,8 +203,11 @@ namespace Tron
 
         // The player's handler. teleport(name): moves the player to the TeleportPoint of that name on its
         // next update; false if no TeleportPoint has the name (the message is then counted as unhandled).
+        // The fade's safety net waits for a pending fade-in and is reported as "SAFETYNET Player FADEIN".
         public static void Handle(CommandMgr mgr, int player, RenderVars vars, ScreenFade fade, Func<string, bool> teleport)
         {
+            fade.FadeInPending = () => mgr.AnyPending(c => c.IndexOf("fadein", StringComparison.OrdinalIgnoreCase) >= 0);
+            fade.SafetyNetFired = () => mgr.Count("SAFETYNET", "Player", "FADEIN");
             mgr.Handle(player, m =>
             {
                 if (m.Is("TELEPORT")) return m.ArgCount >= 1 && teleport(m.Arg(0));

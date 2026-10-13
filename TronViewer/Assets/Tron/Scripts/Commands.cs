@@ -327,6 +327,9 @@ namespace Tron
 
         public int PendingCount => pending.Count(p => p != null);
 
+        // Whether a pending command's text matches (the viewer's fade safety net looks for a fade-in).
+        public bool AnyPending(Func<string, bool> match) => pending.Any(p => p != null && match(p.Command));
+
         // ---- Report ----
 
         // Messages no handler took (verb MSG, the target's class or NoObject, the message word) and verbs

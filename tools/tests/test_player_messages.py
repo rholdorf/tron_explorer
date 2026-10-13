@@ -135,6 +135,32 @@ def test_a_fade_shorter_than_a_tenth_of_a_second_and_fadein_5_are_not_fades(driv
                    ("unhandled", "MSG", "Player", "FADEOUT", "1")]
 
 
+# ---- The viewer's safety net (not the game's; ticket #38, docs/research/fade-sweep.md) ----
+# Black for 10 s after a fade-out finished, with no fade-in pending: the viewer fades in over 1 s and counts it.
+
+def test_a_screen_left_black_fades_back_in_after_ten_seconds_and_is_reported(driver):
+    out = driver([("run", "msg player (fadeout 1)"), ("tick", 1), ("tick", 9.75), ("alpha",), ("tick", 0.25),
+                  ("alpha",), ("tick", 0.75), ("alpha",), ("tick", 0.25), ("alpha",), ("report",)])
+    # The net's fade-in starts on the frame black reaches 10 s and runs as a 1 s fade-in.
+    assert out == [("alpha", "1"), ("alpha", "1"), ("alpha", "0.25"), ("alpha", "0"),
+                   ("unhandled", "SAFETYNET", "Player", "FADEIN", "1")]
+
+
+def test_a_real_fade_in_before_the_deadline_cancels_the_safety_net(driver):
+    out = driver([("run", "msg player (fadeout .5)"), ("tick", 5), ("run", "msg player (fadein .5)"),
+                  ("tick", 20), ("alpha",), ("run", "msg player (fadeout .5)"), ("tick", 9), ("alpha",),
+                  ("report",)])
+    # A new fade-out starts the wait again.
+    assert out == [("alpha", "0"), ("alpha", "1")]
+
+
+def test_a_pending_fade_in_holds_the_safety_net(driver):
+    # Frames of 0.2 s, the server's clamp, so the pending command counts down in step.
+    out = driver([("run", "msg player (fadeout .5);delay 15 (msg player (fadein .5))")] + [("tick", 0.2)] * 60 +
+                 [("alpha",)] + [("tick", 0.2)] * 20 + [("alpha",), ("report",)])
+    assert out == [("alpha", "1"), ("alpha", "0")]
+
+
 # ---- Ramps and sines ----
 
 def test_a_ramp_moves_a_variable_linearly_then_holds_its_end(driver):
