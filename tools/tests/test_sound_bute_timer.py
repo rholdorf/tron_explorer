@@ -4,13 +4,11 @@ retail object.lto 0x1022c1d0); docs/research/ambient-sound.md §7 (branch resear
 first sound at level start, the next at max(start of the last + U(MinDelay, MaxDelay), end of the last),
 each a random PathN.
 """
-import os
-import shutil
-import subprocess
 
 import pytest
 
-SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+from conftest import mono_driver
+
 
 # stdin: min max length dt duration files seed -> stdout: one "time file" line per play
 DRIVER = r"""
@@ -40,19 +38,11 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def plays(tmp_path_factory):
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
-    d = tmp_path_factory.mktemp("soundbutetimer")
-    (d / "Driver.cs").write_text(DRIVER)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
-                        os.path.join(SCRIPTS, "SoundButeTimer.cs")], capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
+    run_driver = mono_driver(tmp_path_factory, "soundbutetimer", DRIVER, "SoundButeTimer.cs")
 
     def run(min_delay, max_delay, length, duration, files=3, dt=0.25, seed=1):
         text = f"{min_delay} {max_delay} {length} {dt} {duration} {files} {seed}\n"
-        out = subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
+        out = run_driver(text)
         return [(float(t), int(f)) for t, f in (line.split() for line in out.splitlines())]
     return run
 

@@ -9,10 +9,10 @@ namespace Tron
 {
     // Builds a Unity hierarchy from an exported level (level.json + level.bin).
     // Geometry stays in LithTech units under a root scaled by LT.Scale.
-    public class LevelBuilder
+    public partial class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 15;
+        public const int FormatVersion = 18;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -31,6 +31,8 @@ namespace Tron
 
         public LevelJson Data;
         public GameObject Root;
+        public CommandMgr Commands;   // the level's command manager (JoinCommands)
+        public Relays Relays;         // its triggers, relays and startup commands (BuildRelays)
         public Vector3 SkyViewMin, SkyViewMax;   // LT units
         public bool HasSky;
 
@@ -46,6 +48,8 @@ namespace Tron
         public readonly Dictionary<string, GameObject> WorldModelObjects = new Dictionary<string, GameObject>();
         // Object index -> the model instances drawn for it that aren't attachments (a bin and its frame).
         readonly Dictionary<int, List<GameObject>> modelObjects = new Dictionary<int, List<GameObject>>();
+        // World model name -> the level object that owns it (the one BuildWorldModels placed it by).
+        readonly Dictionary<string, ObjectJson> worldModelOwners = new Dictionary<string, ObjectJson>(StringComparer.OrdinalIgnoreCase);
         public readonly List<string> MissingTextures = new List<string>();
 
         Material[] materials;
@@ -77,6 +81,7 @@ namespace Tron
 
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
+            JoinCommands();
 
             BuildMaterials();
 
@@ -89,11 +94,35 @@ namespace Tron
             if (Data.blockerCollider >= 0) AddCollider(world.transform, Data.blockerCollider, "Blockers");
 
             BuildWorldModels();
+            BuildActiveWorldModels();   // LevelBuilderDoors.cs
             bin = null;
             BuildModels(exportRoot);
             BuildSoundFX();
             BuildSoundButeFX();
             BuildKeyframers();
+            JoinObjectMessages();
+            BuildSpinners();
+            BuildRelays();
+        }
+
+        // Every level object joins the command manager by name and class, in level order, so an object's
+        // id is its index in Data.objects; builders add handlers with Commands.Handle(index, ...). Groups
+        // pass their messages on to their Object1..Object50 (Tron's 50 slots). Ticked by CommandTicker.
+        void JoinCommands()
+        {
+            Commands = new CommandMgr();
+            foreach (var o in Data.objects)
+            {
+                if (string.Equals(o.cls, "Group", StringComparison.OrdinalIgnoreCase))
+                {
+                    var members = new string[50];
+                    for (int i = 0; i < members.Length; i++) members[i] = o.Str("Object" + (i + 1));
+                    Commands.JoinGroup(o.name, members);
+                }
+                else
+                    Commands.Join(o.name, o.cls);
+            }
+            Root.AddComponent<CommandTicker>().Commands = Commands;
         }
 
         // One RGBA atlas of all section lightmaps (see tools/export_level.py); raw values, like the DTX path.
@@ -514,8 +543,10 @@ namespace Tron
                 geom.transform.localPosition = inv * -pos;
                 WorldModelObjects[wm.name] = go;
 
+                // A level world model is drawn even when it starts hidden: JoinObjectMessages hides it
+                // until a message shows it.
                 bool visible = obj == null || (obj.Bool("Visible", true) && !obj.Bool("StartHidden"));
-                if (wm.mesh >= 0 && visible)
+                if (wm.mesh >= 0 && (visible || !sky))
                 {
                     string blend = obj?.Str("BlendMode", "None") ?? "None";
                     // WorldModel "Alpha" is baked into vertex alpha by the preprocessor (worldmodel.cpp:
@@ -530,17 +561,10 @@ namespace Tron
                     SetLayer(go, SkyLayer);
                     continue;
                 }
-                if (wm.collider >= 0 && SolidClasses.Contains(cls) && obj.Bool("Solid", true))
+                // Non-solid ones too (Solid FALSE): SOLID 1 can make them solid (JoinObjectMessages).
+                if (wm.collider >= 0 && SolidClasses.Contains(cls))
                     AddCollider(geom.transform, wm.collider, "collider");
-            }
-
-            // Spinners that start on turn their world model.
-            if (Data.spinners == null) return;
-            foreach (var s in Data.spinners)
-            {
-                if (!WorldModelObjects.TryGetValue(s.worldModel, out var go)) continue;
-                MakeKinematic(go);
-                go.AddComponent<Spinner>().Init(s);
+                worldModelOwners[wm.name] = obj;
             }
         }
 
@@ -550,112 +574,6 @@ namespace Tron
         {
             if (worldModel.GetComponentInChildren<Collider>() != null && !worldModel.GetComponent<Rigidbody>())
                 worldModel.AddComponent<Rigidbody>().isKinematic = true;
-        }
-
-        // Keyframers live at start move the objects named in their ObjectName (KeyFramer::CreateKeyList:
-        // every object with each name) along their path (Keyframer). An object is shown by its world model
-        // when it has one, else by its drawn models; one the viewer doesn't draw has nothing to move but
-        // still counts (a keyframer with no object at all never goes active).
-        void BuildKeyframers()
-        {
-            if (Data.keyframers == null || Data.keyframers.Length == 0) return;
-            var byName = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < Data.objects.Length; i++)
-            {
-                var n = Data.objects[i].name;
-                if (string.IsNullOrEmpty(n)) continue;
-                if (!byName.TryGetValue(n, out var list)) byName[n] = list = new List<int>();
-                list.Add(i);
-            }
-            var worldModels = new Dictionary<string, GameObject>(WorldModelObjects, StringComparer.OrdinalIgnoreCase);
-            var parent = new GameObject("Keyframers");
-            parent.transform.SetParent(Root.transform, false);
-            foreach (var kf in Data.keyframers)
-            {
-                var motion = kf.Motion();
-                var shown = new List<Transform[]>();
-                foreach (var name in kf.targets)
-                {
-                    if (!byName.TryGetValue(name, out var objs)) continue;
-                    foreach (int i in objs)
-                    {
-                        var obj = Data.objects[i];
-                        Transform[] gos;
-                        Vector3 pos = obj.Position;
-                        if ((SolidClasses.Contains(obj.cls) || HiddenClasses.Contains(obj.cls)) && worldModels.TryGetValue(obj.name, out var wm))
-                        {
-                            gos = new[] { wm.transform };
-                            MakeKinematic(wm);
-                        }
-                        else if (modelObjects.TryGetValue(i, out var models))
-                        {
-                            gos = models.ConvertAll(m => m.transform).ToArray();
-                            pos = gos[0].localPosition;   // after MoveToFloor
-                        }
-                        else gos = Array.Empty<Transform>();
-                        motion.AddTarget(new LTVec(pos.x, pos.y, pos.z), LTQuat.FromEuler(obj.rot[0], obj.rot[1], obj.rot[2]));
-                        shown.Add(gos);
-                    }
-                }
-                if (motion.Targets.Count == 0) continue;
-
-                var go = new GameObject($"{kf.name} [KeyFramer]");
-                go.transform.SetParent(parent.transform, false);
-                AmbientSound sound = null;
-                AudioClip clip = null;
-                if (!string.IsNullOrEmpty(kf.activeSound) && (clip = SoundLoader.Load(kf.activeSound)))
-                {
-                    // The sound follows the first controlled object; one that isn't drawn gets a stand-in.
-                    var host = shown[0].Length > 0 ? shown[0][0].gameObject : null;
-                    if (!host)
-                    {
-                        host = new GameObject("ActiveSound");
-                        host.transform.SetParent(parent.transform, false);
-                        var t0 = motion.Targets[0].Pos;
-                        host.transform.localPosition = new Vector3(t0.x, t0.y, t0.z);
-                        shown[0] = new[] { host.transform };
-                    }
-                    sound = AmbientSound.Add(host, 0.25f * kf.soundRadius, kf.soundRadius, 100, false, 1);
-                }
-                go.AddComponent<Keyframer>().Init(motion, shown.ToArray(), sound, clip);
-            }
-        }
-
-        // SoundFX that start on play from level start at their position (SoundFX::InitialUpdate), with the
-        // engine's falloff and volume (AmbientSound). A file missing from the export is skipped and listed
-        // in SoundLoader.Missing.
-        void BuildSoundFX()
-        {
-            if (Data.soundFX == null || Data.soundFX.Length == 0) return;
-            var parent = new GameObject("SoundFX");
-            parent.transform.SetParent(Root.transform, false);
-            foreach (var s in Data.soundFX)
-            {
-                var clip = SoundLoader.Load(s.file);
-                if (!clip) continue;
-                var go = new GameObject(s.name);
-                go.transform.SetParent(parent.transform, false);
-                go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
-                AmbientSound.Add(go, s.inner, s.outer, s.volume, s.ambient != 0, s.priority).Play(clip, s.loop != 0, s.pitch);
-            }
-        }
-
-        // SoundButeFX that start on: random files of their soundbute from level start (SoundButeFX). Missing
-        // files are listed in SoundLoader.Missing; one with none of its files exported is skipped.
-        void BuildSoundButeFX()
-        {
-            if (Data.soundButeFX == null || Data.soundButeFX.Length == 0) return;
-            var parent = new GameObject("SoundButeFX");
-            parent.transform.SetParent(Root.transform, false);
-            foreach (var s in Data.soundButeFX)
-            {
-                var clips = Array.ConvertAll(s.files ?? new string[0], SoundLoader.Load);
-                if (!Array.Exists(clips, c => c)) continue;
-                var go = new GameObject(s.name);
-                go.transform.SetParent(parent.transform, false);
-                go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
-                SoundButeFX.Add(go, s, clips);
-            }
         }
 
         static void SetLayer(GameObject go, int layer)

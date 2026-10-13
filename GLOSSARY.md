@@ -101,7 +101,7 @@ Standing on a solid world model that moves or turns, and being carried with it: 
 _Avoid_: platform physics, parenting, pushing (pushing the player sideways is `PushObjects`, not riding)
 
 **Startup command**:
-The command a level runs when it loads (`StartupCommand`). It goes through the command language, so it is behavior, not live at start.
+The command a level runs when it loads (`StartupCommand`), on the level's first frame. It goes through the command language, so it is behavior, not live at start. The start point's command (`GameStartPoint` `Command`) runs right after it, on the player's first update, once per level.
 _Avoid_: init script, level script
 
 ### Behavior
@@ -126,6 +126,18 @@ _Avoid_: logic object, controller
 A `CommandObject`: a timeline that runs its commands at set times after it is started.
 _Avoid_: sequence, cutscene (cutscenes also need cameras and dialogue)
 
+**Event counter**:
+An `EventCounter`: a count that `inc` and `dec` messages step, running the command set for each value it reaches; Tron's `reset` puts it back to its starting value.
+_Avoid_: counter variable (the command language's variables are something else)
+
+**Door**:
+A `SlidingDoor` or `RotatingDoor`: a world model that opens and closes on use or on messages, playing a sound and running a command as it starts and finishes each move. Lifts are doors.
+_Avoid_: gate, elevator (an elevator is a door that moves up)
+
+**Switch**:
+A `SlidingSwitch` or `RotatingSwitch`: a world model the player uses to run commands, turning on and off like a door (most don't move).
+_Avoid_: button, lever, trigger (a trigger is a volume)
+
 **Use**:
 The player's action on the door or switch in front of them (key E in the viewer).
 _Avoid_: activate (that is also a message), interact
@@ -133,3 +145,15 @@ _Avoid_: activate (that is also a message), interact
 **Permission set**:
 One of eight keys (`Key1`..`Key8`) a door, switch or other object can require; the player gets them from archive bins or scripts. The viewer grants all of them.
 _Avoid_: keycard, access level
+
+**Teleport**:
+The player's move to a `TeleportPoint` on a `teleport` message: on its next update, facing the point's pitch and yaw, dropped to the floor, stopped.
+_Avoid_: warp, respawn (the viewer's R/T keys pick a start point, not a teleport)
+
+**Screen fade**:
+The black overlay `fadein`/`fadeout` ease over a time; after a fade-out the screen stays black until a fade-in.
+_Avoid_: blackout, transition
+
+**Render variable**:
+A client console variable the renderer reads every frame (fog color and distances, FarZ, sky and glow fog, glow filter). Ramps and sines move it; a WorldProperties message copies every world variable back from the level's values.
+_Avoid_: cvar alone (most console variables aren't render variables), world property (that's the server's copy)

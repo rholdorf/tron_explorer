@@ -68,8 +68,37 @@ namespace Tron
             ApplyDims(HalfHeight);
         }
 
+        // msg player (teleport <TeleportPoint>): done on the player's next update (CCharacter::UpdateTeleport),
+        // since the command may run in the middle of a move. The view turns to the point's pitch and yaw, the
+        // player drops to the floor below it and stops (PlayerMessages.DropToFloor).
+        bool teleportPending;
+        Vector3 teleportPos;
+        float teleportYaw, teleportPitch;
+
+        public void RequestTeleport(Vector3 worldPos, float yawDeg, float pitchDeg)
+        {
+            teleportPending = true;
+            teleportPos = worldPos;
+            teleportYaw = yawDeg;
+            teleportPitch = pitchDeg;
+        }
+
+        void DoTeleport()
+        {
+            teleportPending = false;
+            var pos = teleportPos;
+            cc.enabled = false;   // not hit by its own cast
+            Physics.SyncTransforms();
+            if (Physics.Raycast(pos, Vector3.down, out var hit, PlayerMessages.FloorCastDistance * LT.Scale,
+                                ~(1 << LevelBuilder.SkyLayer), QueryTriggerInteraction.Ignore))
+                pos.y = PlayerMessages.DropToFloor(pos.y / LT.Scale, hit.point.y / LT.Scale, HalfHeight) * LT.Scale;
+            Teleport(pos, teleportYaw);
+            pitch = Mathf.Clamp(teleportPitch, -89f, 89f);
+        }
+
         void Update()
         {
+            if (teleportPending) DoTeleport();
             var kb = Keyboard.current;
             var mouse = Mouse.current;
             if (kb == null || mouse == null) return;
@@ -192,6 +221,8 @@ namespace Tron
         static LTQuat Q(Quaternion q) => new LTQuat(q.x, q.y, q.z, q.w);
 
         public float Yaw => yaw;
+        // The moving world model the player stands on (null on a static floor).
+        public Transform StandingOn => standingOn;
 
         public void SetView(float yawDeg, float pitchDeg) { yaw = yawDeg; pitch = Mathf.Clamp(pitchDeg, -89f, 89f); }
     }

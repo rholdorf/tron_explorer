@@ -45,6 +45,11 @@ namespace Tron
             return a;
         }
 
+        // An object's own sound (a door's state sounds, a keyframer's ActiveSound): 3D, volume 100, priority 1,
+        // inner a quarter of its sound radius, outer the radius.
+        public static AmbientSound AddObjectSound(GameObject host, float radius) =>
+            Add(host, 0.25f * radius, radius, 100, false, 1);
+
         // Starts a clip from its beginning. A non-looping one stops at its end (IsPlaying turns false).
         // pitch changes speed too, like the engine's PLAYSOUND_CTRL_PITCH.
         public void Play(AudioClip clip, bool loop, float pitch = 1)
@@ -56,7 +61,11 @@ namespace Tron
             Source.Play();
         }
 
-        void LateUpdate() => UpdateVolume();
+        // Silent ones (SoundFX waiting for ON) cost nothing.
+        void LateUpdate()
+        {
+            if (Source.isPlaying) UpdateVolume();
+        }
 
         void UpdateVolume()
         {

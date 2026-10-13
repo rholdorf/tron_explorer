@@ -1,7 +1,10 @@
-"""Keyframers (KeyFramer) that start active and move their targets along their path (ticket #26).
+"""Keyframers (KeyFramer) and the targets they move along their path: the ones that start active (ticket
+#26) and the ones a message starts later (ticket #33).
 
 Format and motion rules: docs/research/keyframer-paths.md (branch research/keyframer-paths), from ltjs
-world_blind_object_data.cpp and keyframer.cpp, checked byte-for-byte against the retail levels.
+world_blind_object_data.cpp and keyframer.cpp, checked byte-for-byte against the retail levels. The
+messages a keyframer handles and its key commands run in the viewer (KeyframerMotion.cs, Commands.cs;
+tools/tests/test_keyframer_motion.py).
 """
 import glob
 import os
@@ -49,95 +52,75 @@ def test_every_keyframer_path_parses_to_the_end_of_its_chunk(world):
     assert keys == 179216
 
 
-# Key commands go through the command manager (g_pCmdMgr->Process). Only messages to the keyframer itself
-# are part of how its path runs; messages to any other object belong to the behavior map.
-def test_a_key_command_keeps_only_the_messages_to_its_own_keyframer():
-    import keyframer
-    cmds = keyframer.self_commands("msg CubeWM03 (hidden 0); msg CubeWM03KF PAUSE; msg Track02Control TRIGGER",
-                                   "CubeWM03KF", "Cube03_Key", 4)
-    assert cmds == [{"verb": "PAUSE", "delay": 0.0, "key": -1}]
-
-
-def test_self_messages_match_the_name_in_any_case_and_take_parenthesized_arguments():
-    import keyframer
-    assert keyframer.self_commands("msg port01kf pause;msg com01use02enabler unlock", "Port01KF", "k", 5) == [
-        {"verb": "PAUSE", "delay": 0.0, "key": -1}]
-    assert keyframer.self_commands("msg plat1framer (resume)", "plat1framer", "k", 3) == [
-        {"verb": "RESUME", "delay": 0.0, "key": -1}]
-
-
-def test_a_delayed_self_message_runs_that_many_seconds_later():
-    import keyframer
-    cmds = keyframer.self_commands("msg plat1framer (pause);delay 2 (msg plat1framer (resume))",
-                                   "plat1framer", "plat1key", 3)
-    assert cmds == [{"verb": "PAUSE", "delay": 0.0, "key": -1}, {"verb": "RESUME", "delay": 2.0, "key": -1}]
-    assert keyframer.self_commands("delay .5 (msg DC01.DCube01KF RESUME)", "DC01.DCube01KF", "k", 4) == [
-        {"verb": "RESUME", "delay": 0.5, "key": -1}]
-
-
-def test_reverse_is_backward():
-    import keyframer
-    assert keyframer.self_commands("msg TranslucentKF reverse", "TranslucentKF", "k", 5) == [
-        {"verb": "BACKWARD", "delay": 0.0, "key": -1}]
-
-
-def test_goto_names_a_key_by_base_name_and_index():
-    # KeyFramer::FindKey: the base name (any case), then "0", "01".."09", "10".. by key index.
-    import keyframer
-    assert keyframer.self_commands("msg AFinder05KF (Goto AFinder05Key02)", "AFinder05KF", "AFinder05Key", 15) == [
-        {"verb": "GOTO", "delay": 0.0, "key": 2}]
-    assert keyframer.self_commands("msg K (goto basekey12)", "K", "BaseKey", 15) == [
-        {"verb": "GOTO", "delay": 0.0, "key": 12}]
-    # A key that isn't there: the engine prints an error and does nothing.
-    assert keyframer.self_commands("msg K (goto BaseKey2)", "K", "BaseKey", 15) == []
-    assert keyframer.self_commands("msg K (goto BaseKey20)", "K", "BaseKey", 15) == []
-
-
-def test_live_keyframers_carry_their_settings_targets_and_keys(world):
+def test_keyframers_carry_their_settings_targets_and_keys_with_their_commands_as_text(world):
+    # ADR 0001: a key's command ships as the level's text; the viewer runs it when the key is reached
+    # (KeyFramer::ProcessCurrentKey: g_pCmdMgr->Process(cmd, keyframer, keyframer)).
     import keyframer
     w = world("retailsingleplayer/m05-02")
     kf = {k["name"]: k for k in keyframer.keyframers(w.objects, w.blind)}["target01kf"]
     obj = next(o["props"] for o in w.objects if o["props"].get("Name") == "target01kf")
+    assert w.objects[kf["obj"]]["props"] is obj
     assert kf["targets"] == [n for n in obj["ObjectName"].split(";") if n]
+    assert kf["baseKeyName"] == obj["BaseKeyName"]
+    assert (kf["startActive"], kf["startPaused"]) == (obj["StartActive"], obj["StartPaused"])
     assert kf["looping"] == obj["Looping"] and kf["totalPathTime"] == obj["TotalPathTime"] == 0.0
     assert len(kf["keys"]) == 13
-    assert kf["keys"][0]["commands"] == [{"verb": "FORWARD", "delay": 0.0, "key": -1}]
-    assert kf["keys"][12]["commands"] == [{"verb": "BACKWARD", "delay": 0.0, "key": -1}]
-    assert kf["keys"][5]["commands"] == []
-    assert set(kf["keys"][0]) == {"pos", "pyr", "time", "bezPrev", "bezNext", "commands"}
+    assert kf["keys"][0]["command"] == "msg target01kf forward"
+    assert kf["keys"][12]["command"] == "msg target01kf reverse"
+    # Empty parts are left out (m07-02 alone has 79,102 keys): no command, no Bezier controls.
+    assert set(kf["keys"][5]) == {"pos", "pyr", "time"}
+    assert set(kf["keys"][0]) == {"pos", "pyr", "time", "command"}
+
+
+def test_key_numbers_are_the_shortest_text_that_reads_back_as_the_same_float32(world):
+    # The keys' f32 values and the running time (summed in f32 by the viewer's reading) are written as the
+    # shortest decimal that parses back to the same float32, e.g. -1.29878 rather than -1.2987799644470215.
+    import struct
+    import keyframer
+    w = world("retailsingleplayer/m07-02")
+    kfs = keyframer.keyframers(w.objects, w.blind)
+    raw = keyframer.read_keys(w.blind[int(w.objects[kfs[0]["obj"]]["props"]["KeyDataIndex"])][1])
+    f32 = lambda v: struct.unpack("<f", struct.pack("<f", v))[0]   # noqa: E731
+    for k, r in zip(kfs[0]["keys"], raw):
+        assert [f32(v) for v in k["pos"] + k["pyr"]] == [f32(v) for v in r["pos"] + r["pyr"]]
+        assert f32(k["time"]) == f32(r["time"])
+        assert all(len(repr(v)) <= 15 for v in k["pos"] + k["pyr"])
 
 
 def test_wavetype_and_active_sound(world):
     import keyframer
     found = [k for level in single_player_levels() for k in keyframer.keyframers(world(level).objects,
                                                                                    world(level).blind)]
-    assert sum(k["wave"] == 1 for k in found) == 9        # Sine (Linear 0, Sine 1, SlowOff 2, SlowOn 3)
-    sounds = [k for k in found if k["activeSound"]]
+    live = [k for k in found if k["startActive"] and not k["startPaused"]]
+    assert sum(k["wave"] == 1 for k in live) == 9        # Sine (Linear 0, Sine 1, SlowOff 2, SlowOn 3)
+    sounds = [k for k in live if k["activeSound"]]
     assert len(sounds) == 30
     assert all(k["soundRadius"] > 0 for k in sounds)
 
 
-def test_a_keyframer_that_also_starts_paused_is_not_live(world):
-    # KeyFramer::Update's first pass: GoActive, then Pause (GoInActive) for StartPaused; nothing runs
-    # until something resumes it.
+def test_keyframers_that_start_inactive_or_paused_are_exported_waiting_for_a_message(world):
+    # KeyFramer::Update's first pass: GoActive if StartActive or StartPaused, then Pause for StartPaused
+    # (RESUME continues it); one that is neither waits for ON.
     import keyframer
     w = world("retailsingleplayer/m03-01")
-    names = {k["name"] for k in keyframer.keyframers(w.objects, w.blind)}
-    assert "port01kf" not in names and "display01kf" not in names
+    found = keyframer.keyframers(w.objects, w.blind)
+    assert len(found) == 33
+    port = next(k for k in found if k["name"] == "port01kf")
+    assert port["startActive"] and port["startPaused"]
+    assert sum(not k["startActive"] and not k["startPaused"] for k in found) == 25
 
 
-def test_single_player_levels_have_138_live_keyframers(world):
+def test_single_player_levels_have_2135_keyframers_138_live(world):
     # 147 StartActive, 9 of them also StartPaused (m03-01's port/display keyframers, m08-01 Finder07KF).
     import keyframer
-    found = {level: keyframer.keyframers(world(level).objects, world(level).blind)
-             for level in single_player_levels()}
-    assert sum(len(v) for v in found.values()) == 138
-    assert all(k["keys"] for v in found.values() for k in v)
-    selfish = [k for v in found.values() for k in v if any(key["commands"] for key in k["keys"])]
-    assert len(selfish) == 34
+    found = [k for level in single_player_levels()
+             for k in keyframer.keyframers(world(level).objects, world(level).blind)]
+    assert len(found) == 2135
+    assert len([k for k in found if k["startActive"] and not k["startPaused"]]) == 138
+    assert all(k["keys"] for k in found)
 
 
-def test_level_json_lists_the_live_keyframers(extracted, tmp_path):
+def test_level_json_lists_the_keyframers(extracted, tmp_path):
     import json
     import export_level
     import export_models
@@ -145,13 +128,8 @@ def test_level_json_lists_the_live_keyframers(extracted, tmp_path):
     export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
                         export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
     meta = json.loads((tmp_path / "level.json").read_text())
-    assert meta["version"] == export_level.FORMAT_VERSION == 15
+    assert meta["version"] == export_level.FORMAT_VERSION == 18
     kfs = {k["name"]: k for k in meta["keyframers"]}
-    assert "target01kf" in kfs
+    assert len(kfs) == 90
     world_models = {wm["name"] for wm in meta["worldModels"]}
     assert set(kfs["target01kf"]["targets"]) <= world_models
-
-
-def test_messages_the_keyframer_does_not_handle_are_left_out():
-    import keyframer
-    assert keyframer.self_commands("msg K TRIGGER; msg K (hidden 1); ", "K", "k", 3) == []

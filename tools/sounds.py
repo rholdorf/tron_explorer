@@ -1,6 +1,7 @@
 """Sound files: which files a level's sound names play, and their export as 16-bit PCM WAV.
 
-A sound name (SoundFX Sound, SoundButeFX SoundBute, KeyFramer ActiveSound) is looked up as a soundbute
+A sound name (SoundFX Sound, SoundButeFX SoundBute, KeyFramer ActiveSound, the state sounds of doors,
+switches and moving world models) is looked up as a soundbute
 first and taken as a file path otherwise (CGameSoundMgr FillPSIFromButeOrParams). A soundbute plays one
 of its Path0..N files; missing keys come from its Parent chain (CHierarchicalButeMgr).
 """
@@ -52,18 +53,26 @@ def export_file(extracted, rel, out_root):
     return dst
 
 
-# The sound name property of each class that plays one
-SOUND_PROPS = {"SoundFX": "Sound", "SoundButeFX": "SoundBute", "KeyFramer": "ActiveSound"}
+# ActiveWorldModel's state sounds (ReadProps), and a door's names for them (Door::ReadProps, which
+# override the generic ones when set)
+AWM_SOUNDS = ("PowerOnSound", "OnSound", "PowerOffSound", "OffSound", "LockedSound")
+DOOR_SOUNDS = ("OpeningSound", "OpenSound", "ClosingSound", "ClosedSound")
+
+# The sound name properties of each class that plays one, in the order they're listed
+SOUND_PROPS = {"SoundFX": ("Sound",), "SoundButeFX": ("SoundBute",), "KeyFramer": ("ActiveSound",)}
+for _cls in ("SlidingWorldModel", "RotatingWorldModel", "SlidingSwitch", "RotatingSwitch"):
+    SOUND_PROPS[_cls] = AWM_SOUNDS
+for _cls in ("SlidingDoor", "RotatingDoor"):
+    SOUND_PROPS[_cls] = DOOR_SOUNDS + AWM_SOUNDS
 
 
 def sound_names(objects):
     """The sound names a level's objects (level.json form) play, live at start or not, in object order."""
     out = []
     for o in objects:
-        key = SOUND_PROPS.get(o["cls"])
-        name = next((p["s"] for p in o["props"] if p["k"] == key and p["t"] == "s"), "") if key else ""
-        if name.strip():
-            out.append(name)
+        keys = SOUND_PROPS.get(o["cls"], ())
+        props = {p["k"]: p["s"] for p in o["props"] if p["t"] == "s"}
+        out.extend(name for name in (props.get(k, "") for k in keys) if name.strip())
     return out
 
 

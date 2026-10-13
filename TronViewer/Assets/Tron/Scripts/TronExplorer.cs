@@ -22,6 +22,7 @@ namespace Tron
         string[] levels = Array.Empty<string>();
         LevelBuilder level;
         PlayerController player;
+        PlayerUse use;
         Camera mainCam, skyCam, glowCam;
         RenderTexture glowRT, blurA, blurB;
         Material blurMat, compositeMat;
@@ -32,7 +33,13 @@ namespace Tron
         Vector2 menuScroll;
         string filter = "";
         string status = "";
-        Vector4 fogColor, fogParams, skyFogParams;
+        Vector4 fogColor, fogParams, skyFogParams, glowFogParams;
+        // The level's live render variables (fog, far planes, glow filter; ramps, sines and WorldProperties
+        // messages change them) and the screen fade, both run by the player's messages (PlayerMessages).
+        RenderVars renderVars = new RenderVars(new System.Collections.Generic.Dictionary<string, float>());
+        int renderVarsVersion = -1;
+        readonly ScreenFade fade = new ScreenFade();
+        const float LevelStartFadeTime = 1.5f;   // ScreenFadeInAtLevelStartTime
         float fps;
 
         void Start()
@@ -148,6 +155,8 @@ namespace Tron
 
             player = playerGo.AddComponent<PlayerController>();
             player.Cam = mainCam;
+            use = playerGo.AddComponent<PlayerUse>();
+            use.Cam = mainCam;
             playerGo.SetActive(false);
 
             // Sky pass: the sky world models are drawn first from a fixed point (the SkyPointer
@@ -166,9 +175,9 @@ namespace Tron
             skyData.cameraStack.Add(mainCam);
         }
 
-        // Screen glow, as configured in the game's autoexec.cfg (ScreenGlow* console vars).
+        // Screen glow, as configured in the game's autoexec.cfg (ScreenGlow* console vars; the filter's are
+        // render variables, which some levels sine).
         const int GlowTextureSize = 256, GlowFilterSize = 24;
-        const float GlowAmp0 = 0f, GlowRadius0 = 0f, GlowAmp1 = 0.1f, GlowRadius1 = 3f, GlowPixelShift = -0.1f, GlowUVScale = 1f;
 
         void SetupGlow()
         {
@@ -178,23 +187,7 @@ namespace Tron
             foreach (var rt in new[] { glowRT, blurA, blurB }) rt.wrapMode = TextureWrapMode.Clamp;
             blurMat = new Material(glowBlurShader ? glowBlurShader : Shader.Find("Hidden/Tron/GlowBlur"));
             compositeMat = new Material(glowCompositeShader ? glowCompositeShader : Shader.Find("Hidden/Tron/GlowComposite"));
-
-            // UpdateGaussianFilter(): weight = sum(amp / exp(r * radius)), r = offset^2 / center^2
-            float center = (GlowFilterSize - 1) / 2f;
-            var offsets = new float[32];
-            var weights = new float[32];
-            int n = 0;
-            for (int i = 0; i < GlowFilterSize && n < 32; i++)
-            {
-                float o = i - center + GlowPixelShift;
-                float r = o * o / (center * center);
-                float w = GlowAmp0 / Mathf.Exp(r * GlowRadius0) + GlowAmp1 / Mathf.Exp(r * GlowRadius1);
-                if (w <= 0.001f) continue;
-                offsets[n] = o; weights[n] = w; n++;
-            }
-            blurMat.SetFloatArray("_GlowOffsets", offsets);
-            blurMat.SetFloatArray("_GlowWeights", weights);
-            blurMat.SetInt("_GlowTaps", n);
+            UpdateGlowFilter();
 
             var go = new GameObject("Glow Camera");
             glowCam = go.AddComponent<Camera>();
@@ -209,6 +202,30 @@ namespace Tron
             glowCam.enabled = false;
         }
 
+        // UpdateGaussianFilter(), which the engine runs on every glow render: weight = sum(amp / exp(r *
+        // radius)), r = offset^2 / center^2.
+        void UpdateGlowFilter()
+        {
+            float amp0 = renderVars["ScreenGlowGaussAmp0"], radius0 = renderVars["ScreenGlowGaussRadius0"];
+            float amp1 = renderVars["ScreenGlowGaussAmp1"], radius1 = renderVars["ScreenGlowGaussRadius1"];
+            float shift = renderVars["ScreenGlowPixelShift"];
+            float center = (GlowFilterSize - 1) / 2f;
+            var offsets = new float[32];
+            var weights = new float[32];
+            int n = 0;
+            for (int i = 0; i < GlowFilterSize && n < 32; i++)
+            {
+                float o = i - center + shift;
+                float r = o * o / (center * center);
+                float w = amp0 / Mathf.Exp(r * radius0) + amp1 / Mathf.Exp(r * radius1);
+                if (w <= 0.001f) continue;
+                offsets[n] = o; weights[n] = w; n++;
+            }
+            blurMat.SetFloatArray("_GlowOffsets", offsets);
+            blurMat.SetFloatArray("_GlowWeights", weights);
+            blurMat.SetInt("_GlowTaps", n);
+        }
+
         void UpdateGlow()
         {
             bool on = glowEnabled && level != null && player && player.gameObject.activeSelf;
@@ -218,11 +235,15 @@ namespace Tron
             glowCam.fieldOfView = mainCam.fieldOfView;
             glowCam.aspect = mainCam.aspect;
             glowCam.nearClipPlane = mainCam.nearClipPlane;
-            glowCam.farClipPlane = mainCam.farClipPlane;
+            // screenglowmgr.cpp: the glow fog's far plane when it's on, never beyond FarZ.
+            float farZ = renderVars["FarZ"];
+            if (renderVars["ScreenGlowFogEnable"] != 0) farZ = Mathf.Min(renderVars["ScreenGlowFogFarZ"], farZ);
+            glowCam.farClipPlane = Mathf.Max(farZ * LT.Scale, glowCam.nearClipPlane * 2);
             // Blur last frame's glow buffer (one frame of latency).
-            blurMat.SetVector("_GlowDir", new Vector4(GlowUVScale, 0, 0, 0));
+            float uvScale = renderVars["ScreenGlowUVScale"];
+            blurMat.SetVector("_GlowDir", new Vector4(uvScale, 0, 0, 0));
             Graphics.Blit(glowRT, blurA, blurMat);
-            blurMat.SetVector("_GlowDir", new Vector4(0, GlowUVScale, 0, 0));
+            blurMat.SetVector("_GlowDir", new Vector4(0, uvScale, 0, 0));
             Graphics.Blit(blurA, blurB, blurMat);
         }
 
@@ -230,7 +251,8 @@ namespace Tron
         {
             Shader.SetGlobalFloat("_LTGlowPass", cam == glowCam ? 1 : 0);
             Shader.SetGlobalVector("_LTFogColor", fogColor);
-            Shader.SetGlobalVector("_LTFogParams", cam == skyCam ? skyFogParams : fogParams);
+            // The glow buffer is fogged towards black with its own distances (the shaders' glow pass).
+            Shader.SetGlobalVector("_LTFogParams", cam == skyCam ? skyFogParams : cam == glowCam ? glowFogParams : fogParams);
         }
 
         public void Load(string name)
@@ -238,6 +260,7 @@ namespace Tron
             var match = levels.FirstOrDefault(l => l == name) ?? levels.FirstOrDefault(l => l.EndsWith(name));
             if (match == null) { status = $"Fase {name} não encontrada"; return; }
             var sw = Stopwatch.StartNew();
+            LogCommandReport();
             level?.Destroy();
             DtxLoader.ClearCache();
             if (testSound) Destroy(testSound.gameObject);
@@ -253,8 +276,19 @@ namespace Tron
                 status = $"Erro ao carregar {match}: {e.Message}";
                 return;
             }
+            // The player answers to "player" (and "ActivePlayer"); its messages count as class Player.
+            PlayerId = level.Commands.Join("player", "Player");
+            use.PlayerId = PlayerId;
+            level.ConnectPlayer(PlayerId, player);
             ApplyWorldProperties();
             Spawn();
+            // The start point's Command runs at the player's first update (Relays.StartCommand), once per
+            // load: R and T only move the player. The level's StartupCommands run in the same frame, before it.
+            var start = spawnPoints.Count > 0 ? spawnPoints[0] : null;
+            level.Relays.StartCommand = start != null && start.cls == "GameStartPoint" ? start.Str("Command") : null;
+            // The game fades in at level start; a fade in a startup or start point command (m01-01's
+            // "fadeIn 2.0") replaces this one on the first frame, as a new fade does.
+            fade.Start(true, LevelStartFadeTime);
             status = $"{match}: {sw.ElapsedMilliseconds} ms, {level.MissingTextures.Count} texturas ausentes";
             Debug.Log(status + (level.MissingTextures.Count > 0 ? "\n" + string.Join("\n", level.MissingTextures.Take(30)) : ""));
             if (SoundLoader.Missing.Count > 0)
@@ -262,28 +296,77 @@ namespace Tron
             menuOpen = false;
         }
 
+        // The level's command-manager id of the player (handlers: level.Commands.Handle(PlayerId, ...)).
+        public int PlayerId { get; private set; } = -1;
+
+        // The loaded level's command manager (null before a load), e.g. to run a command by hand:
+        // FindFirstObjectByType<TronExplorer>().Commands.Run("msg player (fadeout 1)").
+        public CommandMgr Commands => level?.Commands;
+
+        // The console report of the commands and messages nobody handled in this level so far.
+        void LogCommandReport()
+        {
+            if (level?.Commands != null) Debug.Log(level.Commands.Report(level.Data.name));
+        }
+
+        void OnApplicationQuit() => LogCommandReport();
+
+        // The render variables from the level's WorldProperties (its props are the server's world variables),
+        // and the player's and WorldProperties' message handlers that change them.
         void ApplyWorldProperties()
         {
+            var world = new System.Collections.Generic.Dictionary<string, float>();
             var wp = level.Data.objects.FirstOrDefault(o => o.cls == "WorldProperties");
-            fogParams = new Vector4(0, 0, 0, LT.Scale);
-            skyFogParams = fogParams;
-            fogColor = Vector4.zero;
-            float farZ = 20000;
             if (wp != null)
             {
-                var c = wp.Vec("FogColor") / 255f;
-                fogColor = new Vector4(c.x, c.y, c.z, 1);
-                if (wp.Bool("FogEnable"))
-                    fogParams = new Vector4(wp.Num("FogNearZ"), wp.Num("FogFarZ"), 1, LT.Scale);
-                if (wp.Bool("SkyFogEnable") && wp.Num("SkyFogFarZ") < 1e9f)
-                    skyFogParams = new Vector4(wp.Num("SkyFogNearZ"), wp.Num("SkyFogFarZ"), 1, LT.Scale);
-                farZ = wp.Num("FarZ", farZ);
+                var c = wp.Vec("FogColor");
+                world["FogR"] = c.x; world["FogG"] = c.y; world["FogB"] = c.z;
+                foreach (var name in new[] { "FarZ", "FogEnable", "FogNearZ", "FogFarZ", "SkyFogEnable", "SkyFogNearZ", "SkyFogFarZ" })
+                    if (wp.Has(name)) world[name] = wp.Num(name);
+                foreach (var name in new[] { "Enable", "NearZ", "FarZ" })
+                    if (wp.Has("GlowFog" + name)) world["ScreenGlowFog" + name] = wp.Num("GlowFog" + name);
             }
-            mainCam.farClipPlane = farZ * LT.Scale;
+            renderVars = new RenderVars(world);
+            renderVarsVersion = -1;
+            for (int i = 0; i < level.Data.objects.Length; i++)
+                if (level.Data.objects[i].cls == "WorldProperties")
+                    PlayerMessages.HandleWorldProperties(level.Commands, i, renderVars);
+            PlayerMessages.Handle(level.Commands, PlayerId, renderVars, fade, TeleportTo);
+            ApplyRenderVars();
             // In game only the Z buffer is cleared each frame (InterfaceMgr: CLEARSCREEN_RENDER); the
             // color buffer is cleared to black (0) on screen transitions. Additive/translucent sky
             // layers (e.g. m06-04's OuterShell at Index 0) therefore blend over black, not fog color.
             skyCam.backgroundColor = Color.black;
+        }
+
+        // The render variables into the fog globals, the camera far plane and the glow filter (every frame,
+        // as the renderer reads its console variables; rebuilt only when one changed).
+        void ApplyRenderVars()
+        {
+            if (renderVars.Version == renderVarsVersion) return;
+            renderVarsVersion = renderVars.Version;
+            var v = renderVars;
+            fogColor = new Vector4(v["FogR"] / 255f, v["FogG"] / 255f, v["FogB"] / 255f, 1);
+            fogParams = FogParams(v["FogEnable"] != 0, v["FogNearZ"], v["FogFarZ"]);
+            skyFogParams = FogParams(v["SkyFogEnable"] != 0 && v["SkyFogFarZ"] < 1e9f, v["SkyFogNearZ"], v["SkyFogFarZ"]);
+            glowFogParams = FogParams(v["ScreenGlowFogEnable"] != 0, v["ScreenGlowFogNearZ"], v["ScreenGlowFogFarZ"]);
+            mainCam.farClipPlane = Mathf.Max(v["FarZ"], 1) * LT.Scale;
+            if (blurMat) UpdateGlowFilter();
+        }
+
+        // A fog's shader parameters: (near, far, on, LT units to Unity); off is all zero but the scale.
+        static Vector4 FogParams(bool on, float near, float far) =>
+            on ? new Vector4(near, far, 1, LT.Scale) : new Vector4(0, 0, 0, LT.Scale);
+
+        // msg player (teleport <name>): only a TeleportPoint (ltjs character.cpp); its rot is [pitch, yaw, roll].
+        bool TeleportTo(string name)
+        {
+            var tp = level.Data.objects.FirstOrDefault(o => o.cls == "TeleportPoint" &&
+                                                            string.Equals(o.name, name, StringComparison.OrdinalIgnoreCase));
+            if (tp == null) return false;
+            float pitch = tp.rot != null && tp.rot.Length > 0 ? tp.rot[0] : 0, yaw = tp.rot != null && tp.rot.Length > 1 ? tp.rot[1] : 0;
+            player.RequestTeleport(tp.Position * LT.Scale, yaw * Mathf.Rad2Deg, pitch * Mathf.Rad2Deg);
+            return true;
         }
 
         // Spawn / teleport destinations: the single-player start first, then every other start and
@@ -325,6 +408,7 @@ namespace Tron
                 UpdateUiScaleInput(kb);
                 if (kb.rKey.wasPressedThisFrame && level != null && !menuOpen) Spawn();
                 if (kb.tKey.wasPressedThisFrame && level != null && !menuOpen) Spawn(spawnIndex + 1);
+                if (kb.lKey.wasPressedThisFrame && level != null && !menuOpen) LogCommandReport();
             }
             bool playing = !menuOpen && level != null;
             Cursor.lockState = playing ? CursorLockMode.Locked : CursorLockMode.None;
@@ -334,6 +418,12 @@ namespace Tron
             if (skyCam && mainCam && level != null && level.HasSky)
                 skyCam.transform.position = level.SkyViewPos(mainCam.transform.position / LT.Scale) * LT.Scale;
             if (skyCam && mainCam) skyCam.fieldOfView = mainCam.fieldOfView;
+            if (level != null)
+            {
+                renderVars.Update(Time.deltaTime);
+                fade.Update(Time.deltaTime);
+                ApplyRenderVars();
+            }
         }
 
         void LateUpdate() => UpdateGlow();
@@ -399,6 +489,14 @@ namespace Tron
             GUI.matrix = Matrix4x4.identity;
             if (Event.current.type == EventType.Repaint && glowCam && glowCam.enabled && !menuOpen)
                 Graphics.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), blurB, compositeMat);
+            // The screen fade's black overlay, over the scene and its glow, under the viewer's HUD and menu.
+            if (Event.current.type == EventType.Repaint && level != null && fade.Alpha > 0)
+            {
+                var prev = GUI.color;
+                GUI.color = new Color(0, 0, 0, fade.Alpha);
+                GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+                GUI.color = prev;
+            }
 
             uiScale = AutoUiScale() * uiAdjust;
             EnsureStyles();
@@ -436,13 +534,32 @@ namespace Tron
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
             GUI.Label(new Rect(8, 8, Mathf.Min(hs.x, w - 16), hs.y), hudContent, hudStyle);
+            DrawUsePrompt(w, h);
             if (showHelp)
             {
-                var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · " +
-                                          "G glow · M som · R reiniciar · T próximo ponto · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
+                var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · E usar · " +
+                                          "G glow · M som · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }
+        }
+
+        // The use prompt (CTargetMgr, layout.txt): the target's ActivateType text for its state, centered at
+        // (320, 300) of a 640x480 layout, size 14, yellow, grey while locked. A target whose type has no
+        // text for the state shows just the key.
+        GUIStyle promptStyle;
+
+        void DrawUsePrompt(float w, float h)
+        {
+            var t = use ? use.Target : null;
+            if (!t || menuOpen) return;
+            var text = t.Prompt;
+            text = string.IsNullOrEmpty(text) ? "[E]" : $"[E] {text}";
+            if (promptStyle == null) promptStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, wordWrap = false };
+            promptStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(14 * h / 480));
+            promptStyle.normal.textColor = t.Awm.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
+            float y = h * 300 / 480;
+            GUI.Label(new Rect(0, y - promptStyle.fontSize, w, promptStyle.fontSize * 2), text, promptStyle);
         }
     }
 }
