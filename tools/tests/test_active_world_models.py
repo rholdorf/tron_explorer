@@ -346,6 +346,15 @@ def test_only_the_player_uses_and_only_with_player_activate(run):
     assert poses(out) == [(0, 0, 0, "Off")]
 
 
+def test_set_power_on_multiplier_reads_its_number_as_c_atof_does_and_scales_the_opening_time(run):
+    # atof("0.5s") is 0.5: the 1 s opening takes 0.5 s (two frames). With no number at all ("x") it is 0:
+    # the door opens at once.
+    out = run(door(), ("start", "d"), ("msg", "d", "-", "SETPOWERONMULTIPLIER", "0.5s"), ("use", "d"), *ticks(2))
+    assert [p[1] for p in poses(out)] == [32, 64]
+    out = run(door(), ("start", "d"), ("msg", "d", "-", "SETPOWERONMULTIPLIER", "x"), ("use", "d"), *ticks(1))
+    assert [p[1] for p in poses(out)] == [64]
+
+
 def test_messages_it_does_not_know_are_left_for_other_handlers(run):
     out = run(door(), ("msg", "d", "-", "hidden", "1"), ("msg", "d", "-", "TRIGGERCLOSE"))
     assert events(out) == [["handled", "False"], ["handled", "True"]]

@@ -183,7 +183,7 @@ namespace Tron
             }
             else if (m.Is("SETPOWERONMULTIPLIER"))
             {
-                if (m.ArgCount > 0) powerOnMultiplier = Atof(m.Arg(0));
+                if (m.ArgCount > 0) powerOnMultiplier = CommandMgr.Atof(m.Arg(0));
             }
             else if (m.Is("PAUSE")) HandlePause();
             else if (m.Is("RESUME")) HandleResume();
@@ -546,8 +546,5 @@ namespace Tron
         static float Sign(float v) => v == 0 ? 0 : v > 0 ? 1 : -1;
         static float Dist2(LTVec a, LTVec b) { var d = a - b; return d.x * d.x + d.y * d.y + d.z * d.z; }
         static float Clamp01(float v) => v < 0 ? 0 : v > 1 ? 1 : v;
-
-        static float Atof(string s) =>
-            float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : 0;
     }
 }

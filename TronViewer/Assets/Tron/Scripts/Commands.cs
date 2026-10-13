@@ -462,7 +462,8 @@ namespace Tron
 
         int RandomInt(int min, int max) => Math.Min(max, min + (int)(random() * (max - min + 1)));
 
-        // C atof / atol: the longest leading number, 0 if there's none.
+        // C atof / atol, as the engine reads a number from a word everywhere (the command verbs, the objects'
+        // message arguments and props): the longest leading number, 0 if there's none.
         public static float Atof(string s)
         {
             int i = 0, n = s.Length;
@@ -483,7 +484,14 @@ namespace Tron
                 System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : 0;
         }
 
-        static int Atol(string s) => (int)Atof(s.Split('.', 'e', 'E')[0]);
+        public static int Atol(string s)
+        {
+            int i = 0, n = 0, sign = 1;
+            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            if (i < s.Length && (s[i] == '+' || s[i] == '-')) sign = s[i++] == '-' ? -1 : 1;
+            while (i < s.Length && char.IsDigit(s[i])) n = n * 10 + (s[i++] - '0');
+            return sign * n;
+        }
 
         void Deliver(int sender, int id, string message)
         {

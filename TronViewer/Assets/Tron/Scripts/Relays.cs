@@ -113,16 +113,6 @@ namespace Tron
                 nums != null && nums.TryGetValue(k, out var v) && v != null && v.Length >= 3 ? new LTVec(v[0], v[1], v[2]) : def;
         }
 
-        // C atol: the leading integer, 0 if there's none.
-        static int Atol(string s)
-        {
-            int i = 0, n = 0, sign = 1;
-            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
-            if (i < s.Length && (s[i] == '+' || s[i] == '-')) sign = s[i++] == '-' ? -1 : 1;
-            while (i < s.Length && char.IsDigit(s[i])) n = n * 10 + (s[i++] - '0');
-            return sign * n;
-        }
-
         // EventCounter (eventcounter.cpp): a count that runs EventNIncToValCmd / EventNDecToValCmd of every
         // event whose EventNValue it steps onto (sender and active target the counter). Tron adds RESET:
         // back to StartingValue, running nothing.
@@ -153,7 +143,7 @@ namespace Tron
             public bool OnMessage(Message m)
             {
                 // INC/DEC [n]: n steps, at least one.
-                int steps = Math.Max(1, m.ArgCount > 0 ? Atol(m.Arg(0)) : 1);
+                int steps = Math.Max(1, m.ArgCount > 0 ? CommandMgr.Atol(m.Arg(0)) : 1);
                 if (m.Is("INC") || m.Is("INCREMENT"))
                     for (int i = 0; i < steps; i++) Step(+1);
                 else if (m.Is("DEC") || m.Is("DECREMENT"))
@@ -216,7 +206,7 @@ namespace Tron
                         var s = p.Str($"EventT{track}E{n}").TrimStart('|');
                         int bar = s.IndexOf('|');
                         if (bar <= 0 || bar == s.Length - 1) continue;
-                        var e = new Event { Time = Atol(s.Substring(0, bar)) / 1000f, Command = s.Substring(bar + 1) };
+                        var e = new Event { Time = CommandMgr.Atol(s.Substring(0, bar)) / 1000f, Command = s.Substring(bar + 1) };
                         events.Add(e);
                         totalTime = Math.Max(totalTime, e.Time);
                     }
