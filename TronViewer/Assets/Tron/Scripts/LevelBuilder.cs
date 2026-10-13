@@ -32,7 +32,7 @@ namespace Tron
         public LevelJson Data;
         public GameObject Root;
         public CommandMgr Commands;   // the level's command manager (JoinCommands)
-        public Relays Relays;         // its triggers, relays and startup commands (RelayTicker)
+        public Relays Relays;         // its triggers, relays and startup commands (BuildRelays)
         public Vector3 SkyViewMin, SkyViewMax;   // LT units
         public bool HasSky;
 
@@ -102,7 +102,7 @@ namespace Tron
             BuildKeyframers();
             JoinObjectMessages();
             BuildSpinners();
-            Relays = RelayTicker.Build(this);
+            BuildRelays();
         }
 
         // Every level object joins the command manager by name and class, in level order, so an object's

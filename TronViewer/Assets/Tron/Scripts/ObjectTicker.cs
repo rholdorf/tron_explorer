@@ -6,7 +6,7 @@ namespace Tron
     // once per frame after the pending-command table, with the player's box (its CharacterController, in LT
     // units) for the triggers' touch; no player before the spawn.
     [DefaultExecutionOrder(-90)]
-    public class TriggerTicker : MonoBehaviour
+    public class ObjectTicker : MonoBehaviour
     {
         public Relays Relays;
         TronExplorer explorer;

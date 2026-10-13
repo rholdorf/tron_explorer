@@ -80,6 +80,29 @@ namespace Tron
             }
         }
 
+        // The level's triggers and relays (Relays): every level object is handed to them with its props, and
+        // they take the relay classes. TimelineTicker and ObjectTicker run them each frame.
+        void BuildRelays()
+        {
+            Relays = new Relays(Commands);
+            for (int i = 0; i < Data.objects.Length; i++)
+            {
+                var o = Data.objects[i];
+                var strs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var nums = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in o.props)
+                {
+                    if (p.t == "s") strs[p.k] = p.s;
+                    else nums[p.k] = p.v;
+                }
+                Relays.Add(i, o.cls, new LTVec(o.pos[0], o.pos[1], o.pos[2]), strs, nums);
+            }
+            var timelines = Root.AddComponent<TimelineTicker>();
+            timelines.Commands = Commands;
+            timelines.Relays = Relays;
+            Root.AddComponent<ObjectTicker>().Relays = Relays;
+        }
+
         // Spinners turn their world model (Spinner) as their SpinnerMotion says, from level start if they
         // start on, else once ON comes; their commands (OnCommand...) run with the spinner as sender.
         void BuildSpinners()
