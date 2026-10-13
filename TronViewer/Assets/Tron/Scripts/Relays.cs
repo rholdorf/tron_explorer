@@ -3,13 +3,14 @@ using System.Collections.Generic;
 
 // The level's triggers and relays, as the engine runs them (docs/research/triggers-doors.md,
 // docs/research/command-language.md; ltjs trigger.cpp, noplayertrigger.cpp, eventcounter.cpp,
-// commandobject.cpp, game/shared/timer.h, and Tron's EventCounter RESET). Groups are the command manager's
+// commandobject.cpp, startupcommand.cpp, game/shared/timer.h, and Tron's EventCounter RESET). Groups are the command manager's
 // (CommandMgr.JoinGroup). Plain C#, no Unity, so tools/tests/test_relays.py compiles it with Mono.
 namespace Tron
 {
     // Level load: Add each level object after it joined the command manager; it takes the relay classes and
     // adds their message handlers. Each frame: UpdateTimelines before the command manager's Update (the lite
-    // objects update first), then UpdateTriggers with the player's box (the objects' update).
+    // objects update first), then UpdateObjects with the player's box (the objects' update: startup
+    // commands, triggers).
     public sealed class Relays
     {
         const float MaxFrameTime = CommandMgr.MaxFrameTime;
@@ -17,6 +18,7 @@ namespace Tron
         readonly CommandMgr commands;
         readonly List<Trigger> triggers = new List<Trigger>();
         readonly List<CommandObject> timelines = new List<CommandObject>();
+        readonly List<(int id, string command)> startups = new List<(int, string)>();
 
         public Relays(CommandMgr commands) => this.commands = commands;
 
@@ -48,6 +50,10 @@ namespace Tron
                     commands.Handle(id, co.OnMessage);
                     return true;
                 }
+                case "startupcommand":
+                    // Tron's StartupCommand has only Command (no NOLF2 SafeExecute / RoundCondition).
+                    startups.Add((id, p.Str("Command")));
+                    return true;
                 default:
                     return false;
             }
@@ -62,11 +68,32 @@ namespace Tron
                 if (timelines[i].Active) timelines[i].Update();
         }
 
-        // The triggers' update and the player's touch: player is its command-manager id (-1: no player, as
-        // before the spawn), playerMin / playerMax its box (LT units).
-        public void UpdateTriggers(int player, LTVec playerMin, LTVec playerMax)
+        // The start point's Command (GameStartPoint), run once at the player's first update
+        // (CPlayerObj::SendStartLevelCommand), sender and active target the player; then cleared. Single
+        // player: only the start point the player spawned at, never again on a respawn.
+        public string StartCommand { get; set; }
+
+        // The objects' update: startup commands, the triggers with the player's touch, then the player's
+        // (created after the level's objects, so it updates last): its first update runs StartCommand.
+        // player is its command-manager id (-1: no player, as before the spawn), playerMin / playerMax its
+        // box (LT units).
+        public void UpdateObjects(int player, LTVec playerMin, LTVec playerMax)
         {
+            // StartupCommand (startupcommand.cpp): its Command runs at its first update, sender and active
+            // target itself, then the object removes itself.
+            if (startups.Count > 0)
+            {
+                var run = startups.ToArray();
+                startups.Clear();
+                foreach (var s in run) commands.Run(s.command, s.id, s.id);
+            }
             foreach (var t in triggers) t.Update(player, playerMin, playerMax);
+            if (player >= 0 && StartCommand != null)
+            {
+                var command = StartCommand;
+                StartCommand = null;
+                commands.Run(command, player, player);
+            }
         }
 
         readonly struct Props

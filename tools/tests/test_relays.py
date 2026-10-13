@@ -10,11 +10,14 @@ Driver lines (tab-separated):
                                   or "Key=1,2,3" (a number, bool or vector); "$$Key=<base64>" for a string
                                   with control characters
   deaf <name> <class>             join an object that handles no message
+  group <name> <member>...        join a Group passing its messages on to its members
   player                          join the player ("player")
+  start <command>                 the start point's command, for the player's first update
   frame <dt> [<x y z>]            one frame: timelines, the pending-command table, then triggers with the
                                   player's box centred at x y z (half-extents 24 53 24), or no player
   run <command>                   run a command string with no sender
   echo <text>                     print <text>
+  report                          print "unhandled <verb> <class> <word> <count>" per row of the report
 Handlers print "got <receiver> <sender> <message words joined by |>".
 """
 import base64
@@ -61,6 +64,9 @@ static class Driver
                 case "deaf":
                     mgr.Join(a[1], a[2]);
                     break;
+                case "group":
+                    mgr.JoinGroup(a[1], a.Skip(2));
+                    break;
                 case "player":
                     player = mgr.Join("player", "Player");
                     break;
@@ -90,16 +96,26 @@ static class Driver
                         var p = a[2].Split(' ').Select(v => float.Parse(v, inv)).ToArray();
                         var c = new LTVec(p[0], p[1], p[2]);
                         var h = new LTVec(24, 53, 24);
-                        relays.UpdateTriggers(player, c - h, c + h);
+                        relays.UpdateObjects(player, c - h, c + h);
                     }
-                    else relays.UpdateTriggers(-1, default(LTVec), default(LTVec));
+                    else relays.UpdateObjects(-1, default(LTVec), default(LTVec));
                     break;
                 }
+                case "start":
+                    relays.StartCommand = a[1];
+                    break;
+                case "$$start":
+                    relays.StartCommand = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(a[1]));
+                    break;
                 case "run":
                     mgr.Run(a[1]);
                     break;
                 case "echo":
                     Console.WriteLine(a[1]);
+                    break;
+                case "report":
+                    foreach (var u in mgr.Unhandled)
+                        Console.WriteLine("unhandled\t" + u.Verb + "\t" + u.Class + "\t" + u.Word + "\t" + u.Count);
                     break;
             }
         }
@@ -315,3 +331,88 @@ def test_every_relay_in_the_levels_builds_and_fires(driver, extracted):
         lines += fire + [("frame", 0.1, "0 0 0")] * 600 + [("echo", "end")]
         out = driver(lines)
         assert out[-1] == ("end",), f
+
+
+def test_a_startup_command_runs_once_at_its_first_update_as_its_own_sender(driver):
+    out = driver([("obj", "a", "WorldModel"),
+                  ("relay", "s", "StartupCommand", "0 0 0", "$Command=msg a now;delay 0.1 (msg a later)"),
+                  ("echo", "loaded")] + frames(3, 0.1))
+    # startupcommand.cpp: Command runs at the object's first MID_UPDATE (the objects' update, after the
+    # pending-command table), sender and active target itself, and the object is removed. Its delay starts
+    # counting at the next frame's table tick.
+    assert out == [("loaded",), ("got", "a", "s", "now"), ("f1",), ("got", "a", "s", "later"), ("f2",), ("f3",)]
+
+
+def test_the_start_points_command_runs_at_the_players_first_update_after_the_level_objects(driver):
+    out = driver([("obj", "a", "WorldModel"),
+                  ("relay", "s", "StartupCommand", "0 0 0", "$Command=msg a startup"),
+                  trigger("t", "$Command1=msg a touched"), ("player",), ("start", "msg a start;delay 0.1 (msg a later)"),
+                  ("frame", 0.1), ("echo", "spawned"), ("frame", 0.1, INSIDE), ("echo", "f2"),
+                  ("frame", 0.1, INSIDE), ("echo", "f3"), ("frame", 0.1, INSIDE)])
+    # CPlayerObj::Update: SendStartLevelCommand on the player's first update, once, sender and active target
+    # the player. The player is created after the level's objects, so it updates after them.
+    assert out == [("got", "a", "s", "startup"), ("spawned",), ("got", "a", "player", "touched"),
+                   ("got", "a", "player", "start"), ("f2",), ("got", "a", "player", "later"), ("f3",)]
+
+
+def test_m10_04s_startup_command_declares_a_variable_and_a_when_that_are_reported_and_triggers_trigger0(driver):
+    command = "Int BitCounter 0;When (BitCounter == 4) Then (MSG BitsReleased Trigger;msg trigger0 trigger"
+    out = driver([("obj", "trigger0", "Trigger"), ("obj", "BitsReleased", "Trigger"),
+                  ("relay", "StartupCommand0", "StartupCommand", "0 0 0", "$Command=" + command)] + frames(1) +
+                 [("report",)])
+    # ';' splits inside the parentheses: INT and WHEN (counted, the viewer has no variables), a MSG with four
+    # words (skipped), then "msg trigger0 trigger", the level's opening sequence.
+    assert out == [("got", "trigger0", "StartupCommand0", "trigger"), ("f1",),
+                   ("unhandled", "INT", "", "", "1"), ("unhandled", "WHEN", "", "", "1")]
+
+
+def level_lines(w, receivers=()):
+    """Driver lines joining every object of a loaded level as the viewer does: groups with their
+    Object1..50, relays and startup commands with their props, objects of the classes in `receivers`
+    printing what they get and the rest taking nothing; then the player with the start point's command.
+    Returns (lines, the start point's position as "x y z")."""
+    lines, start = [], None
+    for o in w.objects:
+        p, cls = o["props"], o["class"]
+        name = p.get("Name", "")
+        if cls == "Group":
+            lines.append(("group", name, *[p.get(f"Object{i}", "") or "" for i in range(1, 51)]))
+        elif cls in ("Trigger", "NoPlayerTrigger", "ExitTrigger", "EventCounter", "CommandObject", "StartupCommand"):
+            props = []
+            for k, v in p.items():
+                if isinstance(v, str):
+                    props.append(f"$${k}=" + base64.b64encode(v.encode()).decode())
+                elif isinstance(v, (bool, int, float)):
+                    props.append(f"{k}={float(v)}")
+                elif isinstance(v, list) and len(v) >= 3 and k != "Rotation":
+                    props.append(f"{k}=" + ",".join(str(float(x)) for x in v))
+            lines.append(("relay", name, cls, " ".join(str(float(x)) for x in p.get("Pos", [0, 0, 0])), *props))
+        else:
+            lines.append(("obj" if cls in receivers else "deaf", name, cls))
+        if cls == "GameStartPoint" and p.get("GameType") == "Single" and start is None:
+            start = p
+    lines.append(("player",))
+    if start is not None and start.get("Command"):
+        lines.append(("$$start", base64.b64encode(start["Command"].encode()).decode()))
+    pos = " ".join(str(float(x)) for x in (start or {}).get("Pos", [0, 0, 0]))
+    return lines, pos
+
+
+def test_every_levels_load_commands_run_headless(driver, extracted):
+    """The 38 single-player levels as loaded: startup commands and the start point's command, then 30 s of
+    frames with the player standing at the start point. Nothing throws or recurses for ever, and the levels
+    the living-level map flagged start what their startup commands start (keyframers, and m07-02's floaters,
+    sliding doors that loop on their ClosedCommand)."""
+    import dat85
+    movers = ("KeyFramer", "SlidingDoor", "RotatingDoor", "SpinningWorldModel")
+    started = {}
+    for f in sorted(glob.glob(os.path.join(extracted, "worlds", "retailsingleplayer", "*.dat"))):
+        name = os.path.basename(f)[:-4]
+        lines, pos = level_lines(dat85.load(f), receivers=movers)
+        out = driver(lines + [("frame", 0.1, pos)] * 300 + [("echo", "end")])
+        assert out[-1] == ("end",), name
+        started[name] = {(g[1].lower(), g[3].lower()) for g in out if g[0] == "got"}
+    assert {("dsdtkf", "on"), ("dsdmkf", "on"), ("dsdbkf", "on")} <= started["m02-01"]   # through startupcmdgroup
+    assert {("flybykf", "on"), ("slidingdoor2", "trigger"), ("slidingdoor18", "trigger")} <= started["m04-01"]
+    assert ("shuttlekf01", "on") in started["m10-02"]
+    assert {(f"floater0{i}", "trigger") for i in range(1, 5)} <= started["m07-02"]   # through startupgrp
