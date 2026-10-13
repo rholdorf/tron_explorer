@@ -154,6 +154,10 @@ _Avoid_: warp, respawn (the viewer's R/T keys pick a start point, not a teleport
 The black overlay `fadein`/`fadeout` ease over a time; after a fade-out the screen stays black until a fade-in.
 _Avoid_: blackout, transition
 
+**Fade safety net**:
+The viewer's own fade-in (not the game's) after 10 s of black with no fade-in pending, for fade-ins that come from systems the viewer doesn't run (cameras, dialogue, the next level); counted in the unhandled report as `SAFETYNET Player FADEIN`.
+_Avoid_: auto fade-in (the game has none)
+
 **Render variable**:
 A client console variable the renderer reads every frame (fog color and distances, FarZ, sky and glow fog, glow filter). Ramps and sines move it; a WorldProperties message copies every world variable back from the level's values.
 _Avoid_: cvar alone (most console variables aren't render variables), world property (that's the server's copy)

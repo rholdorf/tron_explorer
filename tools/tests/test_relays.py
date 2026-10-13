@@ -11,7 +11,7 @@ Driver lines (tab-separated):
                                   with control characters
   deaf <name> <class>             join an object that handles no message
   group <name> <member>...        join a Group passing its messages on to its members
-  player                          join the player ("player")
+  player [hear]                   join the player ("player"); with "hear" it prints what it gets
   start <command>                 the start point's command, for the player's first update
   frame <dt> [<x y z>]            one frame: timelines, the pending-command table, then triggers with the
                                   player's box centred at x y z (half-extents 24 53 24), or no player
@@ -67,8 +67,16 @@ static class Driver
                     mgr.JoinGroup(a[1], a.Skip(2));
                     break;
                 case "player":
-                    player = mgr.Join("player", "Player");
+                {
+                    int id = player = mgr.Join("player", "Player");
+                    if (a.Length > 1 && a[1] == "hear")
+                        mgr.Handle(id, m =>
+                        {
+                            Console.WriteLine("got\tplayer\t" + name(m.Sender) + "\t" + string.Join("|", m.Words));
+                            return true;
+                        });
                     break;
+                }
                 case "relay":
                 {
                     var strs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -365,7 +373,7 @@ def test_m10_04s_startup_command_declares_a_variable_and_a_when_that_are_reporte
                    ("unhandled", "INT", "", "", "1"), ("unhandled", "WHEN", "", "", "1")]
 
 
-def level_lines(w, receivers=()):
+def level_lines(w, receivers=(), hear_player=False):
     """Driver lines joining every object of a loaded level as the viewer does: groups with their
     Object1..50, relays and startup commands with their props, objects of the classes in `receivers`
     printing what they get and the rest taking nothing; then the player with the start point's command.
@@ -376,7 +384,8 @@ def level_lines(w, receivers=()):
         name = p.get("Name", "")
         if cls == "Group":
             lines.append(("group", name, *[p.get(f"Object{i}", "") or "" for i in range(1, 51)]))
-        elif cls in ("Trigger", "NoPlayerTrigger", "ExitTrigger", "EventCounter", "CommandObject", "StartupCommand"):
+        elif cls in ("Trigger", "NoPlayerTrigger", "ExitTrigger", "EventCounter", "CommandObject", "StartupCommand",
+                     "IONode"):
             props = []
             for k, v in p.items():
                 if isinstance(v, str):
@@ -390,7 +399,7 @@ def level_lines(w, receivers=()):
             lines.append(("obj" if cls in receivers else "deaf", name, cls))
         if cls == "GameStartPoint" and p.get("GameType") == "Single" and start is None:
             start = p
-    lines.append(("player",))
+    lines.append(("player", "hear") if hear_player else ("player",))
     if start is not None and start.get("Command"):
         lines.append(("$$start", base64.b64encode(start["Command"].encode()).decode()))
     pos = " ".join(str(float(x)) for x in (start or {}).get("Pos", [0, 0, 0]))
@@ -415,3 +424,36 @@ def test_every_levels_load_commands_run_headless(driver, extracted):
     assert {("flybykf", "on"), ("slidingdoor2", "trigger"), ("slidingdoor18", "trigger")} <= started["m04-01"]
     assert ("shuttlekf01", "on") in started["m10-02"]
     assert {(f"floater0{i}", "trigger") for i in range(1, 5)} <= started["m07-02"]   # through startupgrp
+
+
+# ---- IONode (Tron-only; object.lto 0x10022960 OnTrigger, 0x10022ff0 its activation) ----
+
+def test_cineactivate_runs_an_io_nodes_trigger_command_at_once_as_its_sender(driver):
+    out = driver([("obj", "a", "WorldModel"), ("obj", "player", "Player"),
+                  ("relay", "node", "IONode", "0 0 0", "$TriggerCommand=msg a trigger;msg player (fadein .5)"),
+                  ("run", "msg node cineactivate"), ("echo", "again"), ("run", "msg node CINEACTIVATE"), ("report",)])
+    # The activation runs TriggerCommand right away (IsValidCmd, then Process with the node as sender and no
+    # active target), every time: the node has no once-only gate. (A message to the player has the player as
+    # its sender.)
+    assert out == [("got", "a", "node", "trigger"), ("got", "player", "player", "fadein|.5"), ("again",),
+                   ("got", "a", "node", "trigger"), ("got", "player", "player", "fadein|.5")]
+
+
+def test_cinedeactivate_is_taken_and_an_io_node_with_no_trigger_command_does_nothing(driver):
+    out = driver([("relay", "node", "IONode", "0 0 0", "$TriggerCommand="),
+                  ("run", "msg node cineactivate"), ("run", "msg node cinedeactivate"), ("report",)])
+    # CINEDEACTIVATE only moves the node's look to its closing state (no commands); an empty TriggerCommand
+    # runs nothing. Neither is reported.
+    assert out == []
+
+
+def test_m10_04s_intro_fades_out_then_its_io_node_fades_back_in(driver, extracted):
+    """m10-04 (ticket #38): the intro cutscene's keyframer triggers Fade2TR, which fades out and half a second
+    later triggers masterstartup; that cineactivates IONodeM10-04A, whose TriggerCommand fades back in."""
+    import dat85
+    lines, pos = level_lines(dat85.load(os.path.join(extracted, "worlds", "retailsingleplayer", "m10-04.dat")),
+                             hear_player=True)
+    out = driver(lines + [("frame", 0.1, pos)] * 5 + [("run", "msg Fade2TR trigger")] +
+                 [("frame", 0.1, pos)] * 10)
+    fades = [g[3] for g in out if g[0] == "got" and g[1] == "player" and g[3].lower().startswith("fade")]
+    assert fades == ["fadeout|.3", "fadein|.5"]
