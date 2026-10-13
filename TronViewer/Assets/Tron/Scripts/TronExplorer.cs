@@ -347,14 +347,16 @@ namespace Tron
             renderVarsVersion = renderVars.Version;
             var v = renderVars;
             fogColor = new Vector4(v["FogR"] / 255f, v["FogG"] / 255f, v["FogB"] / 255f, 1);
-            fogParams = v["FogEnable"] != 0 ? new Vector4(v["FogNearZ"], v["FogFarZ"], 1, LT.Scale) : new Vector4(0, 0, 0, LT.Scale);
-            skyFogParams = v["SkyFogEnable"] != 0 && v["SkyFogFarZ"] < 1e9f
-                ? new Vector4(v["SkyFogNearZ"], v["SkyFogFarZ"], 1, LT.Scale) : new Vector4(0, 0, 0, LT.Scale);
-            glowFogParams = v["ScreenGlowFogEnable"] != 0
-                ? new Vector4(v["ScreenGlowFogNearZ"], v["ScreenGlowFogFarZ"], 1, LT.Scale) : new Vector4(0, 0, 0, LT.Scale);
+            fogParams = FogParams(v["FogEnable"] != 0, v["FogNearZ"], v["FogFarZ"]);
+            skyFogParams = FogParams(v["SkyFogEnable"] != 0 && v["SkyFogFarZ"] < 1e9f, v["SkyFogNearZ"], v["SkyFogFarZ"]);
+            glowFogParams = FogParams(v["ScreenGlowFogEnable"] != 0, v["ScreenGlowFogNearZ"], v["ScreenGlowFogFarZ"]);
             mainCam.farClipPlane = Mathf.Max(v["FarZ"], 1) * LT.Scale;
             if (blurMat) UpdateGlowFilter();
         }
+
+        // A fog's shader parameters: (near, far, on, LT units to Unity); off is all zero but the scale.
+        static Vector4 FogParams(bool on, float near, float far) =>
+            on ? new Vector4(near, far, 1, LT.Scale) : new Vector4(0, 0, 0, LT.Scale);
 
         // msg player (teleport <name>): only a TeleportPoint (ltjs character.cpp); its rot is [pitch, yaw, roll].
         bool TeleportTo(string name)

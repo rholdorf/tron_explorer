@@ -8,13 +8,12 @@ using System.Collections.Generic;
 namespace Tron
 {
     // Level load: Add each level object after it joined the command manager; it takes the relay classes and
-    // adds their message handlers. Each frame: UpdateTimelines before the command manager's Update (the lite
-    // objects update first), then UpdateObjects with the player's box (the objects' update: startup
+    // adds their message handlers. Each frame, after the command manager's BeginFrame (the server clock they
+    // all time on): UpdateTimelines before the command manager's Update (the lite objects update first), then
+    // UpdateObjects with the player's box (the objects' update: startup
     // commands, triggers).
     public sealed class Relays
     {
-        const float MaxFrameTime = CommandMgr.MaxFrameTime;
-
         readonly CommandMgr commands;
         readonly List<Trigger> triggers = new List<Trigger>();
         readonly List<CommandObject> timelines = new List<CommandObject>();
@@ -22,8 +21,8 @@ namespace Tron
 
         public Relays(CommandMgr commands) => this.commands = commands;
 
-        // The server clock (s since the level loaded): clamped frame times, as the pending-command table's.
-        public float Time { get; private set; }
+        // The server clock (CommandMgr.Time): the timers of command objects and triggers.
+        float Time => commands.Time;
 
         // A level object (its command-manager id, class, position and props: strings, and numbers, bools
         // and vectors as floats). False if it isn't a relay class.
@@ -59,10 +58,9 @@ namespace Tron
             }
         }
 
-        // The lite objects' update (CommandObject timelines); it advances the clock.
-        public void UpdateTimelines(float frameTime)
+        // The lite objects' update (CommandObject timelines).
+        public void UpdateTimelines()
         {
-            Time += Math.Min(frameTime, MaxFrameTime);
             // A timeline started by another's event this frame updates this frame if it comes later.
             for (int i = 0; i < timelines.Count; i++)
                 if (timelines[i].Active) timelines[i].Update();
@@ -115,16 +113,6 @@ namespace Tron
                 nums != null && nums.TryGetValue(k, out var v) && v != null && v.Length >= 3 ? new LTVec(v[0], v[1], v[2]) : def;
         }
 
-        // C atol: the leading integer, 0 if there's none.
-        static int Atol(string s)
-        {
-            int i = 0, n = 0, sign = 1;
-            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
-            if (i < s.Length && (s[i] == '+' || s[i] == '-')) sign = s[i++] == '-' ? -1 : 1;
-            while (i < s.Length && char.IsDigit(s[i])) n = n * 10 + (s[i++] - '0');
-            return sign * n;
-        }
-
         // EventCounter (eventcounter.cpp): a count that runs EventNIncToValCmd / EventNDecToValCmd of every
         // event whose EventNValue it steps onto (sender and active target the counter). Tron adds RESET:
         // back to StartingValue, running nothing.
@@ -155,7 +143,7 @@ namespace Tron
             public bool OnMessage(Message m)
             {
                 // INC/DEC [n]: n steps, at least one.
-                int steps = Math.Max(1, m.ArgCount > 0 ? Atol(m.Arg(0)) : 1);
+                int steps = Math.Max(1, m.ArgCount > 0 ? CommandMgr.Atol(m.Arg(0)) : 1);
                 if (m.Is("INC") || m.Is("INCREMENT"))
                     for (int i = 0; i < steps; i++) Step(+1);
                 else if (m.Is("DEC") || m.Is("DECREMENT"))
@@ -218,7 +206,7 @@ namespace Tron
                         var s = p.Str($"EventT{track}E{n}").TrimStart('|');
                         int bar = s.IndexOf('|');
                         if (bar <= 0 || bar == s.Length - 1) continue;
-                        var e = new Event { Time = Atol(s.Substring(0, bar)) / 1000f, Command = s.Substring(bar + 1) };
+                        var e = new Event { Time = CommandMgr.Atol(s.Substring(0, bar)) / 1000f, Command = s.Substring(bar + 1) };
                         events.Add(e);
                         totalTime = Math.Max(totalTime, e.Time);
                     }
@@ -306,7 +294,7 @@ namespace Tron
         }
 
         // Trigger (trigger.cpp), NoPlayerTrigger (noplayertrigger.cpp) and ExitTrigger (its touch is off; the
-        // level switch is out of scope). A box of half-extents Dims around its position, axis-aligned.
+        // level switch is out of scope, counted in the report). A box of half-extents Dims around its position, axis-aligned.
         sealed class Trigger
         {
             const int MaxCommands = 10;
@@ -315,6 +303,7 @@ namespace Tron
             readonly Relays relays;
             readonly int id;
             readonly bool noPlayer, touchable;
+            readonly string exitSwitch;   // an ExitTrigger's switch for the report (LEVEL / MISSION), else null
             readonly LTVec min, max;
             readonly string[] commandList = new string[MaxCommands];
             readonly float triggerDelay, sendDelay;
@@ -333,6 +322,7 @@ namespace Tron
                 noPlayer = string.Equals(cls, "NoPlayerTrigger", StringComparison.OrdinalIgnoreCase);
                 bool exit = string.Equals(cls, "ExitTrigger", StringComparison.OrdinalIgnoreCase);
                 touchable = !noPlayer && !exit && p.Bool("PlayerTriggerable", true);
+                if (exit) exitSwitch = p.Bool("ExitMission", false) ? "MISSION" : "LEVEL";
                 var dims = p.Vec("Dims", new LTVec(5, 5, 5));
                 min = pos - dims;
                 max = pos + dims;
@@ -427,6 +417,8 @@ namespace Tron
                 toucher = -1;
                 foreach (var c in commandList)
                     if (!string.IsNullOrEmpty(c)) relays.commands.Run(c, sender, id);
+                // ExitTrigger::Activate then switches level (or mission, ExitMission): out of scope, counted.
+                if (exitSwitch != null) relays.commands.Count("EXIT", relays.commands.Class(id), exitSwitch);
             }
         }
     }

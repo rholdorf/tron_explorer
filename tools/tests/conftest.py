@@ -1,6 +1,8 @@
 import glob
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -8,6 +10,23 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 EXTRACTED = os.environ.get("TRON_EXTRACTED", "/Users/rui/src/pg/tron_explorer/extracted")
+SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+
+
+def mono_driver(tmp_path_factory, name, source, *scripts):
+    """Compiles a C# driver (its source text) with the viewer's scripts (file names under Scripts/) with Mono,
+    skipping the test without Mono. Returns a function that runs the driver on its stdin text and returns its
+    stdout."""
+    mcs, mono = shutil.which("mcs"), shutil.which("mono")
+    if not mcs or not mono:
+        pytest.skip("Mono (mcs, mono) not installed")
+    d = tmp_path_factory.mktemp(name)
+    (d / "Driver.cs").write_text(source)
+    exe = str(d / "driver.exe")
+    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
+                        *(os.path.join(SCRIPTS, f) for f in scripts)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    return lambda text: subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
 
 
 @pytest.fixture(scope="session")

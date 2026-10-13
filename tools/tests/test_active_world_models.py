@@ -8,22 +8,27 @@ Driver lines (tab-separated):
   start <name>           the end of its creation (StartOn powers on)
   link <a> <b>           a's DoorLink is b
   tick <seconds>         one frame: the clock advances, then every AWM updates in creation order
+  frame <seconds>        one server frame on the command manager's clock, as the viewer runs it: the clock
+                         advances by the clamped frame time, the pending-command table runs, then every AWM
+                         updates with the clamped frame time and the clock's time
+  obj <name>             join an object to the command manager that prints "got <name> <words joined by |>"
+  echo <text>            print <text>
   use <name>             the player's use
   msg <name> <sender> <word>...   a message (sender: player, - for none, or a number); prints "handled"
   block <0|1>            whether the player is in the way of any new pose
   player <x,y,z>         the player's position
   pose <name>            prints "pose <x> <y> <z> <qx> <qy> <qz> <qw> <state>"
-Host events print as "sound <name> <file> <loop>", "stop <name>", "run <name> <command> <activator>".
+Host events print as "sound <name> <file> <loop>", "stop <name>", "run <name> <command> <activator>"; the
+commands also run through the command manager.
 The player's command-manager id is 1000.
 """
 import math
 import os
-import shutil
-import subprocess
 
 import pytest
 
-SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+from conftest import mono_driver
+
 PLAYER = 1000
 
 DRIVER = r"""
@@ -46,13 +51,18 @@ class Host : ActiveWorldModel.IHost
     public float Time => Driver.Now;
     public void PlaySound(string name, bool loop) => Console.WriteLine("sound\t" + Name + "\t" + name + "\t" + loop);
     public void StopLoop() => Console.WriteLine("stop\t" + Name);
-    public void Run(string command, int activator) => Console.WriteLine("run\t" + Name + "\t" + command + "\t" + activator);
+    public void Run(string command, int activator)
+    {
+        Console.WriteLine("run\t" + Name + "\t" + command + "\t" + activator);
+        Driver.Mgr.Run(command, -1, activator);
+    }
     public bool PlayerInside(LTVec pos, LTQuat rot) => Driver.Blocked;
     public LTVec? PositionOf(int obj) => obj == 1000 ? Driver.Player : (LTVec?)null;
 }
 static class Driver
 {
     public static float Now;
+    public static readonly CommandMgr Mgr = new CommandMgr(() => 0.0);
     public static bool Blocked;
     public static LTVec Player;
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -85,6 +95,19 @@ static class Driver
                     Now += F(a[1]);
                     foreach (var w in order) w.Update(F(a[1]));
                     break;
+                case "frame":
+                    Mgr.BeginFrame(F(a[1]));
+                    Now = Mgr.Time;
+                    Mgr.Update();
+                    foreach (var w in order) w.Update(Mgr.FrameTime);
+                    break;
+                case "obj":
+                {
+                    string n = a[1];
+                    Mgr.Handle(Mgr.Join(n, "WorldModel"), m => { Console.WriteLine("got\t" + n + "\t" + string.Join("|", m.Words)); return true; });
+                    break;
+                }
+                case "echo": Console.WriteLine(a[1]); break;
                 case "use": awms[a[1]].Activate(1000); break;
                 case "msg":
                 {
@@ -110,20 +133,11 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def run(tmp_path_factory):
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
-    d = tmp_path_factory.mktemp("awm")
-    (d / "Driver.cs").write_text(DRIVER)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
-                        *(os.path.join(SCRIPTS, f) for f in ("ActiveWorldModel.cs", "Commands.cs", "KeyframerMotion.cs"))],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
+    run_driver = mono_driver(tmp_path_factory, "awm", DRIVER, "ActiveWorldModel.cs", "Commands.cs", "KeyframerMotion.cs")
 
     def go(*lines):
         text = "".join("\t".join(str(x) for x in line) + "\n" for line in lines)
-        out = subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
+        out = run_driver(text)
         return [ln.split("\t") for ln in out.splitlines()]
     return go
 
@@ -286,6 +300,18 @@ def test_a_door_waits_its_move_delay_before_opening_and_twice_that_before_closin
     assert p[6:] == [64, 64, 64, 48, 32]             # 2 x 0.5 s after the use
 
 
+def test_a_door_waits_on_the_command_managers_clock_so_its_wait_and_a_delay_stay_paired_after_a_hitch(run):
+    # Open at t=1 (8 frames of 1/8 s); its OpenCommand queues a 2 s delay as it starts its 2 s wait. A 3 s
+    # hitch counts 0.2 s for both (the server's frame clamp), so both end 15 frames later (0.2 + 15/8 >= 2.001):
+    # the delayed message first (the pending-command table runs before the objects), then the door closes.
+    out = run(door("OpenCommand=delay 2 (msg x closing)"), ("obj", "x"), ("start", "d"), ("use", "d"),
+              *[("frame", 0.125)] * 8, ("frame", 3.0),
+              *[x for i in range(15) for x in (("echo", f"f{i + 1}"), ("frame", 0.125))])
+    ev = [e for e in events(out) if e[0] in ("got", "sound") or e[0].startswith("f")]
+    i = ev.index(["got", "x", "closing"])
+    assert ev[i - 1] == ["f15"] and ev[i + 1] == ["sound", "d", "snd\\close.wav", "False"]
+
+
 def test_a_door_that_starts_open_opens_at_load_with_its_sound_and_command(run):
     out = run(door("StartOpen=1"), ("start", "d"), *ticks(4))
     assert poses(out)[-1] == (0, 64, 0, "On")
@@ -318,6 +344,15 @@ def test_a_switch_reads_the_generic_names(run):
 def test_only_the_player_uses_and_only_with_player_activate(run):
     out = run(door("PlayerActivate=0"), ("start", "d"), ("use", "d"), ("msg", "d", "3", "ACTIVATE"), *ticks(1))
     assert poses(out) == [(0, 0, 0, "Off")]
+
+
+def test_set_power_on_multiplier_reads_its_number_as_c_atof_does_and_scales_the_opening_time(run):
+    # atof("0.5s") is 0.5: the 1 s opening takes 0.5 s (two frames). With no number at all ("x") it is 0:
+    # the door opens at once.
+    out = run(door(), ("start", "d"), ("msg", "d", "-", "SETPOWERONMULTIPLIER", "0.5s"), ("use", "d"), *ticks(2))
+    assert [p[1] for p in poses(out)] == [32, 64]
+    out = run(door(), ("start", "d"), ("msg", "d", "-", "SETPOWERONMULTIPLIER", "x"), ("use", "d"), *ticks(1))
+    assert [p[1] for p in poses(out)] == [64]
 
 
 def test_messages_it_does_not_know_are_left_for_other_handlers(run):

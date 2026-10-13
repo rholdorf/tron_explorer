@@ -19,15 +19,13 @@ Driver lines (tab-separated):
 Handlers print "got <receiver> <sender> <message words joined by |>".
 """
 import base64
-import os
-import shutil
-import subprocess
 
 import pytest
 
+from conftest import mono_driver
+
 import commands
 
-SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
 
 DRIVER = r"""
 using System;
@@ -75,7 +73,8 @@ static class Driver
                     Console.WriteLine("ran\t" + mgr.Run(a[3], a[1] == "" ? -1 : ids[a[1]], ids[a[2]]));
                     break;
                 case "tick":
-                    mgr.Update(float.Parse(a[1], System.Globalization.CultureInfo.InvariantCulture));
+                    mgr.BeginFrame(float.Parse(a[1], System.Globalization.CultureInfo.InvariantCulture));
+                    mgr.Update();
                     break;
                 case "rand":
                     foreach (var v in a.Skip(1)) randoms.Enqueue(double.Parse(v, System.Globalization.CultureInfo.InvariantCulture));
@@ -103,19 +102,11 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
-    d = tmp_path_factory.mktemp("commands")
-    (d / "Driver.cs").write_text(DRIVER)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
-                        os.path.join(SCRIPTS, "Commands.cs")], capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
+    run_driver = mono_driver(tmp_path_factory, "commands", DRIVER, "Commands.cs")
 
     def run(lines):
         text = "".join("\t".join(map(str, line)) + "\n" for line in lines)
-        out = subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
+        out = run_driver(text)
         return [tuple(x.split("\t")) for x in out.splitlines()]
     return run
 
@@ -240,7 +231,15 @@ def test_a_command_object_is_reached_only_when_no_regular_object_has_its_name(dr
 
 def test_a_message_that_is_a_command_runs_as_one(driver):
     out = driver([("obj", "a", "WorldModel"), ("obj", "player", "Player"), ("run", "", "msg player (msg a on)")])
-    assert got(out) == [("got", "a", "-", "on")]
+    # Sent to the player: the player is its sender.
+    assert got(out) == [("got", "a", "player", "on")]
+
+
+def test_a_message_to_the_player_or_the_active_player_comes_from_the_player(driver):
+    out = driver([("obj", "player", "Player"), ("obj", "t", "Trigger"),
+                  ("run", "t", "msg player (fadein 1); msg ActivePlayer (fadeout 1); msg t on")])
+    assert got(out) == [("got", "player", "player", "fadein|1"), ("got", "player", "player", "fadeout|1"),
+                        ("got", "t", "t", "on")]
 
 
 def test_messages_and_commands_nobody_handles_are_counted_by_verb_class_and_word(driver):

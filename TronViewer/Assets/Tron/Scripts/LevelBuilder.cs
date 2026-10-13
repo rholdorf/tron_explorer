@@ -32,7 +32,7 @@ namespace Tron
         public LevelJson Data;
         public GameObject Root;
         public CommandMgr Commands;   // the level's command manager (JoinCommands)
-        public Relays Relays;         // its triggers, relays and startup commands (RelayTicker)
+        public Relays Relays;         // its triggers, relays and startup commands (BuildRelays)
         public Vector3 SkyViewMin, SkyViewMax;   // LT units
         public bool HasSky;
 
@@ -102,7 +102,7 @@ namespace Tron
             BuildKeyframers();
             JoinObjectMessages();
             BuildSpinners();
-            Relays = RelayTicker.Build(this);
+            BuildRelays();
         }
 
         // Every level object joins the command manager by name and class, in level order, so an object's
@@ -543,7 +543,7 @@ namespace Tron
                 geom.transform.localPosition = inv * -pos;
                 WorldModelObjects[wm.name] = go;
 
-                // A level world model is drawn even when it starts hidden: JoinWorldModelMessages hides it
+                // A level world model is drawn even when it starts hidden: JoinObjectMessages hides it
                 // until a message shows it.
                 bool visible = obj == null || (obj.Bool("Visible", true) && !obj.Bool("StartHidden"));
                 if (wm.mesh >= 0 && (visible || !sky))
@@ -561,7 +561,7 @@ namespace Tron
                     SetLayer(go, SkyLayer);
                     continue;
                 }
-                // Non-solid ones too (Solid FALSE): SOLID 1 can make them solid (JoinWorldModelMessages).
+                // Non-solid ones too (Solid FALSE): SOLID 1 can make them solid (JoinObjectMessages).
                 if (wm.collider >= 0 && SolidClasses.Contains(cls))
                     AddCollider(geom.transform, wm.collider, "collider");
                 worldModelOwners[wm.name] = obj;

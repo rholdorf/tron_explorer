@@ -4,10 +4,10 @@ namespace Tron
 {
     // A door, switch or sliding/rotating world model in the level: runs its ActiveWorldModel once per
     // frame and puts the world model where it says (its collider moves with it; a solid one has a kinematic
-    // body, so the player rides it). Plays the state sounds from the object through AmbientSound (3D,
-    // priority 1, volume 100, inner 0.25 x SoundRadius, outer SoundRadius; a looping sound on one source,
-    // one-shots on another so they play out), runs the state commands through the level's CommandMgr
-    // (the AWM as sender, its activator as target), and tests the player against a new pose.
+    // body, so the player rides it). Plays the state sounds from the object (AmbientSound.AddObjectSound
+    // with its SoundRadius; a looping sound on one source, one-shots on another so they play out), runs the
+    // state commands through the level's CommandMgr (the AWM as sender, its activator as target), and tests
+    // the player against a new pose.
     public class ActiveWorldModelObject : MonoBehaviour, ActiveWorldModel.IHost
     {
         public ActiveWorldModel Awm { get; private set; }
@@ -29,7 +29,7 @@ namespace Tron
             this.commands = commands;
             this.data = data;
             var pyr = new LTVec(o.rot[0], o.rot[1], o.rot[2]);
-            Awm = new ActiveWorldModel(s, new LTVec(o.pos[0], o.pos[1], o.pos[2]), pyr, rotationPoint, self, -1, this);
+            Awm = new ActiveWorldModel(s, o.LTPosition, pyr, rotationPoint, self, -1, this);
             shownPos = transform.localPosition;
             shownRot = transform.localRotation;
         }
@@ -50,7 +50,7 @@ namespace Tron
         {
             // Moved by someone else (a keyframer): the state machine starts from there.
             if (transform.localPosition != shownPos) Awm.Pos = V(transform.localPosition);
-            Awm.Update(Mathf.Min(Time.deltaTime, CommandMgr.MaxFrameTime));
+            Awm.Update(commands.FrameTime);
             var pos = new Vector3(Awm.Pos.x, Awm.Pos.y, Awm.Pos.z);
             var r = Awm.Rot;
             var rot = new Quaternion(r.x, r.y, r.z, r.w);
@@ -63,21 +63,20 @@ namespace Tron
 
         // ---- IHost ----
 
-        float ActiveWorldModel.IHost.Time => Time.time;
+        float ActiveWorldModel.IHost.Time => commands.Time;   // the server clock the relays and delayed commands run on
 
         public void PlaySound(string name, bool looped)
         {
             var clip = SoundLoader.Load(name);
             if (!clip) return;
-            float outer = Awm.S.SoundRadius;
             if (looped)
             {
-                if (!loop) loop = AmbientSound.Add(gameObject, 0.25f * outer, outer, 100, false, 1);
+                if (!loop) loop = AmbientSound.AddObjectSound(gameObject, Awm.SoundRadius);
                 loop.Play(clip, true);
             }
             else
             {
-                if (!shots) shots = AmbientSound.Add(gameObject, 0.25f * outer, outer, 100, false, 1);
+                if (!shots) shots = AmbientSound.AddObjectSound(gameObject, Awm.SoundRadius);
                 shots.Source.PlayOneShot(clip);
             }
         }
@@ -120,7 +119,7 @@ namespace Tron
         {
             if (obj < 0) return null;
             if (obj == Awm.Player) return player ? V(player.transform.position / LT.Scale) : (LTVec?)null;
-            if (obj < data.objects.Length) return new LTVec(data.objects[obj].pos[0], data.objects[obj].pos[1], data.objects[obj].pos[2]);
+            if (obj < data.objects.Length) return data.objects[obj].LTPosition;
             return null;
         }
 

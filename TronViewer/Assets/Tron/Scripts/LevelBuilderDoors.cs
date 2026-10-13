@@ -26,10 +26,6 @@ namespace Tron
             var worldModels = new Dictionary<string, GameObject>(WorldModelObjects, StringComparer.OrdinalIgnoreCase);
             var wmJson = new Dictionary<string, WorldModelJson>(StringComparer.OrdinalIgnoreCase);
             foreach (var wm in Data.worldModels) wmJson[wm.name] = wm;
-            var firstByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < Data.objects.Length; i++)
-                if (!string.IsNullOrEmpty(Data.objects[i].name) && !firstByName.ContainsKey(Data.objects[i].name))
-                    firstByName[Data.objects[i].name] = i;
             var prompts = new Dictionary<string, ActivateTypeJson>(StringComparer.OrdinalIgnoreCase);
             foreach (var t in Data.activateTypes ?? new ActivateTypeJson[0]) prompts[t.name] = t;
             Physics.IgnoreLayerCollision(0, UseOnlyLayer);
@@ -61,11 +57,8 @@ namespace Tron
                 else if (hasCollider) MakeKinematic(go);
 
                 LTVec? rotationPoint = null;
-                if (!string.IsNullOrEmpty(s.RotationPoint) && firstByName.TryGetValue(s.RotationPoint, out int pi))
-                {
-                    var p = Data.objects[pi].pos;
-                    rotationPoint = new LTVec(p[0], p[1], p[2]);
-                }
+                int pi = FirstNamed(s.RotationPoint);
+                if (pi >= 0) rotationPoint = Data.objects[pi].LTPosition;
                 var awm = go.AddComponent<ActiveWorldModelObject>();
                 awm.Init(s, o, i, rotationPoint, Commands, Data);
                 if (prompts.TryGetValue(s.ActivateType ?? "", out var prompt))
@@ -83,8 +76,7 @@ namespace Tron
                 var o = Data.objects[kv.Key];
                 var awm = kv.Value;
                 // DoorLink: the first object with the name, if it is a door.
-                if (!string.IsNullOrEmpty(awm.Awm.S.DoorLink) && firstByName.TryGetValue(awm.Awm.S.DoorLink, out int li) &&
-                    byIndex.TryGetValue(li, out var link) && link.Awm.S.Door)
+                if (byIndex.TryGetValue(FirstNamed(awm.Awm.DoorLink), out var link) && link.Awm.IsDoor)
                     awm.Awm.Link = link.Awm;
                 // Attached world models move with it, and the use ray on them reaches it.
                 foreach (var name in o.Str("Attachments").Split(';'))

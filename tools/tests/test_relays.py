@@ -23,12 +23,11 @@ Handlers print "got <receiver> <sender> <message words joined by |>".
 import base64
 import glob
 import os
-import shutil
-import subprocess
 
 import pytest
 
-SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+from conftest import mono_driver
+
 
 DRIVER = r"""
 using System;
@@ -89,8 +88,9 @@ static class Driver
                 case "frame":
                 {
                     float dt = float.Parse(a[1], inv);
-                    relays.UpdateTimelines(dt);
-                    mgr.Update(dt);
+                    mgr.BeginFrame(dt);
+                    relays.UpdateTimelines();
+                    mgr.Update();
                     if (a.Length > 2)
                     {
                         var p = a[2].Split(' ').Select(v => float.Parse(v, inv)).ToArray();
@@ -126,20 +126,11 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
-    d = tmp_path_factory.mktemp("relays")
-    (d / "Driver.cs").write_text(DRIVER)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs")] +
-                       [os.path.join(SCRIPTS, f) for f in ("Commands.cs", "Relays.cs", "KeyframerMotion.cs")],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
+    run_driver = mono_driver(tmp_path_factory, "relays", DRIVER, "Commands.cs", "Relays.cs", "KeyframerMotion.cs")
 
     def run(lines):
         text = "".join("\t".join(map(str, line)) + "\n" for line in lines)
-        out = subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
+        out = run_driver(text)
         return [tuple(x.split("\t")) for x in out.splitlines()]
     return run
 
@@ -220,6 +211,14 @@ def test_an_exit_trigger_runs_its_commands_on_trigger_only(driver):
                   trigger("x", "$Command1=msg a on", cls="ExitTrigger"),
                   ("frame", 0.1, INSIDE), ("echo", "touch does nothing"), ("run", "msg x trigger")])
     assert out == [("touch does nothing",), ("got", "a", "-", "on")]
+
+
+def test_an_exit_trigger_counts_the_level_switch_it_skips_after_running_its_commands(driver):
+    # The 39 ExitTriggers all have ExitMission FALSE: a level switch. Once per activation, not per message.
+    out = driver([("obj", "a", "WorldModel"),
+                  trigger("x", "$Command1=msg a on", cls="ExitTrigger"),
+                  ("run", "msg x trigger"), ("run", "msg x trigger"), ("report",)])
+    assert out == [("got", "a", "-", "on"), ("unhandled", "EXIT", "ExitTrigger", "LEVEL", "1")]
 
 
 def counter(name="c", *props):

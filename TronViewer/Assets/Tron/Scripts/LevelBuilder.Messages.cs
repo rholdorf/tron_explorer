@@ -15,11 +15,46 @@ namespace Tron
         // Object ids that have their GameBase handler.
         readonly HashSet<int> withFlags = new HashSet<int>();
 
+        // The level's object ids by name (any case), in level order: built once, on first use.
+        Dictionary<string, List<int>> objectsByName;
+        static readonly List<int> NoObjects = new List<int>();
+
+        // The ids of every object with this name, in level order (none: empty).
+        List<int> ObjectsNamed(string name)
+        {
+            if (objectsByName == null)
+            {
+                objectsByName = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < Data.objects.Length; i++)
+                {
+                    var n = Data.objects[i].name;
+                    if (string.IsNullOrEmpty(n)) continue;
+                    if (!objectsByName.TryGetValue(n, out var list)) objectsByName[n] = list = new List<int>();
+                    list.Add(i);
+                }
+            }
+            return !string.IsNullOrEmpty(name) && objectsByName.TryGetValue(name, out var ids) ? ids : NoObjects;
+        }
+
+        // The first object with this name, -1 if none.
+        int FirstNamed(string name)
+        {
+            var ids = ObjectsNamed(name);
+            return ids.Count > 0 ? ids[0] : -1;
+        }
+
+        // The GameBase flags an object starts with (its Visible, Solid and Rayhit props; StartHidden).
+        [Flags]
+        enum StartFlags { None = 0, Visible = 1, Solid = 2, RayHit = 4, Hidden = 8 }
+
+        static StartFlags If(bool on, StartFlags flag) => on ? flag : StartFlags.None;
+
         // Gives object `id` its GameBase handler. show: applies the flags to what draws it (also at once);
         // remove: what REMOVE does to it.
-        GameBaseFlags JoinFlags(int id, bool visible, bool solid, bool rayHit, bool startHidden, Action<GameBaseFlags> show, Action remove)
+        GameBaseFlags JoinFlags(int id, StartFlags start, Action<GameBaseFlags> show, Action remove)
         {
-            var f = new GameBaseFlags(visible, solid, rayHit, startHidden);
+            var f = new GameBaseFlags((start & StartFlags.Visible) != 0, (start & StartFlags.Solid) != 0,
+                (start & StartFlags.RayHit) != 0, (start & StartFlags.Hidden) != 0);
             if (show != null)
             {
                 f.Changed += () => show(f);
@@ -58,16 +93,20 @@ namespace Tron
         // characters, with their attachments; drawn as built, solid as their props say).
         void JoinObjectMessages()
         {
-            var index = new Dictionary<ObjectJson, int>();
-            for (int i = 0; i < Data.objects.Length; i++) index[Data.objects[i]] = i;
             foreach (var kv in worldModelOwners)
             {
                 var obj = kv.Value;
-                if (obj == null || !index.TryGetValue(obj, out int id) || withFlags.Contains(id)) continue;
+                if (obj == null) continue;
+                var named = ObjectsNamed(obj.name);
+                int k = named.FindIndex(i => Data.objects[i] == obj);   // the owner, of the objects with its name
+                if (k < 0 || withFlags.Contains(named[k])) continue;
+                int id = named[k];
                 if (!WorldModelObjects.TryGetValue(kv.Key, out var wm)) continue;
                 var gos = new[] { wm };
-                JoinFlags(id, obj.Bool("Visible", true), SolidClasses.Contains(obj.cls) && obj.Bool("Solid", true),
-                    obj.Bool("Rayhit", true), obj.Bool("StartHidden"), f => Show(gos, f), () => Deactivate(gos));
+                var start = If(obj.Bool("Visible", true), StartFlags.Visible) |
+                            If(SolidClasses.Contains(obj.cls) && obj.Bool("Solid", true), StartFlags.Solid) |
+                            If(obj.Bool("Rayhit", true), StartFlags.RayHit) | If(obj.Bool("StartHidden"), StartFlags.Hidden);
+                JoinFlags(id, start, f => Show(gos, f), () => Deactivate(gos));
                 Commands.Handle(id, m => m.Is("DESTROY"));
             }
             foreach (var kv in modelObjects)
@@ -75,9 +114,37 @@ namespace Tron
                 if (withFlags.Contains(kv.Key)) continue;
                 var obj = Data.objects[kv.Key];
                 var gos = kv.Value;
-                JoinFlags(kv.Key, true, obj.Bool("Solid", true), obj.Bool("Rayhit", true), false, f => Show(gos, f),
-                    () => Deactivate(gos));
+                var start = StartFlags.Visible | If(obj.Bool("Solid", true), StartFlags.Solid) |
+                            If(obj.Bool("Rayhit", true), StartFlags.RayHit);
+                JoinFlags(kv.Key, start, f => Show(gos, f), () => Deactivate(gos));
             }
+        }
+
+        // The level's triggers and relays (Relays): every level object is handed to them with its props, and
+        // they take the relay classes. TimelineTicker and ObjectTicker run them each frame.
+        void BuildRelays()
+        {
+            Relays = new Relays(Commands);
+            for (int i = 0; i < Data.objects.Length; i++)
+            {
+                var o = Data.objects[i];
+                // One of three ways the viewer reads object props, not unified yet: here as string and number
+                // tables (Relays.Props, so Relays stays plain C#); doors through ActiveWorldModel.IProps
+                // (ObjectProps); keyframers, spinners and sounds pre-read by the exporter (tools/keyframer.py,
+                // spinner.py, sounds.py, ambient.py).
+                var strs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var nums = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in o.props)
+                {
+                    if (p.t == "s") strs[p.k] = p.s;
+                    else nums[p.k] = p.v;
+                }
+                Relays.Add(i, o.cls, o.LTPosition, strs, nums);
+            }
+            var timelines = Root.AddComponent<TimelineTicker>();
+            timelines.Commands = Commands;
+            timelines.Relays = Relays;
+            Root.AddComponent<ObjectTicker>().Relays = Relays;
         }
 
         // Spinners turn their world model (Spinner) as their SpinnerMotion says, from level start if they
@@ -106,14 +173,6 @@ namespace Tron
         void BuildKeyframers()
         {
             if (Data.keyframers == null || Data.keyframers.Length == 0) return;
-            var byName = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < Data.objects.Length; i++)
-            {
-                var n = Data.objects[i].name;
-                if (string.IsNullOrEmpty(n)) continue;
-                if (!byName.TryGetValue(n, out var list)) byName[n] = list = new List<int>();
-                list.Add(i);
-            }
             var worldModels = new Dictionary<string, GameObject>(WorldModelObjects, StringComparer.OrdinalIgnoreCase);
             var parent = new GameObject("Keyframers");
             parent.transform.SetParent(Root.transform, false);
@@ -123,14 +182,13 @@ namespace Tron
                 var motion = kf.Motion();
                 motion.RunCommand = c => Commands.Run(c, id, id);
                 Keyframer keyframer = null;
-                JoinFlags(id, true, false, false, false, null, () => { if (keyframer) keyframer.Remove(); });
+                JoinFlags(id, StartFlags.Visible, null, () => { if (keyframer) keyframer.Remove(); });
                 Commands.Handle(id, motion.OnMessage);
 
                 var shown = new List<Transform[]>();
                 foreach (var name in kf.targets)
                 {
-                    if (!byName.TryGetValue(name, out var objs)) continue;
-                    foreach (int i in objs)
+                    foreach (int i in ObjectsNamed(name))
                     {
                         var obj = Data.objects[i];
                         Transform[] gos;
@@ -168,7 +226,7 @@ namespace Tron
                         host.transform.localPosition = new Vector3(t0.x, t0.y, t0.z);
                         shown[0] = new[] { host.transform };
                     }
-                    sound = AmbientSound.Add(host, 0.25f * kf.soundRadius, kf.soundRadius, 100, false, 1);
+                    sound = AmbientSound.AddObjectSound(host, kf.soundRadius);
                 }
                 keyframer = go.AddComponent<Keyframer>();
                 keyframer.Init(motion, shown.ToArray(), sound, clip);
@@ -200,19 +258,8 @@ namespace Tron
                     if (clip) sound.Play(clip, s.loop != 0, s.pitch);
                 };
                 if (s.startOn) play();
-                JoinFlags(s.obj, true, false, false, false, null, () => { sound.Source.Stop(); go.SetActive(false); });
-                Commands.Handle(s.obj, m =>
-                {
-                    if (m.Is("ON") || m.Is("TRIGGER")) play();
-                    else if (m.Is("OFF") || m.Is("KILL")) sound.Source.Stop();
-                    else if (m.Is("TOGGLE"))
-                    {
-                        if (sound.IsPlaying) sound.Source.Stop();
-                        else play();
-                    }
-                    else return false;
-                    return true;
-                });
+                JoinFlags(s.obj, StartFlags.Visible, null, () => { sound.Source.Stop(); go.SetActive(false); });
+                Commands.Handle(s.obj, OnOffToggle(play, () => sound.Source.Stop(), () => sound.IsPlaying, "TRIGGER", "KILL"));
             }
         }
 
@@ -232,16 +279,24 @@ namespace Tron
                 go.transform.SetParent(parent.transform, false);
                 go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
                 var fx = SoundButeFX.Add(go, s, clips);
-                JoinFlags(s.obj, true, false, false, false, null, () => go.SetActive(false));
-                Commands.Handle(s.obj, m =>
-                {
-                    if (m.Is("ON")) fx.On = true;
-                    else if (m.Is("OFF")) fx.On = false;
-                    else if (m.Is("TOGGLE")) fx.On = !fx.On;
-                    else return false;
-                    return true;
-                });
+                JoinFlags(s.obj, StartFlags.Visible, null, () => go.SetActive(false));
+                Commands.Handle(s.obj, OnOffToggle(() => fx.On = true, () => fx.On = false, () => fx.On));
             }
         }
+
+        // A sound's messages (SoundFX / SoundButeFX::OnTrigger): ON (or alsoOn) switches it on, OFF (or
+        // alsoOff) off, TOGGLE off if it is on, else on.
+        static MessageHandler OnOffToggle(Action on, Action off, Func<bool> isOn, string alsoOn = null, string alsoOff = null) => m =>
+        {
+            if (m.Is("ON") || (alsoOn != null && m.Is(alsoOn))) on();
+            else if (m.Is("OFF") || (alsoOff != null && m.Is(alsoOff))) off();
+            else if (m.Is("TOGGLE"))
+            {
+                if (isOn()) off();
+                else on();
+            }
+            else return false;
+            return true;
+        };
     }
 }

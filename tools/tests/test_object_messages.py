@@ -16,13 +16,11 @@ Driver lines (tab-separated):
   run <command>       run a command string with no sender
   report              print "unhandled <verb> <class> <word> <count>"
 """
-import os
-import shutil
-import subprocess
 
 import pytest
 
-SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+from conftest import mono_driver
+
 
 DRIVER = r"""
 using System;
@@ -80,7 +78,7 @@ static class Driver
                 case "frame":
                 {
                     float dt = float.Parse(a[1], inv);
-                    mgr.Update(dt);
+                    mgr.BeginFrame(dt); mgr.Update();
                     foreach (var sp in spinners)
                     {
                         var name = sp.name;
@@ -107,21 +105,10 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
-    d = tmp_path_factory.mktemp("objectmessages")
-    (d / "Driver.cs").write_text(DRIVER)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs")] +
-                       [os.path.join(SCRIPTS, f) for f in ("Commands.cs", "GameBaseFlags.cs", "SpinnerMotion.cs",
-                                                           "KeyframerMotion.cs")],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
+    run_driver = mono_driver(tmp_path_factory, "objectmessages", DRIVER, "Commands.cs", "GameBaseFlags.cs", "SpinnerMotion.cs", "KeyframerMotion.cs")
 
     def run(*lines):
-        out = subprocess.run([mono, exe], input="\n".join(lines) + "\n", capture_output=True, text=True,
-                             check=True).stdout
+        out = run_driver("\n".join(lines) + "\n")
         return [row.split("\t") for row in out.splitlines()]
     return run
 

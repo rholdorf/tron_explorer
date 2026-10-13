@@ -24,12 +24,11 @@ target. Scenario lines for the driver:
 """
 import math
 import os
-import shutil
-import subprocess
 
 import pytest
 
-SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
+from conftest import mono_driver
+
 
 DRIVER = r"""
 using System;
@@ -101,7 +100,7 @@ static class Driver
                     build();
                     for (int n = 0; n < int.Parse(a[2]); n++)
                     {
-                        mgr.Update(F(1));
+                        mgr.BeginFrame(F(1)); mgr.Update();
                         m.Update(F(1));
                     }
                     Console.WriteLine("ok " + (m.Active ? 1 : 0));
@@ -124,7 +123,7 @@ static class Driver
                     build();
                     for (int n = 0; n < int.Parse(a[2]); n++)
                     {
-                        mgr.Update(F(1));
+                        mgr.BeginFrame(F(1)); mgr.Update();
                         m.Update(F(1));
                         var t = m.Targets[0];
                         Console.WriteLine(string.Join(" ", new[] { t.Pos.x, t.Pos.y, t.Pos.z, t.Rot.x, t.Rot.y, t.Rot.z, t.Rot.w,
@@ -141,20 +140,10 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
-    d = tmp_path_factory.mktemp("keyframermotion")
-    (d / "Driver.cs").write_text(DRIVER)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
-                        os.path.join(SCRIPTS, "KeyframerMotion.cs"), os.path.join(SCRIPTS, "Commands.cs")],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
+    run_driver = mono_driver(tmp_path_factory, "keyframermotion", DRIVER, "KeyframerMotion.cs", "Commands.cs")
 
     def call(*lines):
-        return subprocess.run([mono, exe], input="\n".join(lines) + "\n", capture_output=True, text=True,
-                              check=True).stdout.splitlines()
+        return run_driver("\n".join(lines) + "\n").splitlines()
     return call
 
 

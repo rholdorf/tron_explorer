@@ -131,8 +131,8 @@ namespace Tron
     //
     // Level load: every level object joins once, in level order (Join; its id is its index in the level's
     // objects), then each builder adds handlers to the objects it builds (Handle). Running: Run(command,
-    // sender, activeTarget) for a command property (a trigger's, a key's, the startup command); Update
-    // once per frame before the objects update.
+    // sender, activeTarget) for a command property (a trigger's, a key's, the startup command). Each
+    // frame: BeginFrame first (the server clock), then Update before the objects update.
     public sealed class CommandMgr
     {
         public const int MaxPending = 100;        // CMDMGR_MAX_PENDING_COMMANDS
@@ -260,12 +260,16 @@ namespace Tron
                 if (IsValid(message)) Process(message, sender, -1);
                 return;
             }
-            if (string.Equals(name, "ActivePlayer", StringComparison.OrdinalIgnoreCase)) name = "player";
-            else if (string.Equals(name, "OtherPlayers", StringComparison.OrdinalIgnoreCase)) return;   // one player
+            if (string.Equals(name, "OtherPlayers", StringComparison.OrdinalIgnoreCase)) return;   // one player
+            bool toPlayer = string.Equals(name, "ActivePlayer", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(name, "player", StringComparison.OrdinalIgnoreCase);
+            if (toPlayer) name = "player";
 
             var found = new List<int>();
             if (byName.TryGetValue(name, out var ids))
                 found.AddRange(ids.Where(i => !objects[i].Lite));
+            // To the player: the sender becomes the active player.
+            if (toPlayer && found.Count > 0) sender = found[0];
             if (IsValid(message))
             {
                 Process(message, sender, found.Count > 0 ? found[0] : -1);
@@ -285,11 +289,25 @@ namespace Tron
             foreach (var id in found) Deliver(sender, id, message);
         }
 
-        // The pending-command table, once per frame before the objects update (the server shell's
-        // CCommandMgr::Update): slots in index order, each delay counted down by the (clamped) frame time.
-        public void Update(float frameTime)
+        // ---- The server clock ----
+
+        // The server's time (s since the level loaded) and this frame's time, both from clamped frame times.
+        // Everything timed on the server runs on it: the pending-command table, the relays' timers, doors.
+        public float Time { get; private set; }
+        public float FrameTime { get; private set; }
+
+        // A new server frame, before anything updates: the clock advances by the frame time, clamped.
+        public void BeginFrame(float frameTime)
         {
-            float dt = Math.Min(frameTime, MaxFrameTime);
+            FrameTime = Math.Min(frameTime, MaxFrameTime);
+            Time += FrameTime;
+        }
+
+        // The pending-command table, once per frame before the objects update (the server shell's
+        // CCommandMgr::Update): slots in index order, each delay counted down by the frame time.
+        public void Update()
+        {
+            float dt = FrameTime;
             for (int i = 0; i < MaxPending; i++)
             {
                 var p = pending[i];
@@ -312,7 +330,8 @@ namespace Tron
         // ---- Report ----
 
         // Messages no handler took (verb MSG, the target's class or NoObject, the message word) and verbs
-        // the viewer doesn't run (variables: INT, SET, ADD, SUB, IF, WHEN, OBJ, VMSG...), most frequent first.
+        // the viewer doesn't run (variables: INT, SET, ADD, SUB, IF, WHEN, OBJ, VMSG...), and what objects count
+        // themselves (an ExitTrigger's level switch), most frequent first.
         public IEnumerable<UnhandledCount> Unhandled =>
             unhandled.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key.Item1).ThenBy(kv => kv.Key.Item2)
                 .ThenBy(kv => kv.Key.Item3)
@@ -329,7 +348,8 @@ namespace Tron
             return sb.ToString();
         }
 
-        void Count(string verb, string cls, string word)
+        // Counts something the viewer skips for the report: one row per (verb, class, word).
+        public void Count(string verb, string cls, string word)
         {
             var key = (verb.ToUpperInvariant(), cls, word.ToUpperInvariant());
             unhandled.TryGetValue(key, out int n);
@@ -442,7 +462,8 @@ namespace Tron
 
         int RandomInt(int min, int max) => Math.Min(max, min + (int)(random() * (max - min + 1)));
 
-        // C atof / atol: the longest leading number, 0 if there's none.
+        // C atof / atol, as the engine reads a number from a word everywhere (the command verbs, the objects'
+        // message arguments and props): the longest leading number, 0 if there's none.
         public static float Atof(string s)
         {
             int i = 0, n = s.Length;
@@ -463,7 +484,14 @@ namespace Tron
                 System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : 0;
         }
 
-        static int Atol(string s) => (int)Atof(s.Split('.', 'e', 'E')[0]);
+        public static int Atol(string s)
+        {
+            int i = 0, n = 0, sign = 1;
+            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            if (i < s.Length && (s[i] == '+' || s[i] == '-')) sign = s[i++] == '-' ? -1 : 1;
+            while (i < s.Length && char.IsDigit(s[i])) n = n * 10 + (s[i++] - '0');
+            return sign * n;
+        }
 
         void Deliver(int sender, int id, string message)
         {

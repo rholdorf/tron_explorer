@@ -30,7 +30,7 @@ namespace Tron
             if (Physics.Raycast(t.position, t.forward, out var hit, ActivationDistance * LT.Scale, ~0, QueryTriggerInteraction.Ignore))
             {
                 var awm = hit.collider.GetComponentInParent<ActiveWorldModelObject>();
-                if (awm && awm.Awm.S.PlayerActivate) Target = awm;
+                if (awm && awm.Awm.CanBeUsed) Target = awm;
             }
             var kb = Keyboard.current;
             if (Target && kb != null && kb.eKey.wasPressedThisFrame && (!controller || controller.InputEnabled))
