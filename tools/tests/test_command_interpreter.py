@@ -231,7 +231,15 @@ def test_a_command_object_is_reached_only_when_no_regular_object_has_its_name(dr
 
 def test_a_message_that_is_a_command_runs_as_one(driver):
     out = driver([("obj", "a", "WorldModel"), ("obj", "player", "Player"), ("run", "", "msg player (msg a on)")])
-    assert got(out) == [("got", "a", "-", "on")]
+    # Sent to the player: the player is its sender.
+    assert got(out) == [("got", "a", "player", "on")]
+
+
+def test_a_message_to_the_player_or_the_active_player_comes_from_the_player(driver):
+    out = driver([("obj", "player", "Player"), ("obj", "t", "Trigger"),
+                  ("run", "t", "msg player (fadein 1); msg ActivePlayer (fadeout 1); msg t on")])
+    assert got(out) == [("got", "player", "player", "fadein|1"), ("got", "player", "player", "fadeout|1"),
+                        ("got", "t", "t", "on")]
 
 
 def test_messages_and_commands_nobody_handles_are_counted_by_verb_class_and_word(driver):

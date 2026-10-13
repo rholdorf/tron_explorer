@@ -260,12 +260,16 @@ namespace Tron
                 if (IsValid(message)) Process(message, sender, -1);
                 return;
             }
-            if (string.Equals(name, "ActivePlayer", StringComparison.OrdinalIgnoreCase)) name = "player";
-            else if (string.Equals(name, "OtherPlayers", StringComparison.OrdinalIgnoreCase)) return;   // one player
+            if (string.Equals(name, "OtherPlayers", StringComparison.OrdinalIgnoreCase)) return;   // one player
+            bool toPlayer = string.Equals(name, "ActivePlayer", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(name, "player", StringComparison.OrdinalIgnoreCase);
+            if (toPlayer) name = "player";
 
             var found = new List<int>();
             if (byName.TryGetValue(name, out var ids))
                 found.AddRange(ids.Where(i => !objects[i].Lite));
+            // To the player: the sender becomes the active player.
+            if (toPlayer && found.Count > 0) sender = found[0];
             if (IsValid(message))
             {
                 Process(message, sender, found.Count > 0 ? found[0] : -1);
