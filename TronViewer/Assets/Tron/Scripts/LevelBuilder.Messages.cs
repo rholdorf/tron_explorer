@@ -15,11 +15,18 @@ namespace Tron
         // Object ids that have their GameBase handler.
         readonly HashSet<int> withFlags = new HashSet<int>();
 
+        // The GameBase flags an object starts with (its Visible, Solid and Rayhit props; StartHidden).
+        [Flags]
+        enum StartFlags { None = 0, Visible = 1, Solid = 2, RayHit = 4, Hidden = 8 }
+
+        static StartFlags If(bool on, StartFlags flag) => on ? flag : StartFlags.None;
+
         // Gives object `id` its GameBase handler. show: applies the flags to what draws it (also at once);
         // remove: what REMOVE does to it.
-        GameBaseFlags JoinFlags(int id, bool visible, bool solid, bool rayHit, bool startHidden, Action<GameBaseFlags> show, Action remove)
+        GameBaseFlags JoinFlags(int id, StartFlags start, Action<GameBaseFlags> show, Action remove)
         {
-            var f = new GameBaseFlags(visible, solid, rayHit, startHidden);
+            var f = new GameBaseFlags((start & StartFlags.Visible) != 0, (start & StartFlags.Solid) != 0,
+                (start & StartFlags.RayHit) != 0, (start & StartFlags.Hidden) != 0);
             if (show != null)
             {
                 f.Changed += () => show(f);
@@ -66,8 +73,10 @@ namespace Tron
                 if (obj == null || !index.TryGetValue(obj, out int id) || withFlags.Contains(id)) continue;
                 if (!WorldModelObjects.TryGetValue(kv.Key, out var wm)) continue;
                 var gos = new[] { wm };
-                JoinFlags(id, obj.Bool("Visible", true), SolidClasses.Contains(obj.cls) && obj.Bool("Solid", true),
-                    obj.Bool("Rayhit", true), obj.Bool("StartHidden"), f => Show(gos, f), () => Deactivate(gos));
+                var start = If(obj.Bool("Visible", true), StartFlags.Visible) |
+                            If(SolidClasses.Contains(obj.cls) && obj.Bool("Solid", true), StartFlags.Solid) |
+                            If(obj.Bool("Rayhit", true), StartFlags.RayHit) | If(obj.Bool("StartHidden"), StartFlags.Hidden);
+                JoinFlags(id, start, f => Show(gos, f), () => Deactivate(gos));
                 Commands.Handle(id, m => m.Is("DESTROY"));
             }
             foreach (var kv in modelObjects)
@@ -75,8 +84,9 @@ namespace Tron
                 if (withFlags.Contains(kv.Key)) continue;
                 var obj = Data.objects[kv.Key];
                 var gos = kv.Value;
-                JoinFlags(kv.Key, true, obj.Bool("Solid", true), obj.Bool("Rayhit", true), false, f => Show(gos, f),
-                    () => Deactivate(gos));
+                var start = StartFlags.Visible | If(obj.Bool("Solid", true), StartFlags.Solid) |
+                            If(obj.Bool("Rayhit", true), StartFlags.RayHit);
+                JoinFlags(kv.Key, start, f => Show(gos, f), () => Deactivate(gos));
             }
         }
 
@@ -150,7 +160,7 @@ namespace Tron
                 var motion = kf.Motion();
                 motion.RunCommand = c => Commands.Run(c, id, id);
                 Keyframer keyframer = null;
-                JoinFlags(id, true, false, false, false, null, () => { if (keyframer) keyframer.Remove(); });
+                JoinFlags(id, StartFlags.Visible, null, () => { if (keyframer) keyframer.Remove(); });
                 Commands.Handle(id, motion.OnMessage);
 
                 var shown = new List<Transform[]>();
@@ -227,7 +237,7 @@ namespace Tron
                     if (clip) sound.Play(clip, s.loop != 0, s.pitch);
                 };
                 if (s.startOn) play();
-                JoinFlags(s.obj, true, false, false, false, null, () => { sound.Source.Stop(); go.SetActive(false); });
+                JoinFlags(s.obj, StartFlags.Visible, null, () => { sound.Source.Stop(); go.SetActive(false); });
                 Commands.Handle(s.obj, m =>
                 {
                     if (m.Is("ON") || m.Is("TRIGGER")) play();
@@ -259,7 +269,7 @@ namespace Tron
                 go.transform.SetParent(parent.transform, false);
                 go.transform.localPosition = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
                 var fx = SoundButeFX.Add(go, s, clips);
-                JoinFlags(s.obj, true, false, false, false, null, () => go.SetActive(false));
+                JoinFlags(s.obj, StartFlags.Visible, null, () => go.SetActive(false));
                 Commands.Handle(s.obj, m =>
                 {
                     if (m.Is("ON")) fx.On = true;

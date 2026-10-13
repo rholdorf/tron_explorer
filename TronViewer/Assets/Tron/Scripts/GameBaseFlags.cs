@@ -12,7 +12,7 @@ namespace Tron
     //   (WorldModel::OnObjectCreated), so HIDDEN 0 shows it.
     //
     // Plain C#, no Unity, so tools/tests/test_object_messages.py compiles it with Mono; the viewer applies
-    // the flags to the object's renderers and colliders (ObjectMessages.cs).
+    // the flags to the object's renderers and colliders (LevelBuilder.Messages.cs).
     public sealed class GameBaseFlags
     {
         public bool Visible { get; private set; }
