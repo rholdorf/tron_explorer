@@ -161,3 +161,28 @@ _Avoid_: auto fade-in (the game has none)
 **Render variable**:
 A client console variable the renderer reads every frame (fog color and distances, FarZ, sky and glow fog, glow filter). Ramps and sines move it; a WorldProperties message copies every world variable back from the level's values.
 _Avoid_: cvar alone (most console variables aren't render variables), world property (that's the server's copy)
+
+### Style baseline
+
+**Style baseline**:
+The levels measured as numbers (rooms, corridors, their graph, surface mix, objects, light) for the sibling project mus-y-sinak: `tools/baseline.py`, `docs/research/style-baseline.json`.
+_Avoid_: level stats, rules
+
+**Reachable floor**:
+The floor cells a walking player can get to, flooded from the start points, exit triggers and AI volumes over the physics BSP.
+_Avoid_: navmesh, walkable area (AI volumes are the designers' own, partial, mark of it)
+
+**Room**:
+A part of the reachable floor wide enough to hold a core (about 5.2 m across), grown back to its walls; derived, not placed by the designers.
+_Avoid_: AI region (an AI territory), area, zone
+
+**Corridor**:
+Reachable floor left over between rooms: narrower than a room anywhere along it.
+_Avoid_: hallway, passage (an opening between two rooms is part of a room)
+
+**Surface family**:
+The kind of surface a world triangle is: floor-interior, floor-exterior, wall, ceiling, glass (a Translucent world model) or emissive (an Additive one).
+_Avoid_: material type, texture type
+
+**Level kind**:
+Interior (at least 70% of the reachable floor has a ceiling), open (less, or past the flood cap) or minor (under 500 m²); only interior levels feed the baseline.
