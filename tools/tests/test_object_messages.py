@@ -1,5 +1,5 @@
 """Messages to the objects the viewer builds (ticket #33): the flags every object handles (GameBaseFlags.cs)
-and the spinners' on / off state machine (SpinnerMotion.cs), compiled with Mono with the command manager
+and the spinners' on / off state machine (SpinnerMotion.cs), compiled with .NET with the command manager
 (Commands.cs) and driven frame by frame. Rules: docs/research/command-language.md "Per-class messages"
 (ltjs gamebase.cpp, worldmodel.cpp, activeworldmodel.cpp, spinningworldmodel.cpp). Expected values are
 worked by hand from those rules.
@@ -19,7 +19,7 @@ Driver lines (tab-separated):
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 
 DRIVER = r"""
@@ -105,7 +105,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "objectmessages", DRIVER, "Commands.cs", "GameBaseFlags.cs", "SpinnerMotion.cs", "KeyframerMotion.cs")
+    run_driver = cs_driver(tmp_path_factory, "objectmessages", DRIVER, "Commands.cs", "GameBaseFlags.cs", "SpinnerMotion.cs", "KeyframerMotion.cs")
 
     def run(*lines):
         out = run_driver("\n".join(lines) + "\n")

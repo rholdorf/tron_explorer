@@ -1,4 +1,4 @@
-"""The viewer's command interpreter (TronViewer/.../Commands.cs), compiled with Mono and driven line by line.
+"""The viewer's command interpreter (TronViewer/.../Commands.cs), compiled with .NET and driven line by line.
 Rules: docs/research/command-language.md (ltjs commandmgr.cpp, serverutilities.cpp, gamebase.cpp,
 group.cpp). Expected values are worked by hand from those rules.
 
@@ -22,7 +22,7 @@ import base64
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 import commands
 
@@ -102,7 +102,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "commands", DRIVER, "Commands.cs")
+    run_driver = cs_driver(tmp_path_factory, "commands", DRIVER, "Commands.cs")
 
     def run(lines):
         text = "".join("\t".join(map(str, line)) + "\n" for line in lines)

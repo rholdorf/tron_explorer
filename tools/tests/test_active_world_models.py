@@ -1,4 +1,4 @@
-"""Doors, switches and sliding/rotating world models (TronViewer/.../ActiveWorldModel.cs), compiled with Mono
+"""Doors, switches and sliding/rotating world models (TronViewer/.../ActiveWorldModel.cs), compiled with .NET
 and driven line by line. Rules: docs/research/triggers-doors.md (ltjs activeworldmodel.cpp, door.cpp).
 Expected values are worked by hand from those rules.
 
@@ -27,7 +27,7 @@ import os
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 PLAYER = 1000
 
@@ -133,7 +133,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def run(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "awm", DRIVER, "ActiveWorldModel.cs", "Commands.cs", "KeyframerMotion.cs")
+    run_driver = cs_driver(tmp_path_factory, "awm", DRIVER, "ActiveWorldModel.cs", "Commands.cs", "KeyframerMotion.cs")
 
     def go(*lines):
         text = "".join("\t".join(str(x) for x in line) + "\n" for line in lines)

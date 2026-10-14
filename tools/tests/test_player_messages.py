@@ -1,5 +1,5 @@
 """The player's messages the viewer keeps (TronViewer/.../PlayerMessages.cs): teleport, screen fades, the
-render-variable table with its ramps and sines, and the WorldProperties fog messages. Compiled with Mono
+render-variable table with its ramps and sines, and the WorldProperties fog messages. Compiled with .NET
 next to Commands.cs and driven through the command manager, as a level's commands reach them. Rules:
 docs/research/player-messages.md (branch research/player-messages; ltjs playerobj.cpp, interfacemgr.cpp,
 wavefn.cpp, worldproperties.cpp, gameclientshell.cpp; Tron's object.lto / cshell.dll for the ramps and
@@ -19,7 +19,7 @@ FogNearZ 100, FogFarZ 1000, FarZ 5000; teleport points "tp1" and "TP2" (the tele
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 
 DRIVER = r"""
@@ -80,7 +80,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "player_messages", DRIVER, "Commands.cs", "PlayerMessages.cs")
+    run_driver = cs_driver(tmp_path_factory, "player_messages", DRIVER, "Commands.cs", "PlayerMessages.cs")
 
     def run(lines):
         text = "".join("\t".join(map(str, line)) + "\n" for line in lines)

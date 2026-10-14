@@ -1,4 +1,4 @@
-"""The viewer's keyframer motion (TronViewer/.../KeyframerMotion.cs), compiled with Mono with the command
+"""The viewer's keyframer motion (TronViewer/.../KeyframerMotion.cs), compiled with .NET with the command
 manager (Commands.cs) and run frame by frame against the engine's rules (ltjs keyframer.cpp;
 docs/research/keyframer-paths.md on branch research/keyframer-paths; the messages:
 docs/research/command-language.md "Per-class messages"). Expected values are worked by hand from those
@@ -27,7 +27,7 @@ import os
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 
 DRIVER = r"""
@@ -140,7 +140,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "keyframermotion", DRIVER, "KeyframerMotion.cs", "Commands.cs")
+    run_driver = cs_driver(tmp_path_factory, "keyframermotion", DRIVER, "KeyframerMotion.cs", "Commands.cs")
 
     def call(*lines):
         return run_driver("\n".join(lines) + "\n").splitlines()

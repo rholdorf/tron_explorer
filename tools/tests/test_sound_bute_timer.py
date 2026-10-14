@@ -1,4 +1,4 @@
-"""The viewer's SoundButeFX repeat rule (TronViewer/.../SoundButeTimer.cs), compiled with Mono and run
+"""The viewer's SoundButeFX repeat rule (TronViewer/.../SoundButeTimer.cs), compiled with .NET and run
 frame by frame against sounds of a given length. Engine rule: SoundButeFX::Update (ltjs soundbutefx.cpp,
 retail object.lto 0x1022c1d0); docs/research/ambient-sound.md §7 (branch research/ambient-sound): the
 first sound at level start, the next at max(start of the last + U(MinDelay, MaxDelay), end of the last),
@@ -7,7 +7,7 @@ each a random PathN.
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 
 # stdin: min max length dt duration files seed -> stdout: one "time file" line per play
@@ -38,7 +38,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def plays(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "soundbutetimer", DRIVER, "SoundButeTimer.cs")
+    run_driver = cs_driver(tmp_path_factory, "soundbutetimer", DRIVER, "SoundButeTimer.cs")
 
     def run(min_delay, max_delay, length, duration, files=3, dt=0.25, seed=1):
         text = f"{min_delay} {max_delay} {length} {dt} {duration} {files} {seed}\n"

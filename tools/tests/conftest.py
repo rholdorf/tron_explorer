@@ -13,20 +13,46 @@ EXTRACTED = os.environ.get("TRON_EXTRACTED", "/Users/rui/src/pg/tron_explorer/ex
 SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "..", "TronViewer", "Assets", "Tron", "Scripts")
 
 
-def mono_driver(tmp_path_factory, name, source, *scripts):
-    """Compiles a C# driver (its source text) with the viewer's scripts (file names under Scripts/) with Mono,
-    skipping the test without Mono. Returns a function that runs the driver on its stdin text and returns its
-    stdout."""
-    mcs, mono = shutil.which("mcs"), shutil.which("mono")
-    if not mcs or not mono:
-        pytest.skip("Mono (mcs, mono) not installed")
+CSPROJ = """<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net{version}</TargetFramework>
+    <AssemblyName>driver</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <NoWarn>$(NoWarn);CS0162;CS0168;CS0169;CS0219;CS0414;CS0649;CS8981</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+{items}
+  </ItemGroup>
+</Project>
+"""
+
+
+def cs_driver(tmp_path_factory, name, source, *scripts):
+    """Compiles a C# driver (its source text) with the viewer's scripts (file names under Scripts/) with the
+    .NET SDK, skipping the test without one. Returns a function that runs the driver on its stdin text and
+    returns its stdout."""
+    dotnet = shutil.which("dotnet")
+    if not dotnet:
+        pytest.skip(".NET SDK (dotnet) not installed")
+    sdks = subprocess.run([dotnet, "--list-sdks"], capture_output=True, text=True).stdout.split()
+    if not sdks:
+        pytest.skip(".NET SDK (dotnet) has no SDK installed")
+    version = ".".join(sdks[0].split(".")[:2])
     d = tmp_path_factory.mktemp(name)
     (d / "Driver.cs").write_text(source)
-    exe = str(d / "driver.exe")
-    r = subprocess.run([mcs, "-langversion:latest", "-out:" + exe, str(d / "Driver.cs"),
-                        *(os.path.join(SCRIPTS, f) for f in scripts)], capture_output=True, text=True)
+    files = ["Driver.cs", *(os.path.join(SCRIPTS, f) for f in scripts)]
+    items = "\n".join(f'    <Compile Include="{f}" />' for f in files)
+    (d / "driver.csproj").write_text(CSPROJ.format(version=version, items=items))
+    r = subprocess.run([dotnet, "build", str(d / "driver.csproj"), "-c", "Release", "-o", str(d / "out"),
+                        "-nologo", "-v", "q"], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
-    return lambda text: subprocess.run([mono, exe], input=text, capture_output=True, text=True, check=True).stdout
+    dll = str(d / "out" / "driver.dll")
+    return lambda text: subprocess.run([dotnet, dll], input=text, capture_output=True, text=True, check=True).stdout
 
 
 @pytest.fixture(scope="session")

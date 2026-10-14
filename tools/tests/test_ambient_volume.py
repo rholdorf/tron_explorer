@@ -1,4 +1,4 @@
-"""The viewer's ambient sound volume (TronViewer/.../AmbientVolume.cs), compiled with Mono and checked
+"""The viewer's ambient sound volume (TronViewer/.../AmbientVolume.cs), compiled with .NET and checked
 against the engine's numbers in docs/research/ambient-sound.md (branch research/ambient-sound):
 linear falloff in LT volume between the radii (Lithtech.exe 0x4815d2), then retail SndDrv.dll's
 LT volume -> dB curve (0x10005470). AmbientVolume.cs uses only System, so it compiles outside Unity.
@@ -6,7 +6,7 @@ LT volume -> dB curve (0x10005470). AmbientVolume.cs uses only System, so it com
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 
 DRIVER = r"""
@@ -35,7 +35,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def run(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "ambientvolume", DRIVER, "AmbientVolume.cs")
+    run_driver = cs_driver(tmp_path_factory, "ambientvolume", DRIVER, "AmbientVolume.cs")
 
     def call(*queries):
         text = "\n".join(" ".join(str(x) for x in q) for q in queries) + "\n"

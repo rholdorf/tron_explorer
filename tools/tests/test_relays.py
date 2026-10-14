@@ -1,4 +1,4 @@
-"""The viewer's triggers and relays (TronViewer/.../Relays.cs), compiled with Mono with the command manager
+"""The viewer's triggers and relays (TronViewer/.../Relays.cs), compiled with .NET with the command manager
 (Commands.cs) and driven frame by frame. Rules: docs/research/triggers-doors.md (trigger.cpp,
 noplayertrigger.cpp) and docs/research/command-language.md (eventcounter.cpp with Tron's RESET,
 commandobject.cpp, game/shared/timer.h). Expected values are worked by hand from those rules.
@@ -26,7 +26,7 @@ import os
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 
 DRIVER = r"""
@@ -134,7 +134,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def driver(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "relays", DRIVER, "Commands.cs", "Relays.cs", "KeyframerMotion.cs")
+    run_driver = cs_driver(tmp_path_factory, "relays", DRIVER, "Commands.cs", "Relays.cs", "KeyframerMotion.cs")
 
     def run(lines):
         text = "".join("\t".join(map(str, line)) + "\n" for line in lines)

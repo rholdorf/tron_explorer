@@ -1,5 +1,5 @@
 """The viewer's carry of a player standing on a moving world model (TronViewer/.../Riding.cs), compiled with
-Mono and checked against the engine's rule (ltjs moveobject.cpp): MoveObject offsets everything standing on
+.NET and checked against the engine's rule (ltjs moveobject.cpp): MoveObject offsets everything standing on
 the object by the object's move; RotateWorldModel turns their positions about the world model's position
 by the rotation from the old one to the new one (backRot = old transposed, forwardRot = new). Only the
 position: the carried object's own rotation is left alone. Expected values are worked by hand.
@@ -10,7 +10,7 @@ import math
 
 import pytest
 
-from conftest import mono_driver
+from conftest import cs_driver
 
 
 DRIVER = r"""
@@ -39,7 +39,7 @@ static class Driver
 
 @pytest.fixture(scope="module")
 def carry(tmp_path_factory):
-    run_driver = mono_driver(tmp_path_factory, "riding", DRIVER, "Riding.cs", "KeyframerMotion.cs", "Commands.cs")
+    run_driver = cs_driver(tmp_path_factory, "riding", DRIVER, "Riding.cs", "KeyframerMotion.cs", "Commands.cs")
 
     def run(rider, frm, frm_pyr, to, to_pyr):
         text = " ".join(str(x) for x in ("carry", *rider, *frm, *frm_pyr, *to, *to_pyr)) + "\n"
