@@ -184,5 +184,9 @@ _Avoid_: hallway, passage (an opening between two rooms is part of a room)
 The kind of surface a world triangle is: floor-interior, floor-exterior, wall, ceiling, glass (a Translucent world model) or emissive (an Additive one).
 _Avoid_: material type, texture type
 
+**Bench glTF**:
+One level's drawn world geometry as a `.glb` in metres, one primitive per surface family plus the start point, for mus-y-sinak to try its shaders on; written under `export/bench/`, never committed.
+_Avoid_: level export (that is the viewer's `level.bin`)
+
 **Level kind**:
 Interior (at least 70% of the reachable floor has a ceiling), open (less, or past the flood cap) or minor (under 500 m²); only interior levels feed the baseline.
