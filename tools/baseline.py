@@ -4,8 +4,23 @@ docs/research/style-baseline.md.
 
 Rooms aren't marked in the levels (AIVolumes are floor tiles, AIRegions are AI territories), so they are
 derived from the reachable floor: a grid of floor cells, flooded from the start points, cut at doors.
-segment() splits it into rooms (the parts wide enough to hold a core) and corridors (the rest)."""
+segment() splits it into rooms (the parts wide enough to hold a core) and corridors (the rest).
+
+Usage: python tools/baseline.py <extracted dir> <out.json>"""
+import colorsys
+import glob
+import json
+import os
+import subprocess
+import sys
 from collections import deque
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+import dat85  # noqa: E402
+import surfaces  # noqa: E402
 
 DIAGONALS = ((1, 1), (1, -1), (-1, 1), (-1, -1))
 
@@ -95,7 +110,8 @@ def segment(adj, core, doors=(), hole=64):
 consoles), which a room flows around. A cell at least `core` cells (Chebyshev) from the edge is a room core; a room is a
     connected core grown back by core - 1 cells (a morphological opening), so a corridor narrower than
     2 * core - 1 never holds one. What's left is corridors, except scraps smaller than core² opening
-    into a single room, which are alcoves of it. Edges join nodes whose cells touch, or that touch the same door."""
+    into a single room (alcoves) or smaller than core between rooms (openings), which join the room they
+    touch most. Edges join nodes whose cells touch, or that touch the same door."""
     doors = set(doors) & set(adj)
     full = adj
     adj = {c: [a for a in n if a not in doors] for c, n in adj.items() if c not in doors}
@@ -132,8 +148,14 @@ consoles), which a room flows around. A cell at least `core` cells (Chebyshev) f
     corridors = []
     for comp in _components(set(adj) - set(owner), adj):
         touching = {owner[a] for c in comp for a in adj[c] if a in owner}
-        if len(comp) < core * core and len(touching) == 1:   # an alcove of the room it opens into
-            r = touching.pop()
+        if len(comp) < core * core and len(touching) == 1 or len(comp) < core and touching:
+            # An alcove of the room it opens into, or a scrap between rooms: part of the room it touches most.
+            contact = {}
+            for c in comp:
+                for a in adj[c]:
+                    if a in owner:
+                        contact[owner[a]] = contact.get(owner[a], 0) + 1
+            r = max(sorted(contact), key=contact.get)
             rooms[r] |= comp
             owner.update(dict.fromkeys(comp, r))
         else:
@@ -154,9 +176,6 @@ consoles), which a room flows around. A cell at least `core` cells (Chebyshev) f
 
 # ---------------------------------------------------------------- floor grid of a level
 
-import numpy as np
-
-import dat85
 
 CELL = 16.0          # grid cell, LithTech units (~27 cm)
 STEP = 18            # PlayerController.stepHeight
@@ -168,25 +187,43 @@ DOOR_MIN_HEIGHT = 96
 DOOR_MAX_THICKNESS = 64
 
 
-def _raster_plane(P, n, sink):
-    """Cell centres inside convex polygon P (xz projection), with the polygon's height there."""
-    lo = np.floor(P[:, [0, 2]].min(0) / CELL).astype(int)
-    hi = np.floor(P[:, [0, 2]].max(0) / CELL).astype(int)
-    gx, gz = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1), indexing="ij")
-    gx, gz = gx.ravel(), gz.ravel()
-    cx, cz = (gx + .5) * CELL, (gz + .5) * CELL
-    q = P[:, [0, 2]]
-    k = len(q)
-    area2 = sum(q[i][0] * q[(i + 1) % k][1] - q[(i + 1) % k][0] * q[i][1] for i in range(k))
-    s = 1 if area2 > 0 else -1
-    inside = np.ones(len(cx), bool)
-    for i in range(k):
-        a, b = q[i], q[(i + 1) % k]
-        inside &= s * ((b[0] - a[0]) * (cz - a[1]) - (b[1] - a[1]) * (cx - a[0])) >= 0
-    d = -(n @ P[0])
-    ys = -(n[0] * cx + n[2] * cz + d) / n[1]
-    for x, z, y in zip(gx[inside].tolist(), gz[inside].tolist(), ys[inside].tolist()):
-        sink.setdefault((x, z), []).append(y)
+class PlaneIndex:
+    """Non-vertical polygons bucketed by their xz bounds: the heights at which they cross a cell's centre
+    column, computed when first asked (a level's floors can be hundreds of thousands of m², mostly
+    unreachable, so rasterizing them all up front doesn't fit in memory)."""
+    BUCKET = 256.0
+
+    def __init__(self, polys):
+        self.polys = []
+        self.buckets = {}
+        self.memo = {}
+        for P, n in polys:
+            q = P[:, [0, 2]]
+            k = len(q)
+            area2 = sum(q[i][0] * q[(i + 1) % k][1] - q[(i + 1) % k][0] * q[i][1] for i in range(k))
+            i = len(self.polys)
+            self.polys.append((q, 1 if area2 > 0 else -1, n, -(n @ P[0])))
+            lo, hi = q.min(0), q.max(0)
+            for bx in range(int(lo[0] // self.BUCKET), int(hi[0] // self.BUCKET) + 1):
+                for bz in range(int(lo[1] // self.BUCKET), int(hi[1] // self.BUCKET) + 1):
+                    self.buckets.setdefault((bx, bz), []).append(i)
+
+    def heights(self, k):
+        if k not in self.memo:
+            x, z = (k[0] + .5) * CELL, (k[1] + .5) * CELL
+            out = []
+            for i in self.buckets.get((int(x // self.BUCKET), int(z // self.BUCKET)), ()):
+                q, sign, n, d = self.polys[i]
+                inside = True
+                for j in range(len(q)):
+                    a, b = q[j], q[(j + 1) % len(q)]
+                    if sign * ((b[0] - a[0]) * (z - a[1]) - (b[1] - a[1]) * (x - a[0])) < 0:
+                        inside = False
+                        break
+                if inside:
+                    out.append(-(n[0] * x + n[2] * z + d) / n[1])
+            self.memo[k] = np.array(out)
+        return self.memo[k]
 
 
 def _clip(P, axis, value, keep_above):
@@ -257,7 +294,7 @@ class FloorGrid:
 
     def __init__(self, w):
         phys = next(b for b in w.bsps if b.flags & dat85.WIF_PHYSICSBSP)
-        floors, walls, ceils, skies = {}, [], {}, {}
+        floors, walls, ceils, skies = [], [], [], []
         for surf, plane, vs in phys.polys:
             flags = int(phys.surfaces[surf]["flags"])
             if not flags & dat85.SURF_SOLID or flags & dat85.SURF_NONEXISTENT:
@@ -266,22 +303,31 @@ class FloorGrid:
             P = phys.points[list(vs)].astype(np.float64)
             if flags & dat85.SURF_SKY:
                 if abs(n[1]) > 1e-3:
-                    _raster_plane(P, n, skies)
+                    skies.append((P, n))
             elif n[1] >= 0.7:
-                _raster_plane(P, n, floors)
+                floors.append((P, n))
             elif n[1] <= -0.7:
-                _raster_plane(P, n, ceils)
+                ceils.append((P, n))
             else:
                 walls.append(P)
         self.walls = WallIndex(walls)
-        self.ceils = {k: np.array(v) for k, v in ceils.items()}
+        self.ceils = PlaneIndex(ceils)
+        self.skies = PlaneIndex(skies)
         self._cache = {}
-        self.skies = {k: np.array(v) for k, v in skies.items()}
-        layers = {k: sorted({round(y) for y in ys}) for k, ys in floors.items()}
-        # Seeds: the start and teleport points, and every AI volume's floor (the designers' own mark of
-        # walkable floor), which reaches the parts joined only by elevators or teleports.
+        floor_index = PlaneIndex(floors)
+        layer_memo = {}
+
+        def layers(k):
+            if k not in layer_memo:
+                layer_memo[k] = sorted({round(float(y)) for y in floor_index.heights(k)})
+            return layer_memo[k]
+        # Seeds: the start and teleport points, the exit triggers, and every AI volume's floor (the designers'
+        # own mark of walkable floor), which reaches the parts joined only by elevators or teleports.
         self.starts = [o["props"]["Pos"] for o in w.objects if o["class"] in ("GameStartPoint", "TeleportPoint")]
         for o in w.objects:
+            if o["class"] == "ExitTrigger" and "Pos" in o["props"]:
+                p, d = o["props"]["Pos"], o["props"].get("Dims", [0, 0, 0])
+                self.starts.append([p[0], p[1] - d[1] + 100, p[2]])
             if o["class"].startswith("AIVolume") and o["class"] != "AIVolumePlayerInfo" and "Dims" in o["props"]:
                 p, d = o["props"]["Pos"], o["props"]["Dims"]
                 self.starts.append([p[0], p[1] - d[1] + 100, p[2]])
@@ -292,7 +338,7 @@ class FloorGrid:
             for dx in (-1, 0, 1):
                 for dz in (-1, 0, 1):
                     kk = (k[0] + dx, k[1] + dz)
-                    for y in layers.get(kk, []):
+                    for y in layers(kk):
                         if s[1] - 200 <= y <= s[1] + 10 and (*kk, y) not in self.floor and self._ok(kk, y):
                             self.floor[(*kk, y)] = y
                             q.append((*kk, y))
@@ -301,7 +347,7 @@ class FloorGrid:
             n = []
             for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 kk = (c[0] + dx, c[1] + dz)
-                for y in layers.get(kk, []):
+                for y in layers(kk):
                     if abs(y - c[2]) <= STEP and self._ok(kk, y):
                         a = (*kk, y)
                         n.append(a)
@@ -318,10 +364,10 @@ class FloorGrid:
             self.adj.setdefault(c, [])
         self.ceiling, self.sky = {}, {}
         for c, y in self.floor.items():
-            above = self.ceils.get(c[:2])
-            ceil = above[above > y + 1].min() if above is not None and (above > y + 1).any() else None
-            sky = self.skies.get(c[:2])
-            sky = sky[sky > y + 1].min() if sky is not None and (sky > y + 1).any() else None
+            above = self.ceils.heights(c[:2])
+            ceil = float(above[above > y + 1].min()) if (above > y + 1).any() else None
+            sky = self.skies.heights(c[:2])
+            sky = float(sky[sky > y + 1].min()) if (sky > y + 1).any() else None
             self.ceiling[c] = ceil
             self.sky[c] = ceil is None or (sky is not None and sky < ceil)
 
@@ -335,8 +381,8 @@ class FloorGrid:
         x0, z0 = k[0] * CELL, k[1] * CELL
         if self.walls.crosses(x0, z0, x0 + CELL, z0 + CELL, y + WALL_BAND[0], y + WALL_BAND[1]):
             return False
-        c = self.ceils.get(k)
-        return c is None or not ((c > y + 1) & (c < y + HEADROOM)).any()
+        c = self.ceils.heights(k)
+        return not ((c > y + 1) & (c < y + HEADROOM)).any()
 
     def door_cells(self, w):
         """Floor cells under a door: inside its world model's xz bounds, near its bottom. Only upright thin
@@ -353,8 +399,332 @@ class FloorGrid:
             ext = hi - lo
             if ext[1] < DOOR_MIN_HEIGHT or min(ext[0], ext[2]) > DOOR_MAX_THICKNESS:
                 continue
+            # Doors are thinner than a cell (12 units is common): take every cell the panel overlaps.
             for c, y in self.floor.items():
-                x, z = (c[0] + .5) * CELL, (c[1] + .5) * CELL
-                if lo[0] <= x <= hi[0] and lo[2] <= z <= hi[2] and lo[1] - 40 <= y <= lo[1] + 40:
+                x, z = c[0] * CELL, c[1] * CELL
+                if x < hi[0] and x + CELL > lo[0] and z < hi[2] and z + CELL > lo[2] and lo[1] - 40 <= y <= lo[1] + 40:
                     out.add(c)
         return out
+
+
+# ---------------------------------------------------------------- measuring a level
+
+
+METRES = 0.017       # LT.Scale: player dims 106 units ~ 1.8 m; the commonest door (128) ~ 2.18 m
+CORE = 10            # room core, cells: a room is at least 2 * CORE - 1 cells (~5.2 m) wide somewhere
+EDGE = 3             # cells (~0.8 m): an object this close to the room's edge stands at the wall
+INTERIOR = 0.7       # a level is interior when this share of its reachable floor has a ceiling
+MIN_AREA = 500       # m²: smaller levels (the ending, the last boss's arena) are minor, left out
+CATEGORIES = {
+    "light": {"Light", "DirLight", "ObjectLight", "StaticSunLight"},
+    "prop": {"Prop", "PropType", "ArchiveBin", "Breakable"},
+    "panel": {"SlidingSwitch", "RotatingSwitch", "InfoString", "DisplayTimer", "DisplayMeter", "BinaryBit",
+              "IONode"},
+    "character": {"CAIHuman"},
+}
+
+
+def _m(cells):
+    return cells * CELL * METRES
+
+
+def _median(xs):
+    xs = sorted(xs)
+    return xs[len(xs) // 2] if xs else None
+
+
+class LevelMeasure:
+    def __init__(self, w, name):
+        self.name = name
+        self.w = w
+        self.grid = g = FloorGrid(w)
+        if g.open:
+            return   # past the flood cap: an open space, recorded but not split into rooms
+        self.doors = g.door_cells(w)
+        self.seg = s = segment(g.adj, core=CORE, doors=self.doors)
+        self.columns = {}
+        for c, y in g.floor.items():
+            self.columns.setdefault(c[:2], []).append(c)
+        self.node = {c: f"r{i}" for i, r in enumerate(s.rooms) for c in r}
+        self.node.update({c: f"c{i}" for i, comp in enumerate(s.corridors) for c in comp})
+
+    def cell_at(self, pos, reach=1024):
+        """The floor cell an object at pos stands over: the highest floor at most 16 below it, within
+        `reach` (or under its ceiling)."""
+        k = (int(pos[0] // CELL), int(pos[2] // CELL))
+        best = None
+        for c in self.columns.get(k, ()):
+            y = self.grid.floor[c]
+            top = self.grid.ceiling[c] if self.grid.ceiling[c] is not None else y + reach
+            if y - 16 <= pos[1] <= top + 16 and (best is None or y > self.grid.floor[best]):
+                best = c
+        return best
+
+    def _side(self, c, axis, step):
+        n, cur = 0, c
+        while n <= EDGE:
+            nxt = next((a for a in self.seg.adj.get(cur, ()) if a[axis] == cur[axis] + step
+                        and a[1 - axis] == cur[1 - axis]), None)
+            if nxt is None:
+                break
+            n, cur = n + 1, nxt
+        return n
+
+    def placement(self, c):
+        near_x = min(self._side(c, 0, 1), self._side(c, 0, -1)) < EDGE
+        near_z = min(self._side(c, 1, 1), self._side(c, 1, -1)) < EDGE
+        return "corner" if near_x and near_z else "wall" if near_x or near_z else "center"
+
+    def space(self, cells):
+        g = self.grid
+        heights = [g.ceiling[c] - g.floor[c] for c in cells if not g.sky[c]]
+        xs = [c[0] for c in cells]
+        zs = [c[1] for c in cells]
+        extent = sorted([max(xs) - min(xs) + 1, max(zs) - min(zs) + 1])
+        return {
+            "area": round(len(cells) * (CELL * METRES) ** 2, 2),
+            "width": round(_m(self.seg.width(cells)), 2),
+            "extentShort": round(_m(extent[0]), 2),
+            "extentLong": round(_m(extent[1]), 2),
+            "ceilingHeight": round(_median(heights) * METRES, 2) if heights else None,
+            "skyShare": round(sum(g.sky[c] for c in cells) / len(cells), 3),
+            "floorY": round(_median([g.floor[c] for c in cells]) * METRES, 2),
+        }
+
+    def graph(self):
+        nodes = [f"r{i}" for i in range(len(self.seg.rooms))] + [f"c{i}" for i in range(len(self.seg.corridors))]
+        degree = dict.fromkeys(nodes, 0)
+        for a, b in self.seg.edges:
+            degree[a] += 1
+            degree[b] += 1
+        adj = {n: [] for n in nodes}
+        for a, b in self.seg.edges:
+            adj[a].append(b)
+            adj[b].append(a)
+        comps = _components(set(nodes), adj)
+        # Elevators, platforms and teleports aren't in the physics BSP, so a level's graph comes apart into
+        # components; the start and the exit are seldom in the same one. Measure the largest instead.
+        largest = max(comps, key=len) if comps else set()
+        diameter = 0
+        for n in sorted(largest):
+            far = {n: 0}
+            q = deque([n])
+            while q:
+                x = q.popleft()
+                for a in adj[x]:
+                    if a not in far:
+                        far[a] = far[x] + 1
+                        q.append(a)
+            diameter = max(diameter, max(far.values()))
+        return {
+            "rooms": len(self.seg.rooms),
+            "corridors": len(self.seg.corridors),
+            "edges": len(self.seg.edges),
+            "components": len(comps),
+            "cycles": len(self.seg.edges) - len(nodes) + len(comps),
+            "roomDegree": [degree[f"r{i}"] for i in range(len(self.seg.rooms))],
+            "corridorDegree": [degree[f"c{i}"] for i in range(len(self.seg.corridors))],
+            "deadEnds": sum(1 for d in degree.values() if d == 1),
+            "largestComponentShare": round(len(largest) / max(len(nodes), 1), 3),
+            "largestComponentDiameter": diameter,
+        }
+
+    def objects(self):
+        per = {f"r{i}": {k: 0 for k in CATEGORIES} | {"door": 0} for i in range(len(self.seg.rooms))}
+        placements = {k: {"wall": 0, "center": 0, "corner": 0} for k in CATEGORIES}
+        lights = []
+        for o in self.w.objects:
+            cat = next((k for k, v in CATEGORIES.items() if o["class"] in v), None)
+            if cat is None or "Pos" not in o["props"]:
+                continue
+            if cat == "light":
+                col = o["props"].get("LightColor") or o["props"].get("InnerColor")
+                if col:
+                    lights.append([round(float(v)) for v in col[:3]])
+            c = self.cell_at(o["props"]["Pos"])
+            if c is None or not self.node.get(c, "").startswith("r"):
+                continue
+            per[self.node[c]][cat] += 1
+            placements[cat][self.placement(c)] += 1
+        for d in _components(self.doors, self.grid.adj):
+            touching = {self.node[a] for c in d for a in self.grid.adj[c] if a in self.node}
+            for n in touching:
+                if n.startswith("r"):
+                    per[n]["door"] += 1
+        return per, placements, lights
+
+    def surface_mix(self):
+        fams, area = surfaces.classify(self.w)
+        v, *_ = surfaces.world_triangles(self.w)
+        centroid = v.mean(1)
+        out = dict.fromkeys(surfaces.FAMILIES, 0.0)
+        for k in range(len(fams)):
+            p = centroid[k]
+            kx, kz = int(p[0] // CELL), int(p[2] // CELL)
+            near = False
+            for dx in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for c in self.columns.get((kx + dx, kz + dz), ()):
+                        y, top = self.grid.floor[c], self.grid.ceiling[c]
+                        if y - 8 <= p[1] <= (top + 8 if top is not None else y + 512):
+                            near = True
+                            break
+                    if near:
+                        break
+                if near:
+                    break
+            if near:
+                out[fams[k]] += float(area[k]) * METRES ** 2
+        return {k: round(v, 1) for k, v in out.items()}
+
+    def result(self):
+        g = self.grid
+        if g.open:
+            return {"level": self.name, "kind": "open", "reachableArea": None, "note":
+                    f"flood stopped at {MAX_CELLS} cells ({round(MAX_CELLS * (CELL * METRES) ** 2)} m2)"}
+        rooms = [self.space(r) for r in self.seg.rooms]
+        corridors = [self.space(c) | {"length": round(len(c) * (CELL * METRES) ** 2 / max(_m(self.seg.width(c)), 1e-6), 2)}
+                     for c in self.seg.corridors]
+        per, placements, lights = self.objects()
+        for room, counts in zip(rooms, per.values()):
+            room["objects"] = counts
+        interior = 1 - sum(g.sky.values()) / max(len(g.sky), 1)
+        ai = [o for o in self.w.objects if o["class"].startswith("AIVolume") and o["class"] != "AIVolumePlayerInfo"]
+        return {
+            "level": self.name,
+            "kind": "open" if interior < INTERIOR else "minor" if len(g.floor) * (CELL * METRES) ** 2 < MIN_AREA
+                    else "interior",
+            "reachableArea": round(len(g.floor) * (CELL * METRES) ** 2, 1),
+            "interiorShare": round(interior, 3),
+            "aiVolumeShare": round(self._ai_share(ai), 3),
+            "rooms": rooms,
+            "corridors": corridors,
+            "graph": self.graph(),
+            "placements": placements,
+            "lightColors": lights,
+            "surfaceArea": self.surface_mix(),
+        }
+
+    def _ai_share(self, vols):
+        boxes = []
+        for o in vols:
+            p, d = np.array(o["props"]["Pos"]), np.array(o["props"].get("Dims", [0, 0, 0]), float)
+            if round((o["props"].get("Rotation") or [0, 0, 0, 0])[1] / (np.pi / 2)) % 2:
+                d = d[[2, 1, 0]]
+            boxes.append((p - d, p + d))
+        if not boxes or not self.grid.floor:
+            return 0.0
+        lo = np.array([b[0] for b in boxes])
+        hi = np.array([b[1] for b in boxes])
+        hit = 0
+        for c, y in self.grid.floor.items():
+            x, z = (c[0] + .5) * CELL, (c[1] + .5) * CELL
+            if ((lo[:, 0] <= x) & (x <= hi[:, 0]) & (lo[:, 2] <= z) & (z <= hi[:, 2]) &
+                    (lo[:, 1] - 40 <= y) & (y <= hi[:, 1] + 24)).any():
+                hit += 1
+        return hit / len(self.grid.floor)
+
+
+# ---------------------------------------------------------------- the baseline file
+
+
+SCHEMA_VERSION = 1
+PERCENTILES = (5, 25, 50, 75, 95)
+
+
+def _pct(xs):
+    xs = [x for x in xs if x is not None]
+    if not xs:
+        return None
+    return {f"p{p}": round(float(np.percentile(xs, p)), 3) for p in PERCENTILES} | {"n": len(xs)}
+
+
+def _hue(rgb):
+    h, s, v = colorsys.rgb_to_hsv(*(c / 255 for c in rgb))
+    return "grey" if s < 0.15 else ["red", "orange", "yellow", "lime", "green", "teal", "cyan", "azure", "blue",
+                                     "violet", "magenta", "pink"][int(h * 12 + 0.5) % 12]
+
+
+def summarize(levels):
+    """Percentiles over the interior levels' raw samples."""
+    inner = [l for l in levels if l["kind"] == "interior"]
+    rooms = [r for l in inner for r in l["rooms"]]
+    corridors = [c for l in inner for c in l["corridors"]]
+    out = {
+        "levels": [l["level"] for l in inner],
+        "room": {k: _pct([r[k] for r in rooms]) for k in ("area", "width", "extentShort", "extentLong",
+                                                          "ceilingHeight")},
+        "corridor": {k: _pct([c[k] for c in corridors]) for k in ("width", "length", "area", "ceilingHeight")},
+        "perLevel": {
+            "rooms": _pct([l["graph"]["rooms"] for l in inner]),
+            "corridors": _pct([l["graph"]["corridors"] for l in inner]),
+            "cycles": _pct([l["graph"]["cycles"] for l in inner]),
+            "deadEndShare": _pct([l["graph"]["deadEnds"] / max(l["graph"]["rooms"] + l["graph"]["corridors"], 1)
+                                  for l in inner]),
+            "reachableArea": _pct([l["reachableArea"] for l in inner]),
+            "components": _pct([l["graph"]["components"] for l in inner]),
+            "largestComponentShare": _pct([l["graph"]["largestComponentShare"] for l in inner]),
+            "largestComponentDiameter": _pct([l["graph"]["largestComponentDiameter"] for l in inner]),
+        },
+        "degree": {
+            "room": _pct([d for l in inner for d in l["graph"]["roomDegree"]]),
+            "corridor": _pct([d for l in inner for d in l["graph"]["corridorDegree"]]),
+        },
+        "objectsPer100m2": {k: _pct([r["objects"][k] / r["area"] * 100 for r in rooms if r["area"] > 0])
+                            for k in (*CATEGORIES, "door")},
+    }
+    place = {}
+    for l in inner:
+        for cat, counts in l["placements"].items():
+            for where, n in counts.items():
+                place.setdefault(cat, {}).setdefault(where, 0)
+                place[cat][where] += n
+    out["placementShare"] = {cat: {k: round(v / max(sum(c.values()), 1), 3) for k, v in c.items()}
+                             for cat, c in place.items()}
+    hues = {}
+    for l in inner:
+        for rgb in l["lightColors"]:
+            hues[_hue(rgb)] = hues.get(_hue(rgb), 0) + 1
+    out["lightHueShare"] = {k: round(v / max(sum(hues.values()), 1), 3) for k, v in sorted(hues.items())}
+    surf = dict.fromkeys(surfaces.FAMILIES, 0.0)
+    for l in inner:
+        for k, v in l["surfaceArea"].items():
+            surf[k] += v
+    out["surfaceShare"] = {k: round(v / max(sum(surf.values()), 1e-9), 3) for k, v in surf.items()}
+    return out
+
+
+def main():
+    extracted, out = sys.argv[1], sys.argv[2]
+    paths = sorted(glob.glob(os.path.join(extracted, "worlds", "retailsingleplayer", "*.dat")))
+    levels = []
+    for p in paths:
+        name = os.path.basename(p)[:-4]
+        if name.endswith("cin"):
+            continue
+        r = LevelMeasure(dat85.load(p), name).result()
+        if "graph" in r:
+            print(f"{name:8s} {r['kind']:8s} {r['reachableArea']:9.0f} m2  rooms {r['graph']['rooms']:3d}  "
+                  f"corridors {r['graph']['corridors']:3d}  ai {r['aiVolumeShare']:.2f}", flush=True)
+        else:
+            print(f"{name:8s} {r['kind']:8s} {r['note']}", flush=True)
+        levels.append(r)
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                            cwd=os.path.dirname(os.path.abspath(__file__))).stdout.strip()
+    doc = {
+        "schemaVersion": SCHEMA_VERSION,
+        "provenance": {"repo": "rholdorf/tron_explorer", "commit": commit, "tool": "tools/baseline.py",
+                       "source": "Tron 2.0 retail single-player levels (cinematics left out)"},
+        "units": {"length": "m", "area": "m2", "metresPerUnit": METRES},
+        "method": {"cellUnits": CELL, "coreCells": CORE, "edgeCells": EDGE, "interiorThreshold": INTERIOR, "minAreaM2": MIN_AREA,
+                   "stepUnits": STEP, "headroomUnits": HEADROOM, "maxCells": MAX_CELLS},
+        "baseline": summarize(levels),
+        "levels": levels,
+    }
+    with open(out, "w") as f:
+        json.dump(doc, f, indent=1, default=float)
+        f.write("\n")
+
+
+if __name__ == "__main__":
+    main()

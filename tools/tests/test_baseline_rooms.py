@@ -74,3 +74,10 @@ def test_a_long_thin_wall_still_separates():
     u = grid((0, 0, 40, 3), (0, 4, 40, 7), (39, 3, 40, 4))
     s = baseline.segment(neighbours(u), core=4)
     assert s.rooms == []
+
+
+def test_a_scrap_between_two_rooms_is_an_opening_not_a_corridor():
+    s = baseline.segment(neighbours(grid((0, 0, 20, 20), (20, 9, 22, 10), (22, 0, 42, 20))), core=4)
+    assert len(s.rooms) == 2
+    assert s.corridors == []
+    assert s.edges == {("r0", "r1")}
