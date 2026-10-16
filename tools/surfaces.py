@@ -52,35 +52,51 @@ class CoverCaster:
 RENDERED_SHADERS = {1, 4, 8, 9}   # gouraud, lightmap_texture, dualtexture, lightmap_dualtexture (not skypan)
 
 
-def world_triangles(w):
-    """Every drawn world triangle: (verts (n, 3, 3), summed vertex normals (n, 3), texture names (n,),
-    owner BlendMode (n,)). The main
-    world's render blocks, then each world model's under its object's BlendMode; sky objects are left out."""
-    blend = {}
+def world_sections(w):
+    """Every rendered world section in draw order: (owner name, BlendMode, drawn at start, block, section
+    index, section, triangle vertex indices). The main world's render blocks, then each world model's under
+    its object's BlendMode; sky objects are left out. "Drawn at start" is the owning object's Visible and not
+    StartHidden, as the viewer builds it (the main world always is)."""
+    props = {}
     for o in w.objects:
         name = o["props"].get("Name", "")
-        if name and "BlendMode" in o["props"]:
-            blend[name.lower()] = o["props"]["BlendMode"]
+        if name:
+            props[name.lower()] = o["props"]
     sky = {str(o["props"].get("SkyObjectName", "")).lower() for o in w.objects if o["class"] == "SkyPointer"}
-    verts, vnormals, texs, modes = [], [], [], []
 
-    def add(blocks, mode):
+    def walk(name, blocks, mode, drawn):
         for b in blocks:
             i = 0
-            for s in b.sections:
+            for si, s in enumerate(b.sections):
                 tris = b.tris[i:i + s.tri_count]
                 i += s.tri_count
-                if s.shader not in RENDERED_SHADERS or not len(tris):
-                    continue
-                verts.append(b.verts["pos"][tris])
-                vnormals.append(b.verts["normal"][tris].sum(1))
-                texs.extend([s.textures[0]] * len(tris))
-                modes.extend([mode] * len(tris))
+                if s.shader in RENDERED_SHADERS and len(tris):
+                    yield name, mode, drawn, b, si, s, tris
 
-    add(w.render.blocks, "None")
+    yield from walk("", w.render.blocks, "None", True)
     for rw in w.render.world_models:
-        if rw.name.lower() not in sky:
-            add(rw.blocks, blend.get(rw.name.lower(), "None"))
+        if rw.name.lower() in sky:
+            continue
+        p = props.get(rw.name.lower(), {})
+        drawn = bool(p.get("Visible", True)) and not bool(p.get("StartHidden", False))
+        yield from walk(rw.name, rw.blocks, p.get("BlendMode", "None"), drawn)
+
+
+def world_drawn(w):
+    """Whether each world_triangles triangle is drawn when the level starts (its owner's Visible, not
+    StartHidden)."""
+    return np.concatenate([np.full(len(t), d) for _n, _m, d, _b, _si, _s, t in world_sections(w)] or [np.zeros(0, bool)])
+
+
+def world_triangles(w):
+    """Every rendered world triangle: (verts (n, 3, 3), summed vertex normals (n, 3), texture names (n,),
+    owner BlendMode (n,)), in world_sections order."""
+    verts, vnormals, texs, modes = [], [], [], []
+    for _name, mode, _drawn, b, _si, s, tris in world_sections(w):
+        verts.append(b.verts["pos"][tris])
+        vnormals.append(b.verts["normal"][tris].sum(1))
+        texs.extend([s.textures[0]] * len(tris))
+        modes.extend([mode] * len(tris))
     if not verts:
         return np.zeros((0, 3, 3)), np.zeros((0, 3)), np.array([], object), np.array([], object)
     return (np.concatenate(verts).astype(np.float64), np.concatenate(vnormals).astype(np.float64),

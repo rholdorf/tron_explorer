@@ -197,7 +197,7 @@ A render of a level with its original textures and lightmaps from one of mus-y-s
 _Avoid_: screenshot (any capture), shot (mus-y-sinak's name for the pose itself)
 
 **Bench glTF**:
-One level's drawn world geometry as a `.glb` in metres, one primitive per surface family plus the start point, for mus-y-sinak to try its shaders on; written under `export/bench/`, never committed.
+One level's world geometry as drawn at start, as a `.glb` in metres, for mus-y-sinak to try its shaders on: one primitive per surface family, texture, animated and overlay, each carrying its render roles (blend, overlay, glow, light, colour), plus the start point; written under `export/bench/`, never committed.
 _Avoid_: level export (that is the viewer's `level.bin`)
 
 **Level kind**:
