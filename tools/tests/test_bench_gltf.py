@@ -98,11 +98,12 @@ def test_each_primitive_is_one_family_texture_animated_overlay(bench):
     keys = []
     for p in doc["meshes"][0]["primitives"]:
         x = p["extras"]
-        assert set(x) == {"texture", "blend", "animated", "effect", "overlay", "glow", "glowColor", "color",
+        assert set(x) == {"texture", "blend", "animated", "effect", "overlay", "glow", "glowCoverage", "glowSpread",
+                          "glowColor", "color",
                           "lightmap", "vertexLight", "triangles"}
         assert x["triangles"] == doc["accessors"][p["attributes"]["POSITION"]]["count"] // 3
         assert x["animated"] == (x["texture"].lower().endswith(".spr") or x["effect"] is not None)
-        assert 0 <= x["glow"] <= 1
+        assert 0 <= x["glow"] <= 1 and 0 <= x["glowCoverage"] <= 1 and 0 <= x["glowSpread"] <= 0.5 + 1e-9
         assert x["lightmap"] is None or 0 <= x["lightmap"] <= 2
         assert x["lightmap"] is not None or x["vertexLight"] is not None
         keys.append((p["material"], x["texture"].lower(), x["animated"], x["overlay"]))
@@ -135,3 +136,14 @@ def test_an_overlay_is_a_decal_just_in_front_of_another_texture():
     n = np.tile([0.0, 1.0, 0.0], (4, 1))
     got = bench_gltf.overlays(v, n, np.array(["floor", "decal", "decal", "decal"], object))
     assert got.tolist() == [False, True, False, False]
+
+
+def test_glow_coverage_and_spread_tell_a_sheet_of_light_from_a_pattern():
+    sheet = np.full((8, 8, 4), 200, np.uint8)                      # alpha the same everywhere
+    pattern = np.zeros((8, 8, 4), np.uint8)
+    pattern[:, :4, 3] = 255                                        # half the texels lit, half not
+    _c, glow, _gc, coverage, spread = bench_gltf.frame_stats(sheet, True)
+    assert spread < 1e-9 and coverage == 1 and glow == pytest.approx(200 / 255)
+    _c, glow, _gc, coverage, spread = bench_gltf.frame_stats(pattern, True)
+    assert coverage == pytest.approx(0.5) and spread == pytest.approx(0.5) and glow == pytest.approx(0.5)
+    assert bench_gltf.frame_stats(pattern, False)[1:2] + bench_gltf.frame_stats(pattern, False)[3:] == (0, 0, 0)

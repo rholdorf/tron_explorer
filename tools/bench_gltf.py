@@ -7,6 +7,8 @@ One primitive per surface family x texture x animated x overlay, so every number
   research/texture-animation), effect: that effect's name or null
 - overlay: the triangles lie just in front of another texture's surface, facing the same way (a decal)
 - glow: the share of a fullbright texture that lights itself (mean alpha, 0-1; 0 when not fullbright),
+  glowCoverage: the share of its texels with alpha >= 0.5, glowSpread: the standard deviation of its alpha
+  (0-0.5; low = a sheet of light, high = a lit pattern on a dark plate), both 0 when not fullbright,
   glowColor: its mean rgb * alpha, color: its mean rgb (linear RGB, sprites averaged over their frames)
 - lightmap: area-weighted mean luminance of the lightmap as the engine applies it (x2, 0-2, 1 = the texture as
   drawn), over the primitive's lightmapped triangles; null when none is. vertexLight: the same for the
@@ -71,16 +73,19 @@ def _linear(c):
     return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
 
 
+def frame_stats(rgba, fullbright):
+    """(color, glow, glowColor, glowCoverage, glowSpread) of one RGBA uint8 frame."""
+    px = rgba.reshape(-1, 4).astype(np.float64) / 255
+    rgb, a = _linear(px[:, :3]), px[:, 3] if fullbright else np.zeros(len(px))
+    return rgb.mean(0), a.mean(), (rgb * a[:, None]).mean(0), (a >= 0.5).mean() if fullbright else 0.0, a.std()
+
+
 def texture_stats(root, name):
-    """(color, glow, glowColor) of a texture, averaged over a sprite's frames; None when it can't be read."""
-    out = []
-    for rgba, fullbright in dtx.frames(root, name):
-        px = rgba.reshape(-1, 4).astype(np.float64) / 255
-        rgb, a = _linear(px[:, :3]), px[:, 3] if fullbright else np.zeros(len(px))
-        out.append((rgb.mean(0), a.mean(), (rgb * a[:, None]).mean(0)))
+    """frame_stats of a texture, averaged over a sprite's frames; None when it can't be read."""
+    out = [frame_stats(rgba, fullbright) for rgba, fullbright in dtx.frames(root, name)]
     if not out:
         return None
-    return tuple(np.mean([o[k] for o in out], axis=0) for k in range(3))
+    return tuple(np.mean([o[k] for o in out], axis=0) for k in range(5))
 
 
 def section_light(w):
@@ -220,6 +225,8 @@ def build(w, level, root):
             "texture": texs[sel[0]], "blend": modes[sel[0]], "animated": anim,
             "effect": effect[0][0] if effect else None, "overlay": ov,
             "glow": round(float(st[1]), 4) if st else 0.0,
+            "glowCoverage": round(float(st[3]), 4) if st else 0.0,
+            "glowSpread": round(float(st[4]), 4) if st else 0.0,
             "glowColor": [round(float(c), 4) for c in st[2]] if st else [0.0, 0.0, 0.0],
             "color": [round(float(c), 4) for c in st[0]] if st else None,
             "lightmap": round(float(np.average(lms[sel][lit], weights=wt[lit])), 4) if lit.any() else None,
