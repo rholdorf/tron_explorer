@@ -184,9 +184,13 @@ _Avoid_: hallway, passage (an opening between two rooms is part of a room)
 The kind of surface a world triangle is: floor-interior, floor-exterior, wall, ceiling, glass (a Translucent world model) or emissive (an Additive one).
 _Avoid_: material type, texture type
 
-**Texture class**:
-What a surface depicts, read from its texture's name: structure, furniture, console, screen, panel and the like; a texture nobody has classed is structure. Independent of the surface family: a console's top is a floor-interior in the console class.
-_Avoid_: material, surface type, prop (props are models, not world geometry)
+**Overlay**:
+A world triangle lying just in front of another texture's surface and drawn over it: a decal. A property of the triangle, not of its texture; the same texture can be an overlay in one place and a surface in another.
+_Avoid_: decal (fine in speech, but the bench says overlay), detail (a texture folder name)
+
+**Glow**:
+The share of a fullbright texture that lights itself, given by its alpha channel: where alpha is high the texel ignores the level's lighting and feeds the glow. A texture that isn't fullbright has no glow.
+_Avoid_: emissive (that is the surface family of Additive world models), self-illumination
 
 **Reference-panel capture**:
 A render of a level with its original textures and lightmaps from one of mus-y-sinak's reference-panel camera poses, shown beside the film frame and mus-y-sinak's own render of the same shot.
