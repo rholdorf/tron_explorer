@@ -184,6 +184,14 @@ _Avoid_: hallway, passage (an opening between two rooms is part of a room)
 The kind of surface a world triangle is: floor-interior, floor-exterior, wall, ceiling, glass (a Translucent world model) or emissive (an Additive one).
 _Avoid_: material type, texture type
 
+**Texture class**:
+What a surface depicts, read from its texture's name: structure, furniture, console, screen, panel and the like; a texture nobody has classed is structure. Independent of the surface family: a console's top is a floor-interior in the console class.
+_Avoid_: material, surface type, prop (props are models, not world geometry)
+
+**Reference-panel capture**:
+A render of a level with its original textures and lightmaps from one of mus-y-sinak's reference-panel camera poses, shown beside the film frame and mus-y-sinak's own render of the same shot.
+_Avoid_: screenshot (any capture), shot (mus-y-sinak's name for the pose itself)
+
 **Bench glTF**:
 One level's drawn world geometry as a `.glb` in metres, one primitive per surface family plus the start point, for mus-y-sinak to try its shaders on; written under `export/bench/`, never committed.
 _Avoid_: level export (that is the viewer's `level.bin`)
