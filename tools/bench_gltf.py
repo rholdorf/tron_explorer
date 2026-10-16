@@ -8,11 +8,15 @@ One primitive per surface family x texture x animated x overlay, so every number
 - overlay: the triangles lie just in front of another texture's surface, facing the same way (a decal)
 - glow: the share of a fullbright texture that lights itself (mean alpha, 0-1; 0 when not fullbright),
   glowCoverage: the share of its texels with alpha >= 0.5, glowSpread: the standard deviation of its alpha
-  (0-0.5; low = a sheet of light, high = a lit pattern on a dark plate), both 0 when not fullbright,
+  (0-0.5; low = a sheet of light, high = a lit pattern on a dark plate), glowFloor: its alpha at the 10th
+  percentile (the glow over the whole surface: a sheet's level, 0 for a pattern), all 0 when not fullbright,
   glowColor: its mean rgb * alpha, color: its mean rgb (linear RGB, sprites averaged over their frames)
 - lightmap: area-weighted mean luminance of the lightmap as the engine applies it (x2, 0-2, 1 = the texture as
   drawn), over the primitive's lightmapped triangles; null when none is. vertexLight: the same for the
   vertex colours (the light of triangles without a lightmap), null when every triangle has a lightmap
+The asset's extras also carry the level's fog and glow fog as it starts (WorldProperties; distances in
+metres): the fog mixes towards its colour from near to far; the screen glow fades out from near (full) to far
+(none), so a surface's glow depends on its distance as well as on these numbers.
 Triangles the level doesn't draw at start (world models not Visible, or StartHidden) are left out.
 
 Axes: LithTech is left-handed (x right, y up, z forward) like Unity; glTF is right-handed. x is negated
@@ -74,10 +78,11 @@ def _linear(c):
 
 
 def frame_stats(rgba, fullbright):
-    """(color, glow, glowColor, glowCoverage, glowSpread) of one RGBA uint8 frame."""
+    """(color, glow, glowColor, glowCoverage, glowSpread, glowFloor) of one RGBA uint8 frame."""
     px = rgba.reshape(-1, 4).astype(np.float64) / 255
     rgb, a = _linear(px[:, :3]), px[:, 3] if fullbright else np.zeros(len(px))
-    return rgb.mean(0), a.mean(), (rgb * a[:, None]).mean(0), (a >= 0.5).mean() if fullbright else 0.0, a.std()
+    return (rgb.mean(0), a.mean(), (rgb * a[:, None]).mean(0), (a >= 0.5).mean() if fullbright else 0.0, a.std(),
+            np.percentile(a, 10))
 
 
 def texture_stats(root, name):
@@ -85,7 +90,7 @@ def texture_stats(root, name):
     out = [frame_stats(rgba, fullbright) for rgba, fullbright in dtx.frames(root, name)]
     if not out:
         return None
-    return tuple(np.mean([o[k] for o in out], axis=0) for k in range(5))
+    return tuple(np.mean([o[k] for o in out], axis=0) for k in range(6))
 
 
 def section_light(w):
@@ -170,6 +175,17 @@ def overlays(v, normal, texs):
     return out
 
 
+def level_fog(w):
+    """{"fog": {enabled, color 0-255, near, far}, "glowFog": {enabled, near, far}}, distances in metres, from
+    the level's WorldProperties as it starts."""
+    p = next((o["props"] for o in w.objects if o["class"] == "WorldProperties"), {})
+    m = lambda k, d: round(float(p.get(k, d)) * METRES, 3)   # noqa: E731
+    return {"fog": {"enabled": bool(p.get("FogEnable", False)), "color": [float(c) for c in p.get("FogColor", [0, 0, 0])],
+                    "near": m("FogNearZ", 0), "far": m("FogFarZ", 0)},
+            "glowFog": {"enabled": bool(p.get("GlowFogEnable", False)), "near": m("GlowFogNearZ", 0),
+                        "far": m("GlowFogFarZ", 0)}}
+
+
 def build(w, level, root):
     """(glTF JSON dict, binary buffer, triangles per family) for a loaded level; `root` is the extracted
     game directory the textures are read from."""
@@ -227,6 +243,7 @@ def build(w, level, root):
             "glow": round(float(st[1]), 4) if st else 0.0,
             "glowCoverage": round(float(st[3]), 4) if st else 0.0,
             "glowSpread": round(float(st[4]), 4) if st else 0.0,
+            "glowFloor": round(float(st[5]), 4) if st else 0.0,
             "glowColor": [round(float(c), 4) for c in st[2]] if st else [0.0, 0.0, 0.0],
             "color": [round(float(c), 4) for c in st[0]] if st else None,
             "lightmap": round(float(np.average(lms[sel][lit], weights=wt[lit])), 4) if lit.any() else None,
@@ -246,7 +263,7 @@ def build(w, level, root):
     doc = {
         "asset": {"version": "2.0", "generator": "tron_explorer tools/bench_gltf.py",
                   "extras": {"repo": "rholdorf/tron_explorer", "commit": commit, "level": level,
-                             "metresPerUnit": METRES, "trianglesPerFamily": counts,
+                             "metresPerUnit": METRES, "trianglesPerFamily": counts, **level_fog(w),
                              "primitiveExtras": __doc__.split("\n\n")[1]}},
         "scene": 0,
         "scenes": [{"nodes": list(range(len(nodes)))}],

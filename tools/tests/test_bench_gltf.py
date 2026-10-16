@@ -98,7 +98,7 @@ def test_each_primitive_is_one_family_texture_animated_overlay(bench):
     keys = []
     for p in doc["meshes"][0]["primitives"]:
         x = p["extras"]
-        assert set(x) == {"texture", "blend", "animated", "effect", "overlay", "glow", "glowCoverage", "glowSpread",
+        assert set(x) == {"texture", "blend", "animated", "effect", "overlay", "glow", "glowCoverage", "glowSpread", "glowFloor",
                           "glowColor", "color",
                           "lightmap", "vertexLight", "triangles"}
         assert x["triangles"] == doc["accessors"][p["attributes"]["POSITION"]]["count"] // 3
@@ -142,8 +142,21 @@ def test_glow_coverage_and_spread_tell_a_sheet_of_light_from_a_pattern():
     sheet = np.full((8, 8, 4), 200, np.uint8)                      # alpha the same everywhere
     pattern = np.zeros((8, 8, 4), np.uint8)
     pattern[:, :4, 3] = 255                                        # half the texels lit, half not
-    _c, glow, _gc, coverage, spread = bench_gltf.frame_stats(sheet, True)
-    assert spread < 1e-9 and coverage == 1 and glow == pytest.approx(200 / 255)
-    _c, glow, _gc, coverage, spread = bench_gltf.frame_stats(pattern, True)
-    assert coverage == pytest.approx(0.5) and spread == pytest.approx(0.5) and glow == pytest.approx(0.5)
-    assert bench_gltf.frame_stats(pattern, False)[1:2] + bench_gltf.frame_stats(pattern, False)[3:] == (0, 0, 0)
+    _c, glow, _gc, coverage, spread, floor = bench_gltf.frame_stats(sheet, True)
+    assert spread < 1e-9 and coverage == 1 and glow == pytest.approx(200 / 255) and floor == pytest.approx(200 / 255)
+    _c, glow, _gc, coverage, spread, floor = bench_gltf.frame_stats(pattern, True)
+    assert coverage == pytest.approx(0.5) and spread == pytest.approx(0.5) and glow == pytest.approx(0.5) and floor == 0
+    off = bench_gltf.frame_stats(pattern, False)
+    assert off[1] == 0 and off[3:] == (0, 0, 0)
+
+
+def test_the_asset_carries_the_level_fog_in_metres(bench, world):
+    _w, doc, _blob, _counts = bench
+    assert doc["asset"]["extras"]["fog"]["enabled"] is False    # fin has no WorldProperties
+    w = world("retailsingleplayer/m01-01")
+    p = next(o["props"] for o in w.objects if o["class"] == "WorldProperties")
+    x = bench_gltf.level_fog(w)
+    assert x["fog"] == {"enabled": True, "color": [0.0, 140.0, 170.0], "near": pytest.approx(1 * METRES, abs=1e-3),
+                        "far": pytest.approx(8000 * METRES, abs=1e-3)}
+    assert x["glowFog"] == {"enabled": True, "near": pytest.approx(650 * METRES, abs=1e-3),
+                            "far": pytest.approx(p["GlowFogFarZ"] * METRES, abs=1e-3)}
