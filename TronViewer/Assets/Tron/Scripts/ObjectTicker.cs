@@ -9,8 +9,12 @@ namespace Tron
     public class ObjectTicker : MonoBehaviour
     {
         public Relays Relays;
+        // Keeps feeding the triggers the player's last box while the camera flies elsewhere (the -shots
+        // captures), so moving between poses touches nothing.
+        public static bool FreezePlayerBox;
         TronExplorer explorer;
         CharacterController player;
+        LTVec lastMin, lastMax;
 
         void Update()
         {
@@ -26,10 +30,14 @@ namespace Tron
                 Relays.UpdateObjects(-1, default, default);
                 return;
             }
-            var c = player.transform.TransformPoint(player.center) / LT.Scale;
-            var h = new Vector3(player.radius, player.height / 2, player.radius) / LT.Scale;
-            Relays.UpdateObjects(explorer.PlayerId, new LTVec(c.x - h.x, c.y - h.y, c.z - h.z),
-                new LTVec(c.x + h.x, c.y + h.y, c.z + h.z));
+            if (!FreezePlayerBox)
+            {
+                var c = player.transform.TransformPoint(player.center) / LT.Scale;
+                var h = new Vector3(player.radius, player.height / 2, player.radius) / LT.Scale;
+                lastMin = new LTVec(c.x - h.x, c.y - h.y, c.z - h.z);
+                lastMax = new LTVec(c.x + h.x, c.y + h.y, c.z + h.z);
+            }
+            Relays.UpdateObjects(explorer.PlayerId, lastMin, lastMax);
         }
     }
 }

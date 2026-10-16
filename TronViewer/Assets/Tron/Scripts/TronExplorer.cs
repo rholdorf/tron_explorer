@@ -71,6 +71,67 @@ namespace Tron
             if (sound != null) PlayTestSound(sound);
             if (float.TryParse(GetArg("-benchmark"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var secs) && level != null)
                 StartCoroutine(Benchmark(secs));
+            var shots = GetArg("-shots");
+            if (shots != null && level != null) StartCoroutine(Shots(shots, GetArg("-out") ?? "."));
+        }
+
+        // -level <name> -shots <panel.json> -out <dir>: reference-panel captures (mus-y-sinak's
+        // docs/reference-panel.json: shots with name, eye in metres, yaw / pitch in degrees, vertical fov). The
+        // level as the player first sees it (startup commands run, the level-start fade or its safety net over),
+        // then each posed shot at 1706 x 772 (2.21:1) to <dir>/<name>.png, without HUD or use prompt; then quit.
+        // The poses are in the viewer's frame as they are (docs/agents/workflow.md).
+        [Serializable] class PanelJson { public ShotJson[] shots; }
+        [Serializable] class ShotJson { public string name; public Vector3 eye; public float yaw, pitch, fov = 40; public bool posed; }
+        public const int ShotWidth = 1706, ShotHeight = 772;
+        bool capturing;
+
+        System.Collections.IEnumerator Shots(string panelPath, string outDir)
+        {
+            Application.runInBackground = true;
+            showHelp = false;
+            menuOpen = false;
+            Screen.SetResolution(ShotWidth, ShotHeight, FullScreenMode.Windowed);
+            var panel = JsonUtility.FromJson<PanelJson>(File.ReadAllText(panelPath));
+            Directory.CreateDirectory(outDir);
+            float waited = 0;
+            while (waited < 2 || (fade.Alpha > 0 && waited < ScreenFade.SafetyNetDelay + ScreenFade.SafetyNetFadeTime + 4))
+            {
+                yield return null;
+                waited += Time.unscaledDeltaTime;
+            }
+            capturing = true;
+            ObjectTicker.FreezePlayerBox = true;
+            player.Noclip = true;
+            var rt = new RenderTexture(ShotWidth, ShotHeight, 0);
+            int done = 0;
+            foreach (var s in panel.shots)
+            {
+                if (!s.posed) continue;
+                player.transform.position = s.eye - player.Cam.transform.localPosition;
+                player.SetView(s.yaw, s.pitch);
+                player.Cam.fieldOfView = s.fov;
+                for (int f = 0; f < 3; f++) yield return null;
+                yield return new WaitForEndOfFrame();
+                var shot = ScreenCapture.CaptureScreenshotAsTexture();
+                if (shot.width != ShotWidth || shot.height != ShotHeight)
+                {
+                    if (Mathf.Abs((float)shot.width / shot.height - (float)ShotWidth / ShotHeight) > 0.01f)
+                        Debug.LogWarning($"SHOTS window is {shot.width}x{shot.height}, not 2.21:1: {s.name}'s horizontal extent differs");
+                    Graphics.Blit(shot, rt);
+                    var prev = RenderTexture.active;
+                    RenderTexture.active = rt;
+                    var scaled = new Texture2D(ShotWidth, ShotHeight, TextureFormat.RGB24, false);
+                    scaled.ReadPixels(new Rect(0, 0, ShotWidth, ShotHeight), 0, 0);
+                    RenderTexture.active = prev;
+                    Destroy(shot);
+                    shot = scaled;
+                }
+                File.WriteAllBytes(Path.Combine(outDir, s.name + ".png"), shot.EncodeToPNG());
+                Destroy(shot);
+                done++;
+            }
+            Debug.Log($"SHOTS {level.Data.name} {done} to {outDir} (screen {Screen.width}x{Screen.height}, waited {waited:0.0}s)");
+            Application.Quit();
         }
 
         // -level <name> -benchmark <seconds>: frame times at the start point with vsync off, logged
@@ -497,6 +558,7 @@ namespace Tron
                 GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
                 GUI.color = prev;
             }
+            if (capturing) return;   // -shots: the scene only
 
             uiScale = AutoUiScale() * uiAdjust;
             EnsureStyles();
