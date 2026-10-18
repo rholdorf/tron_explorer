@@ -13,7 +13,8 @@ namespace Tron
     // per placed object. Types with a look: ParticleSystem (ParticleRenderer), LTBModel and LTBBouncyChunk
     // (ModelFXRenderer, keys whose model loads; a chunk without one still moves what is linked to it),
     // CreateFX (it starts its group: ClientFXMgr), PlaySound (FxSoundPlayer; files load with the level, so missing ones are reported
-    // with it). Effects bounce and splat on
+    // with it), Sprite (SpriteDrawer, with the ScaleSprites; lit by the light grid where it is when it
+    // takes light). Effects bounce and splat on
     // the world's colliders (IntersectSegment hits the world only, so characters' and the player's
     // controllers don't count).
     public partial class LevelBuilder
@@ -46,6 +47,14 @@ namespace Tron
             effects.Types["LTBBouncyChunk"] = k => new FxChunk(effects);
             var sounds = Root.AddComponent<FxSoundPlayer>();
             effects.Types["PlaySound"] = k => new FxSound(sounds.Play);
+            var light = lighting;
+            Func<LTVec, LTVec> lightAt = light == null ? null : p =>
+            {
+                var l = light.SampleGrid(new Vector3(p.x, p.y, p.z));
+                return new LTVec(l.x, l.y, l.z);
+            };
+            effects.Types["Sprite"] = k => new FxSprite(effects, lightAt);
+            Sprites().Effects = effects;
             effects.Intersect = IntersectWorld;
             var ticker = Root.AddComponent<ClientFXTicker>();
             ticker.Effects = Effects;

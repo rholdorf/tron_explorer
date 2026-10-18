@@ -224,6 +224,10 @@ _Avoid_: fx sound, ambient sound (a placed SoundFX)
 An `LTBBouncyChunk` fx key's model: launched along its key's direction, pulled by its gravity, bounced off the world at 70% speed, full bright, coloured and scaled by its keys. It is its own object, so it stands from the moment its group starts until its key ends, whether or not its key has begun. Effects linked to it ride along (m02-01's invisible carriers drag the bike's pieces).
 _Avoid_: debris (only m05-01's are), gib, bouncy chunk
 
+**Effect sprite**:
+A `Sprite` fx key's sprite: drawn like a ScaleSprite (texture size times its scale, `.spr` frames looping) but additive and unlit, coloured and sized by its keys, fading to black in the fog, its frames starting over each time its key starts. It faces the camera, or with another facing or a spin lies in its parent's axes turned to its normal. It vanishes the moment its key ends; a looping group that starts it again gets it back lit, unbiased and facing the camera (the engine only sets it visible again).
+_Avoid_: sprite fx, ScaleSprite (a placed object)
+
 **ScaleSprite**:
 A placed object that is one sprite (`.spr`, its frames looping at the file's rate): sized by its texture times its scale, facing the camera or lying in its own axes (rotatable), lit by the level, switched by ON/OFF and HIDDEN/VISIBLE alike. m07's status lights are ScaleSprites in threes (on, off, no power) of which only one starts on. With `CreateSprite` it also has a lens flare: a second sprite that grows as the camera looks straight at it (Ma3a's).
 _Avoid_: sprite (an effect's Sprite is a different thing), billboard (only some face the camera), decal

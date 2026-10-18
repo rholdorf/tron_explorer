@@ -9,6 +9,17 @@ namespace Tron
     // are never created.
     public partial class LevelBuilder
     {
+        SpriteDrawer spriteDrawer;
+
+        // The level's one sprite drawer (ScaleSprites and Sprite effects).
+        SpriteDrawer Sprites()
+        {
+            if (spriteDrawer) return spriteDrawer;
+            spriteDrawer = Root.AddComponent<SpriteDrawer>();
+            spriteDrawer.Shader = EffectShader;
+            return spriteDrawer;
+        }
+
         void BuildScaleSprites()
         {
             SpriteDrawer drawer = null;
@@ -19,8 +30,7 @@ namespace Tron
                 if (o.cls != "ScaleSprite" || o.Bool("Template")) continue;
                 if (!drawer)
                 {
-                    drawer = Root.AddComponent<SpriteDrawer>();
-                    drawer.Shader = EffectShader;
+                    drawer = Sprites();
                     parent = new GameObject("ScaleSprites");
                     parent.transform.SetParent(Root.transform, false);
                 }

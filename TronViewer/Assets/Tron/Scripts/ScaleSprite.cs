@@ -92,8 +92,12 @@ namespace Tron
             return true;
         }
 
-        // SetObjectFilenames: a new file (the drawer starts its frames over).
-        void Swap(string file) => Sprite.File = file;
+        // SetObjectFilenames: a new file, its frames from the start.
+        void Swap(string file)
+        {
+            Sprite.File = file;
+            Sprite.Born = double.NaN;
+        }
 
         // Each frame, with the object where it is now and the camera.
         public void Update(LTVec pos, LTQuat rot, LTVec camPos, LTVec camFwd)

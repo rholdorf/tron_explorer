@@ -18,7 +18,10 @@ namespace Tron
         public bool Glow;        // FLAG_GLOWSPRITE: billboards grow with view depth (not the screen glow)
         public bool ZBias;       // FLAG_SPRITEBIAS: pulled 20 units toward the camera
         public bool Shown;       // FLAG_VISIBLE
-        public double Born;      // when its file's frames started (s, the drawer's clock; the drawer sets it)
+        public bool Fog;         // not FLAG_FOGDISABLE: fogged (additive to black, multiply to white)
+        // When its frames started (s, the drawer's clock): NaN starts them at the next draw (a new file,
+        // SetCurPos(0, 0)).
+        public double Born = double.NaN;
     }
 
     // The engine's sprite drawing (ltjs render_a d3d/drawsprite.cpp d3d_DrawSprite, d3d_DrawRotatableSprite)

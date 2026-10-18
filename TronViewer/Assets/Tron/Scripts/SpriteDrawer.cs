@@ -6,17 +6,20 @@ using UnityEngine.Rendering;
 
 namespace Tron
 {
-    // Draws the level's sprites (LTSprite) each frame as the engine does (SpriteMath): a quad per shown
-    // sprite, its current .spr frame (frames counted from when the drawer first saw its file), the vertex
-    // colour its colour and alpha, sized by the frame's texture. All the quads of one frame texture and blend
-    // go in one mesh with the Tron/Effect shader (no fog: every ScaleSprite is FLAG_FOGDISABLE), drawn by the
-    // main camera only (sprites never reach the glow buffer). ScaleSprite objects are read from their
-    // transforms (LT units under the level root) first, so keyframers move them. Runs after the effect
+    // Draws the level's sprites (LTSprite) each frame as the engine does (SpriteMath): the ScaleSprites' and
+    // the Sprite effects' (FxSprite) of every running effect instance. A quad per shown sprite, its current
+    // .spr frame (counted from its Born, set at the first draw after a new file or a restart), the vertex
+    // colour its colour and alpha, sized by the frame's texture. All the quads of one frame texture, blend and
+    // fog go in one mesh with the Tron/Effect shader (fogged sprites: additive towards black, multiply towards
+    // white, others towards the fog colour, as d3d_GetBlendStates; every ScaleSprite is FLAG_FOGDISABLE),
+    // drawn by the main camera only (sprites never reach the glow buffer). ScaleSprite objects are read from
+    // their transforms (LT units under the level root) first, so keyframers move them. Runs after the effect
     // manager (ClientFXTicker) and keyframers.
     [DefaultExecutionOrder(60)]
     public class SpriteDrawer : MonoBehaviour
     {
         public Shader Shader;
+        public ClientFXMgr Effects;
         public readonly List<LTSprite> Sprites = new List<LTSprite>();
         public readonly List<(ScaleSprite obj, Transform t)> Objects = new List<(ScaleSprite, Transform)>();
 
@@ -45,11 +48,11 @@ namespace Tron
             public int Quads, Capacity;
         }
 
-        readonly Dictionary<(Texture, int), Batch> batches = new Dictionary<(Texture, int), Batch>();
+        readonly Dictionary<(Texture, int, bool), Batch> batches = new Dictionary<(Texture, int, bool), Batch>();
         readonly Dictionary<string, LTTexture> textures = new Dictionary<string, LTTexture>();
-        readonly Dictionary<LTSprite, string> files = new Dictionary<LTSprite, string>();
         readonly LTVec[] corners = new LTVec[4];
         double clock;
+        LTVec camPos, camRight, camUp, camFwd;
 
         public void Add(ScaleSprite s, Transform t)
         {
@@ -64,28 +67,33 @@ namespace Tron
             return t;
         }
 
-        Batch BatchOf(Texture tex, int blend)
+        Batch BatchOf(Texture tex, int blend, bool fog)
         {
-            if (batches.TryGetValue((tex, blend), out var b)) return b;
+            if (batches.TryGetValue((tex, blend, fog), out var b)) return b;
             var mat = new Material(Shader) { name = "Sprite " + tex.name, mainTexture = tex };
+            // _FogColor: the colour it fogs towards, a = 1 for the world's fog colour.
             switch (blend)
             {
                 case LTSprite.BlendAdditive:
                     mat.SetFloat("_SrcBlend", (float)BlendMode.One);
                     mat.SetFloat("_DstBlend", (float)BlendMode.One);
+                    mat.SetVector("_FogColor", new Vector4(0, 0, 0, 0));
                     break;
                 case LTSprite.BlendMultiply:
                     mat.SetFloat("_SrcBlend", (float)BlendMode.Zero);
                     mat.SetFloat("_DstBlend", (float)BlendMode.SrcColor);
+                    mat.SetVector("_FogColor", new Vector4(1, 1, 1, 0));
                     break;
                 default:
                     mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
                     mat.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+                    mat.SetVector("_FogColor", new Vector4(0, 0, 0, 1));
                     break;
             }
+            mat.SetFloat("_Fog", fog ? 1 : 0);
             b = new Batch { Mat = mat, Mesh = new Mesh { name = mat.name } };
             b.Mesh.MarkDynamic();
-            batches[(tex, blend)] = b;
+            batches[(tex, blend, fog)] = b;
             return b;
         }
 
@@ -98,38 +106,21 @@ namespace Tron
             var cam = Camera.main;
             if (!cam) return;
             // The camera in the level (its scale doesn't turn the axes).
-            var camPos = V(transform.InverseTransformPoint(cam.transform.position));
-            var right = V(transform.InverseTransformDirection(cam.transform.right));
-            var up = V(transform.InverseTransformDirection(cam.transform.up));
-            var fwd = V(transform.InverseTransformDirection(cam.transform.forward));
+            camPos = V(transform.InverseTransformPoint(cam.transform.position));
+            camRight = V(transform.InverseTransformDirection(cam.transform.right));
+            camUp = V(transform.InverseTransformDirection(cam.transform.up));
+            camFwd = V(transform.InverseTransformDirection(cam.transform.forward));
             foreach (var (obj, t) in Objects)
             {
                 var r = t.localRotation;
-                obj.Update(V(t.localPosition), new LTQuat(r.x, r.y, r.z, r.w), camPos, fwd);
+                obj.Update(V(t.localPosition), new LTQuat(r.x, r.y, r.z, r.w), camPos, camFwd);
             }
             foreach (var b in batches.Values) b.Quads = 0;
-            foreach (var s in Sprites)
-            {
-                if (!files.TryGetValue(s, out var f) || f != s.File)
-                {
-                    files[s] = s.File;
-                    s.Born = clock;
-                }
-                if (!s.Shown) continue;
-                var lt = TextureOf(s.File);
-                if (lt == null || !lt.tex) continue;
-                var tex = lt.frames != null && lt.frames.Length > 1
-                    ? lt.frames[SpriteMath.Frame(clock - s.Born, (int)lt.frameRate, lt.frames.Length)]
-                    : lt.tex;
-                if (!SpriteMath.Corners(s, tex.width, tex.height, camPos, right, up, fwd, corners)) continue;
-                var b = BatchOf(tex, s.Blend);
-                if (b.Verts.Length < (b.Quads + 1) * 4) Array.Resize(ref b.Verts, b.Verts.Length * 2);
-                var col = new Color32(Byte(s.R), Byte(s.G), Byte(s.B), Byte(s.A));
-                int n = b.Quads * 4;
-                for (int i = 0; i < 4; i++)
-                    b.Verts[n + i] = new Vert { pos = new Vector3(corners[i].x, corners[i].y, corners[i].z), col = col, uv = Uvs[i] };
-                b.Quads++;
-            }
+            foreach (var s in Sprites) Quad(s);
+            if (Effects != null)
+                foreach (var inst in Effects.Instances)
+                    foreach (var fx in inst.Effects)
+                        if (fx is FxSprite sp) Quad(sp.Sprite);
             var matrix = transform.localToWorldMatrix;
             foreach (var b in batches.Values)
             {
@@ -166,6 +157,25 @@ namespace Tron
                 };
                 Graphics.RenderMesh(rp, mesh, 0, matrix);
             }
+        }
+
+        void Quad(LTSprite s)
+        {
+            if (double.IsNaN(s.Born)) s.Born = clock;
+            if (!s.Shown) return;
+            var lt = TextureOf(s.File);
+            if (lt == null || !lt.tex) return;
+            var tex = lt.frames != null && lt.frames.Length > 1
+                ? lt.frames[SpriteMath.Frame(clock - s.Born, (int)lt.frameRate, lt.frames.Length)]
+                : lt.tex;
+            if (!SpriteMath.Corners(s, tex.width, tex.height, camPos, camRight, camUp, camFwd, corners)) return;
+            var b = BatchOf(tex, s.Blend, s.Fog);
+            if (b.Verts.Length < (b.Quads + 1) * 4) Array.Resize(ref b.Verts, b.Verts.Length * 2);
+            var col = new Color32(Byte(s.R), Byte(s.G), Byte(s.B), Byte(s.A));
+            int n = b.Quads * 4;
+            for (int i = 0; i < 4; i++)
+                b.Verts[n + i] = new Vert { pos = new Vector3(corners[i].x, corners[i].y, corners[i].z), col = col, uv = Uvs[i] };
+            b.Quads++;
         }
 
         void OnDestroy()
