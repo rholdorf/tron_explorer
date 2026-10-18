@@ -74,6 +74,8 @@ namespace Tron
     {
         public FxKey Key { get; private set; }
         public IFxObject Parent { get; internal set; }
+        // Where its instance was started (FX_BASEDATA m_vPos).
+        public LTVec InstancePos { get; private set; }
         public LTVec CreatePos { get; private set; }
         public LTQuat CreateRot { get; private set; }
         public LTVec Pos { get; protected set; }
@@ -103,6 +105,7 @@ namespace Tron
         {
             Key = key;
             Parent = parent;
+            InstancePos = pos;
             CreatePos = parent != null ? parent.Pos : pos;
             CreateRot = parent != null ? parent.Rot : rot;
             Pos = CreatePos + key.Offset;

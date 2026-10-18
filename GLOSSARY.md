@@ -228,6 +228,14 @@ _Avoid_: debris (only m05-01's are), gib, bouncy chunk
 A `Sprite` fx key's sprite: drawn like a ScaleSprite (texture size times its scale, `.spr` frames looping) but additive and unlit, coloured and sized by its keys, fading to black in the fog, its frames starting over each time its key starts. It faces the camera, or with another facing or a spin lies in its parent's axes turned to its normal. It vanishes the moment its key ends; a looping group that starts it again gets it back lit, unbiased and facing the camera (the engine only sets it visible again).
 _Avoid_: sprite fx, ScaleSprite (a placed object)
 
+**Lightning bolt**:
+One of a `LightningFX` key's bolts: a jagged strip from where the effect is to a node or socket of the effect model it is linked to (its attractors), or to a random point within its radius, made anew every short delay and left where it was made, jittered each frame, camera-facing, coloured and widened by its keys over its own short life. A bolt with nowhere to go (attractors its parent doesn't have, no radius) has no length and shows nothing, as `CHAR_HogEnergySuck`'s placed objects in the game.
+_Avoid_: arc, beam (m10-02's beams are world geometry)
+
+**Trail**:
+A `PolyTrail` key's ribbon: points dropped where its effect goes every interval, the newest following it, each fading by the key's colour keys over its own life and dropped when old; camera-facing, its texture running along it by distance. When its group shuts down it stops growing and fades out point by point.
+_Avoid_: poly tube (ltjs's class name), streak
+
 **ScaleSprite**:
 A placed object that is one sprite (`.spr`, its frames looping at the file's rate): sized by its texture times its scale, facing the camera or lying in its own axes (rotatable), lit by the level, switched by ON/OFF and HIDDEN/VISIBLE alike. m07's status lights are ScaleSprites in threes (on, off, no power) of which only one starts on. With `CreateSprite` it also has a lens flare: a second sprite that grows as the camera looks straight at it (Ma3a's).
 _Avoid_: sprite (an effect's Sprite is a different thing), billboard (only some face the camera), decal

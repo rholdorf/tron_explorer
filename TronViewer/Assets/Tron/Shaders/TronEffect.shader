@@ -1,7 +1,8 @@
 // ClientFX effects drawn by the engine's sprite and particle paths (drawparticles.cpp): texture x vertex
 // colour, no lighting, Z test without Z write, both faces, the texture clamped. No fog (FLAG_FOGDISABLE)
 // unless _Fog: then D3D linear fog by the world's fog distances towards _FogColor, or the world's fog colour
-// when its a is 1 (d3d_GetBlendStates: additive towards black, multiply towards white).
+// when its a is 1 (d3d_GetBlendStates: additive towards black, multiply towards white). DrawPrim effects
+// (lightning, trails) repeat their texture (_Wrap) and may test alpha > 0 (_AlphaGreater).
 // Blend by the effect's mode: Additive ONE ONE, Multiply ZERO SRCCOLOR, None SRCALPHA INVSRCALPHA. Gamma
 // space like the other Tron shaders. Never drawn into the glow buffer (the renderer gives the main camera
 // only).
@@ -14,6 +15,8 @@ Shader "Tron/Effect"
         _DstBlend ("Dst", Float) = 1
         _Fog ("Fogged", Float) = 0
         _FogColor ("Fog color (a = 1: the world's)", Vector) = (0, 0, 0, 0)
+        _Wrap ("Repeat the texture", Float) = 0
+        _AlphaGreater ("Alpha test: alpha > 0", Float) = 0
     }
     SubShader
     {
@@ -34,10 +37,11 @@ Shader "Tron/Effect"
 
             TEXTURE2D(_MainTex);
             SamplerState sampler_trilinear_clamp;
+            SamplerState sampler_trilinear_repeat;
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST;
-                float _SrcBlend, _DstBlend, _Fog;
+                float _SrcBlend, _DstBlend, _Fog, _Wrap, _AlphaGreater;
                 float4 _FogColor;
             CBUFFER_END
             float4 _LTFogColor;
@@ -72,7 +76,10 @@ Shader "Tron/Effect"
 
             half4 frag (v2f i) : SV_Target
             {
-                float4 c = SAMPLE_TEXTURE2D(_MainTex, sampler_trilinear_clamp, i.uv) * i.color;
+                float4 t = _Wrap > 0 ? SAMPLE_TEXTURE2D(_MainTex, sampler_trilinear_repeat, i.uv)
+                                     : SAMPLE_TEXTURE2D(_MainTex, sampler_trilinear_clamp, i.uv);
+                float4 c = t * i.color;
+                if (_AlphaGreater > 0 && c.a <= 0) discard;
                 c.rgb = lerp(_FogColor.a > 0 ? _LTFogColor.rgb : _FogColor.rgb, c.rgb, i.fog);
                 return half4(TargetColor(c.rgb), c.a);
             }

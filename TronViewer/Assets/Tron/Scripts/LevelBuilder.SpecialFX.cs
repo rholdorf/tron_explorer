@@ -14,7 +14,9 @@ namespace Tron
     // (ModelFXRenderer, keys whose model loads; a chunk without one still moves what is linked to it),
     // CreateFX (it starts its group: ClientFXMgr), PlaySound (FxSoundPlayer; files load with the level, so missing ones are reported
     // with it), Sprite (SpriteDrawer, with the ScaleSprites; lit by the light grid where it is when it
-    // takes light). Effects bounce and splat on
+    // takes light), LightningFX and PolyTrail (DrawPrimRenderer). Templates that aim at a TargetObject (m05-01's
+    // seekerlightning, at the spawned seeker) count as "FX TargetObject (needs character)", once per object.
+    // Effects bounce and splat on
     // the world's colliders (IntersectSegment hits the world only, so characters' and the player's
     // controllers don't count).
     public partial class LevelBuilder
@@ -55,6 +57,11 @@ namespace Tron
             };
             effects.Types["Sprite"] = k => new FxSprite(effects, lightAt);
             Sprites().Effects = effects;
+            effects.Types["LightningFX"] = k => new FxLightning(effects);
+            effects.Types["PolyTrail"] = k => new FxPolyTrail();
+            var prims = Root.AddComponent<DrawPrimRenderer>();
+            prims.Effects = effects;
+            prims.Shader = EffectShader;
             effects.Intersect = IntersectWorld;
             var ticker = Root.AddComponent<ClientFXTicker>();
             ticker.Effects = Effects;
@@ -69,7 +76,12 @@ namespace Tron
             for (int i = 0; i < Data.objects.Length; i++)
             {
                 var o = Data.objects[i];
-                if (o.cls != "SpecialFX" || o.Bool("Template")) continue;
+                if (o.cls != "SpecialFX") continue;
+                if (o.Bool("Template"))
+                {
+                    if (o.Str("TargetObject") != "") Commands.Count("FX", "TargetObject", "(needs character)");
+                    continue;
+                }
                 if (!parent)
                 {
                     parent = new GameObject("SpecialFX");
