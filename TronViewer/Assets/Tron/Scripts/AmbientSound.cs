@@ -10,8 +10,8 @@ namespace Tron
     // (ProjectSettings/AudioManager.asset, the engine's MaxSWVoices); Unity drops the least important
     // (priority) and least audible first and keeps virtual voices' playback position, like the engine.
     //
-    // Shared by every ambient sound: SoundFX (LevelBuilder.BuildSoundFX), SoundButeFX and keyframers'
-    // ActiveSound. Add it to the GameObject the sound follows, then Play.
+    // Shared by every ambient sound: SoundFX (LevelBuilder.BuildSoundFX), SoundButeFX, keyframers'
+    // ActiveSound and effects' PlaySound (FxSoundPlayer). Add it to the GameObject the sound follows, then Play.
     public class AmbientSound : MonoBehaviour
     {
         // Scales every placed sound before the curve; the game's defaults by default.
@@ -20,6 +20,8 @@ namespace Tron
         public float Inner, Outer;   // LT units
         public int Volume = 100;     // 0-100
         public bool Ambient;
+        // PLAYSOUND_LOCAL (an effect's PlayLocal): unpanned and as loud as at its own place, wherever it is.
+        public bool Local;
         public AudioSource Source { get; private set; }
         public bool IsPlaying => Source.isPlaying;
 
@@ -73,8 +75,8 @@ namespace Tron
             if (!listener) return;
             var lt = listener.transform;
             var toListener = lt.position - transform.position;
-            float d = toListener.magnitude / LT.Scale;
-            float front = Ambient || d < 1e-3f ? 1 : AmbientVolume.Front(Vector3.Dot(lt.forward, toListener / toListener.magnitude));
+            float d = Local ? 0 : toListener.magnitude / LT.Scale;
+            float front = Ambient || Local || d < 1e-3f ? 1 : AmbientVolume.Front(Vector3.Dot(lt.forward, toListener / toListener.magnitude));
             Source.volume = AmbientVolume.Gain(Volume, Inner, Outer, d, Master, front);
         }
     }

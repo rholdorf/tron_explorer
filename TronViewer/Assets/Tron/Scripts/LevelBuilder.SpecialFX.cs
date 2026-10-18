@@ -11,7 +11,8 @@ namespace Tron
     // StartOn objects turn on once every object exists (MID_ALLOBJECTSCREATED: StartSpecialFX, after the
     // relays). Effect keys whose type has no look yet count in the report as "FX <type> (NO LOOK)", once
     // per placed object. Types with a look: ParticleSystem (ParticleRenderer), LTBModel (ModelFXRenderer, keys
-    // whose model loads). Effects bounce and splat on
+    // whose model loads), PlaySound (FxSoundPlayer; files load with the level, so missing ones are reported
+    // with it). Effects bounce and splat on
     // the world's colliders (IntersectSegment hits the world only, so characters' and the player's
     // controllers don't count).
     public partial class LevelBuilder
@@ -31,11 +32,16 @@ namespace Tron
                 var group = g.Group();
                 Effects.Add(group);
                 for (int i = 0; i < group.Keys.Length; i++)
+                {
                     if (g.fx[i].type == "LTBModel" && ModelFXLook(exportRoot, g.fx[i]) is FxModelLook look) looks[group.Keys[i]] = look;
+                    if (g.fx[i].type == "PlaySound") SoundLoader.Load(group.Keys[i].Str("Sound"));
+                }
             }
             var effects = Effects;
             effects.Types["ParticleSystem"] = k => new FxParticleSystem(effects);
             effects.Types["LTBModel"] = k => looks.TryGetValue(k, out var l) ? new FxModel(effects, l.Clip != null ? l.Clip.length : -1) : null;
+            var sounds = Root.AddComponent<FxSoundPlayer>();
+            effects.Types["PlaySound"] = k => new FxSound(sounds.Play);
             effects.Intersect = IntersectWorld;
             var ticker = Root.AddComponent<ClientFXTicker>();
             ticker.Effects = Effects;
