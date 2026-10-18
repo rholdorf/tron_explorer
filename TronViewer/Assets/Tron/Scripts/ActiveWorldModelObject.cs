@@ -8,7 +8,7 @@ namespace Tron
     // with its SoundRadius; a looping sound on one source, one-shots on another so they play out), runs the
     // state commands through the level's CommandMgr (the AWM as sender, its activator as target), and tests
     // the player against a new pose.
-    public class ActiveWorldModelObject : MonoBehaviour, ActiveWorldModel.IHost
+    public class ActiveWorldModelObject : MonoBehaviour, ActiveWorldModel.IHost, IUsable
     {
         public ActiveWorldModel Awm { get; private set; }
         public string PromptOnText = "", PromptOffText = "";   // the ActivateType's texts
@@ -43,6 +43,10 @@ namespace Tron
 
         // The use prompt for its state ("" for none).
         public string Prompt => Awm.PromptOn ? PromptOnText : PromptOffText;
+
+        public bool CanBeUsed => Awm.CanBeUsed;
+        public bool Locked => Awm.Locked;
+        public void Use(int player) => Awm.Activate(player);
 
         void Start() => Awm.Start();
 

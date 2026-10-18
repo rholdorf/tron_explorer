@@ -38,7 +38,7 @@ namespace Tron
     // Reads exported models (export/models/<file>.json + .bin, see tools/export_models.py).
     public static class ModelLibrary
     {
-        public const int FormatVersion = 3;
+        public const int FormatVersion = 4;
         const int HeaderSize = 24, VertexSize = 44, BoneWeightSize = 8;
 
         // Loaded once per level; the meshes go to `owned` so the level frees them.

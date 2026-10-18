@@ -92,6 +92,7 @@ namespace Tron
         public void ConnectPlayer(int id, PlayerController player)
         {
             foreach (var a in ActiveWorldModels) a.ConnectPlayer(id, player);
+            foreach (var s in StateModels) s.ConnectPlayer(id);
         }
     }
 }

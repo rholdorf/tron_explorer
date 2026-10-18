@@ -77,7 +77,8 @@ namespace Tron
                 foreach (var c in go.GetComponentsInChildren<Collider>(true))
                 {
                     c.enabled = f.Solid || f.RayHit;
-                    c.gameObject.layer = f.Solid ? 0 : UseOnlyLayer;
+                    // A state model's use box only ever takes the use ray (StateModel).
+                    c.gameObject.layer = f.Solid && !c.GetComponentInParent<StateModel>() ? 0 : UseOnlyLayer;
                 }
             }
         }

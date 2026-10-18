@@ -682,10 +682,10 @@ namespace Tron
                 hudFont.Draw(lines, 320, bottom, HudCharHeight, e.Alpha, centred: true, shadowAlpha: 0xBF / 255f);
             }
             var t = use ? use.Target : null;
-            if (t && !menuOpen)
+            if (t != null && !menuOpen)
             {
                 var text = string.IsNullOrEmpty(t.Prompt) ? "[E]" : $"[E] {t.Prompt}";
-                var color = t.Awm.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
+                var color = t.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
                 hudFont.DrawText(text, 320, 300 - HudCharHeight / 2, HudCharHeight, color, true);
             }
             hudFont.End();

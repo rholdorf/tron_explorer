@@ -25,6 +25,7 @@ namespace Tron
         public ActivateTypeJson[] activateTypes; // the use prompts its objects name (tools/activate.py)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
+        public ButeSoundJson[] buteSounds;   // the soundbutes the state models' clips play (BUTE_SOUND_KEY)
         public RenderStyleJson[] renderStyles;
         public LightGridJson lightGrid;      // samples follow the lightmap atlas in level.bin
         public StaticLightJson[] lights;
@@ -39,7 +40,11 @@ namespace Tron
     // Attachments carry their own (their model's dims, at the parent object's position).
     // pos: where the instance spawns (the object's position after MoveToFloor; attachments: their parent's).
     // anim: the clip a character loops (a name in its model's anims), "" for none.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; }
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; }
+    // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
+    [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }
+    // A soundbute a model string key plays: one of its files at random, radii in LithTech units.
+    [Serializable] public class ButeSoundJson { public string name; public string[] files; public float inner, outer; }
 
     // Model lighting inputs (tools/modellight.py). Colors are 0-255.
     [Serializable] public class LightGridJson { public float[] origin, cell; public int[] dims; }
@@ -211,7 +216,10 @@ namespace Tron
     // An animation clip in the model .bin's float block (tools/export_models.py clip_block): `keys` key
     // times (seconds) at `times`; channels: per node posOffset, posCount, rotOffset, rotCount (offsets in
     // floats; a count is 1 for a constant channel, else keys). Parent-relative position xyz, quaternion xyzw.
-    [Serializable] public class ModelAnimJson { public string name; public float length; public int keys, times; public int[] channels; }
+    // scales: node, offset, count per node whose vertex-animated piece the clip scales uniformly (1 float a
+    // key); cmds: its model string keys (t in seconds).
+    [Serializable] public class ModelAnimJson { public string name; public float length; public int keys, times; public int[] channels, scales; public AnimCmdJson[] cmds; }
+    [Serializable] public class AnimCmdJson { public float t; public string s; }
     [Serializable] public class ModelPieceJson
     {
         public string name;

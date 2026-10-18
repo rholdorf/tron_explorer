@@ -139,8 +139,16 @@ A `SlidingSwitch` or `RotatingSwitch`: a world model the player uses to run comm
 _Avoid_: button, lever, trigger (a trigger is a volume)
 
 **Use**:
-The player's action on the door or switch in front of them (key E in the viewer).
+The player's action on the usable object in front of them (key E in the viewer): a door, a switch, a binary bit or a security rezzer.
 _Avoid_: activate (that is also a message), interact
+
+**Binary bit**:
+A `BinaryBit`: a small model the player uses as a two-state switch. Its byte shows blue while powered down, amber for yes and red for no; using it powers it up or flips it, the matching shape growing out of the byte.
+_Avoid_: bit alone (it is also a data bit), byte
+
+**Security rezzer**:
+A `SecRezzer`: a model that spawns guards when an AI turns it on; the player can only disable it by use, folding its panels shut.
+_Avoid_: spawner (that is the `Spawner` class), rezzer alone
 
 **Permission set**:
 One of eight keys (`Key1`..`Key8`) a door, switch or other object can require; the player gets them from archive bins or scripts. The viewer grants all of them.

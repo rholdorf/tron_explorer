@@ -40,7 +40,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 18
+FORMAT_VERSION = 19
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -326,6 +326,39 @@ def moves_to_floor(o, resolver):
     return False
 
 
+# Models whose look follows a state the viewer runs (docs/research/secrezzer-binarybit.md): the clips the
+# class plays, and its looks, each a full set of instance pieces: BinaryBit swaps render style slot 0
+# (Idle / Yes / No), SecRezzer skin slot 0 (its template's Skin0..Skin3: idle, off, on, spawn).
+STATE_CLIPS = {"BinaryBit": ["PoweredDown", "Idle", "Yes", "No"], "SecRezzer": ["Idle", "Disable", "Disabled"]}
+
+
+def state_looks(cls, skins, rs):
+    """[(look name, skins, render styles)] of a state model."""
+    if cls == "BinaryBit":
+        return [(name, skins, [rs[k]] + rs[1:]) for k, name in enumerate(("idle", "yes", "no"))]
+    return [(name, [skins[k]] + skins[1:], rs) for k, name in enumerate(("idle", "off", "on", "spawn")) if k < len(skins)]
+
+
+def bute_sound_keys(styles, models):
+    """The soundbutes the state models' clips name in BUTE_SOUND_KEY model string keys, in order."""
+    names = []
+    for m in models:
+        anims = {a.name.lower(): a for a in styles.model(m["file"]).anims}
+        for clip in m.get("clips", []):
+            for _t, cmd in anims[clip.lower()].commands:
+                for statement in cmd.split(";"):
+                    words = statement.split()
+                    if len(words) >= 2 and words[0].lower() == "bute_sound_key" and words[1] not in names:
+                        names.append(words[1])
+    return names
+
+
+def bute_sounds(names, soundbutes):
+    """Each soundbute a model string key plays: its files and radii (inherited through its Parent)."""
+    return [{"name": n, "files": soundbutes.files(n), "inner": float(soundbutes.get(n, "innerradius", 0.0)),
+             "outer": float(soundbutes.get(n, "outerradius", 0.0))} for n in names if soundbutes.is_soundbute(n)]
+
+
 def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor_caster=None, idle=None):
     """Objects that show an .ltb the exporter can find (see export_models.Resolver), and the render
     styles their pieces use. Characters are skinned (bones = the model's nodes) and are followed by
@@ -364,6 +397,10 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
                        "pos": [float(x) for x in pos], "anim": "",
                        "dims": dims, "visRadius": m.vis_radius,
                        "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount else 0.0})
+        if parent < 0 and o["cls"] in STATE_CLIPS:
+            models[-1].update(skinned=1, clips=STATE_CLIPS[o["cls"]], looks=[
+                {"name": name, "pieces": styles.instance_pieces(r[0], sk, rs, render_styles, style_index)}
+                for name, sk, rs in state_looks(o["cls"], r[1], r[2])])
         return True
 
     def attach(i, parent, atts, skinned, sockets):
@@ -490,6 +527,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
                                             floor.FloorCaster.from_world(w),
                                             idle or animation.IdleSelector(extracted, resolver))
 
+    soundbutes = sounds.soundbutes(extracted)
     meta = {
         "version": FORMAT_VERSION,
         "name": rel_name,
@@ -503,12 +541,13 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "blockerCollider": blocker_collider,
         "worldModels": world_models,
         "spinners": spinner.spinners(w.objects),
-        "soundFX": ambient.sound_fx(w.objects, sounds.soundbutes(extracted)),
-        "soundButeFX": ambient.sound_bute_fx(w.objects, sounds.soundbutes(extracted)),
+        "soundFX": ambient.sound_fx(w.objects, soundbutes),
+        "soundButeFX": ambient.sound_bute_fx(w.objects, soundbutes),
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "activateTypes": activate.level_types(w.objects, extracted),
         "objects": objects,
         "models": models,
+        "buteSounds": bute_sounds(bute_sound_keys(styles, models), soundbutes),
         "renderStyles": render_styles,
         "lightGrid": {"origin": list(w.light_grid.base), "cell": list(w.light_grid.cell),
                       "dims": list(w.light_grid.dims)},
@@ -535,6 +574,7 @@ def main():
     idle = animation.IdleSelector(root, resolver)
     model_files = {}   # model file -> the animations its instances play
     level_objects = {}  # level -> its objects, for the sound files they name
+    level_sounds = {}   # level -> the soundbutes its models' clips play
     worlds_dir = os.path.join(root, "worlds")
     for dat in sorted(glob.glob(os.path.join(worlds_dir, "**", "*.dat"), recursive=True)):
         rel = os.path.relpath(dat, worlds_dir)[:-4]
@@ -546,10 +586,12 @@ def main():
               f"objects={len(meta['objects'])} models={len(meta['models'])}")
         index.append(rel)
         level_objects[rel] = meta["objects"]
+        level_sounds[rel] = [b["name"] for b in meta["buteSounds"]]
         for m in meta["models"]:
             anims = model_files.setdefault(m["file"], set())
             if m["anim"]:
                 anims.add(m["anim"])
+            anims.update(m.get("clips", []))
     for rel, anims in sorted(model_files.items()):
         try:
             export_models.export_model(root, rel, out_root, sorted(anims), styles.model)
@@ -566,7 +608,7 @@ def main():
         print(f"{n} {cls} attachments not drawn (not a model object)")
     if resolver.hidden_weapons:
         print(f"{resolver.hidden_weapons} weapon attachments not drawn (no hand-held model)")
-    exported, missing = sounds.export_sounds(root, level_objects, out_root)
+    exported, missing = sounds.export_sounds(root, level_objects, out_root, level_sounds)
     print(f"{len(exported)} sound files")
     for rel, users in missing.items():
         print(f"sound file {rel} not found, named in {', '.join(users)}")

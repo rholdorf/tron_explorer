@@ -24,8 +24,10 @@ def test_every_type_in_the_file_is_read(extracted):
 
 
 def test_a_level_carries_the_types_its_objects_name_once_each(extracted, world):
+    # m01-02's five SecRezzers carry "Disable Secrezzer", which SecRezzer::ReadProp sets in code (ticket #53).
     w = world("retailsingleplayer/m01-02")
     assert activate.level_types(w.objects, extracted) == [
+        {"name": "Disable Secrezzer", "on": "Deactivate Sec Rezzer", "off": ""},
         {"name": "ForceField Raise-Lower", "on": "Raise Forcefield", "off": "Lower Forcefield"},
         {"name": "Power Stream Control Sector Door Open-Close", "on": "Close door to Power Stream Control Sector",
          "off": "Open door to Power Stream Control Sector"},
@@ -42,5 +44,6 @@ def test_level_json_carries_its_activate_types(extracted, tmp_path):
     export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
                         export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
     meta = json.loads((tmp_path / "level.json").read_text())
-    assert meta["version"] == export_level.FORMAT_VERSION == 18
-    assert meta["activateTypes"] == [{"name": "Door Open-Close", "on": "Close Door", "off": "Open Door"}]
+    assert meta["version"] == export_level.FORMAT_VERSION == 19
+    assert meta["activateTypes"] == [{"name": "Disable Secrezzer", "on": "Deactivate Sec Rezzer", "off": ""},
+                                     {"name": "Door Open-Close", "on": "Close Door", "off": "Open Door"}]

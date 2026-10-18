@@ -334,21 +334,30 @@ class Anim:
         self.compression = 0
         self.interp_ms = 0
         self.times = None
+        self.commands = []                   # (time ms, string) of the keys that carry one (model string keys)
         self.node_offset = 0                 # byte offset of the node channels in the model file
 
 
-def _channels(r, compression, n_keys, n_nodes, decode):
+def _channels(r, compression, n_keys, n_nodes, decode, vertex=None):
     """Walks one animation's node channels (AnimNode::Load; nodes in tree order = index order). Returns
     per node (positions (k, 3), quaternions x y z w (k, 4)) with k = 0 (null channel: zero position,
-    identity rotation), 1 (constant) or n_keys; None when not decoding."""
+    identity rotation), 1 (constant) or n_keys; None when not decoding. A vertex-animated node (its piece's
+    vertices per key, model space) has no transform channel; with `vertex` (a dict) its frames are kept
+    there by node index."""
     out = [] if decode else None
-    for _ in range(n_nodes):
+    for node in range(n_nodes):
         pos, rot = np.zeros((0, 3)), np.zeros((0, 4))
         if compression == 0:
-            if r.u8():             # vertex animation (pv_energyclaw): stepped over
+            if r.u8():             # vertex animation (binarybit, pv_energyclaw)
+                frames = []
                 for _ in range(n_keys):
                     n = r.u32()
-                    r.p += 12 * n
+                    if vertex is not None:
+                        frames.append(r.array("<f4", n * 3).reshape(-1, 3).astype(np.float64))
+                    else:
+                        r.p += 12 * n
+                if vertex is not None:
+                    vertex[node] = frames
             elif decode:
                 pos = r.array("<f4", n_keys * 3).reshape(-1, 3).astype(np.float64)
                 rot = r.array("<f4", n_keys * 4).reshape(-1, 4).astype(np.float64)
@@ -383,7 +392,9 @@ def read_anims(r, n_nodes):
         times = []
         for _ in range(n_keys):
             times.append(r.u32())
-            r.str()                    # command string (FOOTSTEP_KEY, FIRE, ...)
+            cmd = r.str()              # model string key (FOOTSTEP_KEY, FIRE, RS 0 ..., BUTE_SOUND_KEY ...)
+            if cmd.strip():
+                a.commands.append((times[-1], cmd))
         a.times = np.array(times, np.float64)
         a.node_offset = r.p
         _channels(r, a.compression, n_keys, n_nodes, False)
@@ -391,10 +402,10 @@ def read_anims(r, n_nodes):
     return anims
 
 
-def decode_anim(m, anim):
+def decode_anim(m, anim, vertex=None):
     """Node channels of one of m's own animations: per node (positions (k, 3), quaternions (k, 4)),
-    parent-relative, k in {0, 1, len(anim.times)}."""
-    return _channels(Reader(m.data, anim.node_offset), anim.compression, len(anim.times), len(m.nodes), True)
+    parent-relative, k in {0, 1, len(anim.times)}. vertex: a dict for the vertex-animated nodes' frames."""
+    return _channels(Reader(m.data, anim.node_offset), anim.compression, len(anim.times), len(m.nodes), True, vertex)
 
 
 if __name__ == "__main__":

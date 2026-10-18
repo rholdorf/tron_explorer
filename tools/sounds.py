@@ -113,13 +113,14 @@ def soundbutes(extracted):
     return SoundButes(extracted)
 
 
-def export_sounds(extracted, level_objects, out_root):
+def export_sounds(extracted, level_objects, out_root, extra=None):
     """Exports every file the levels' sound names can play. level_objects: {level: objects (level.json
-    form)}. Returns (exported files, sorted; {missing file: [levels naming it]})."""
+    form)}; extra: {level: more sound names} (the soundbutes its models' clips play). Returns (exported
+    files, sorted; {missing file: [levels naming it]})."""
     bute = soundbutes(extracted)
     users = {}
     for level, objects in level_objects.items():
-        for name in sound_names(objects):
+        for name in sound_names(objects) + list((extra or {}).get(level, [])):
             for rel in bute.files(name):
                 lv = users.setdefault(rel, [])
                 if level not in lv:

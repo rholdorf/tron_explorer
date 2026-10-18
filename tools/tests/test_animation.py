@@ -171,7 +171,7 @@ def read_exported_clip(base, name):
     meta = json.load(open(base + ".json"))
     data = open(base + ".bin", "rb").read()
     _magic, version, nv, ni, ninf, nanim = struct.unpack_from("<4s5I", data)
-    assert version == meta["version"] == 3
+    assert version == meta["version"] == 4
     off = 24 + nv * 44 + ni * 4 + nv + ninf * 8
     floats = np.frombuffer(data, "<f4", nanim, off)
     assert off + nanim * 4 == len(data)

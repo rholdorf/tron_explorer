@@ -34,11 +34,13 @@ def find_anim(m, children, name):
 
 
 class Clip:
-    def __init__(self, name, times, pos, rot):
+    def __init__(self, name, times, pos, rot, scales=None, commands=()):
         self.name = name
         self.times = np.asarray(times, np.float64)   # ms, from 0, never decreasing (duplicates kept)
         self.pos = pos   # per node: (1 or n, 3)
         self.rot = rot   # per node: (1 or n, 4) quaternion x y z w
+        self.scales = scales or {}         # node -> (1 or n,) uniform scale of its vertex-animated piece
+        self.commands = list(commands)     # (time ms, model string key)
 
     @property
     def length(self):
@@ -55,7 +57,8 @@ def clip(m, children, name):
     if len(owner.nodes) != len(m.nodes):
         raise ValueError(f"{name}: {owner.path} has {len(owner.nodes)} nodes, {m.path} {len(m.nodes)}")
     pos, rot = [], []
-    for n, (p, q) in zip(m.nodes, ltb.decode_anim(owner, anim)):
+    vertex = {}
+    for n, (p, q) in zip(m.nodes, ltb.decode_anim(owner, anim, vertex)):
         if n.flags & ltb.MNODE_ROTATIONONLY:
             p = np.array([ltb.parent_offset(m, n)])
         elif not len(p):
@@ -67,7 +70,28 @@ def clip(m, children, name):
         q = q / np.linalg.norm(q, axis=1, keepdims=True)   # i16 keys are unit only to ~1e-3
         pos.append(_collapse(p))
         rot.append(_collapse(q))
-    return Clip(anim.name, anim.times, pos, rot)
+    return Clip(anim.name, anim.times, pos, rot, vertex_scales(m, vertex), anim.commands)
+
+
+def vertex_scales(m, vertex):
+    """{node: per-key factors} for the vertex-animated nodes whose frames are their piece (the piece of the
+    same name) scaled uniformly about the model origin, as binarybit's Yes / No grow the pyramid and the
+    spike; every frame is base x factor exactly. Nodes whose frames are no uniform scale, or that scale by 1
+    throughout, are left out."""
+    base = {p.name: p.lods[0][3].field("pos") for p in m.pieces}
+    out = {}
+    for node, frames in vertex.items():
+        b = base.get(m.nodes[node].name)
+        if b is None or not frames or any(len(f) != len(b) for f in frames):
+            continue
+        bb = float((b * b).sum())
+        if bb <= 0:
+            continue
+        f = np.array([float((x * b).sum()) / bb for x in frames])
+        if max(float(np.abs(x - k * b).max()) for x, k in zip(frames, f)) > 1e-4 or np.allclose(f, 1):
+            continue
+        out[node] = _collapse(f.reshape(-1, 1)).reshape(-1)
+    return out
 
 
 def _collapse(keys):

@@ -12,7 +12,7 @@ namespace Tron
     public partial class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 18;
+        public const int FormatVersion = 19;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -311,6 +311,8 @@ namespace Tron
                     r = go.AddComponent<MeshRenderer>();
                 }
                 r.sharedMaterials = mats;
+                if (inst.parent < 0 && inst.looks != null && inst.looks.Length > 0 && built[n].bones != null)
+                    AddStateModel(go, inst, obj, model, built[n].bones, r, styleMaterials);
                 r.shadowCastingMode = ShadowCastingMode.Off;
                 r.receiveShadows = false;
                 r.lightProbeUsage = LightProbeUsage.Off;
@@ -328,6 +330,47 @@ namespace Tron
                 r.SetPropertyBlock(mpb);
             }
             animator.Begin();
+        }
+
+        // The state models (BinaryBit, SecRezzer: StateModels.cs) on their drawn model.
+        public readonly List<StateModel> StateModels = new List<StateModel>();
+
+        void AddStateModel(GameObject go, ModelInstanceJson inst, ObjectJson obj, LoadedModel model, Transform[] bones,
+                           Renderer r, Dictionary<(int, string, string), Material[]> styleMaterials)
+        {
+            var looks = new Dictionary<string, Material[]>();
+            foreach (var look in inst.looks)
+            {
+                var mats = new Material[look.pieces.Length];
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    var p = look.pieces[i];
+                    string tex1 = p.tex != null && p.tex.Length > 0 ? p.tex[0] : "", tex2 = p.tex != null && p.tex.Length > 1 ? p.tex[1] : "";
+                    var key = (p.style, tex1, tex2);
+                    if (!styleMaterials.TryGetValue(key, out var m))
+                        styleMaterials[key] = m = CreateModelMaterials(Data.renderStyles[p.style], tex1, tex2);
+                    if (m.Length != 1 || r.sharedMaterials.Length != mats.Length)
+                    {
+                        Debug.LogWarning($"{obj.name}: look {look.name} draws a piece more than once; its look stays as built");
+                        return;
+                    }
+                    mats[i] = m[0];
+                }
+                looks[look.name] = mats;
+            }
+            var sounds = new Dictionary<string, ButeSoundJson>(StringComparer.OrdinalIgnoreCase);
+            foreach (var b in Data.buteSounds ?? Array.Empty<ButeSoundJson>()) sounds[b.name] = b;
+            var sm = go.AddComponent<StateModel>();
+            IStateModel state = obj.cls == "BinaryBit"
+                ? new BinaryBit(sm, obj.Num("EnergyRequired"), obj.Bool("StartOnInSocket", true), obj.Bool("Locked"),
+                                obj.Str("PowerUpCommand"), obj.Str("TurnOnCommand"), obj.Str("TurnOffCommand"))
+                : (IStateModel)new SecRezzer(sm);
+            var typeName = obj.cls == "SecRezzer" ? "Disable Secrezzer" : obj.Str("ActivateType");
+            var type = Array.Find(Data.activateTypes ?? Array.Empty<ActivateTypeJson>(),
+                                  t => string.Equals(t.name, typeName, StringComparison.OrdinalIgnoreCase));
+            var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.one;
+            sm.Init(state, model, bones, r, looks, sounds, Commands, inst.obj, obj.cls, type?.on, type?.off, dims);
+            StateModels.Add(sm);
         }
 
         static readonly int AmbientId = Shader.PropertyToID("_LTAmbient");

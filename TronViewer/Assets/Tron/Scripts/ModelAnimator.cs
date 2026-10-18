@@ -111,7 +111,7 @@ namespace Tron
         // t (seconds, already wrapped: AnimTracker loops with t %= lastKeyTime) lies between key k and k + 1
         // at fraction f. k is the last key with time <= t, so a zero-length interval between two keys
         // sharing a time is never used (tools/animation.py key_at).
-        static void Key(float[] d, ModelAnimJson a, float t, out int k, out float f)
+        internal static void Key(float[] d, ModelAnimJson a, float t, out int k, out float f)
         {
             int lo = 0, hi = a.keys - 1;
             while (lo < hi)
@@ -126,7 +126,7 @@ namespace Tron
         }
 
         // Positions interpolate linearly, rotations by slerp (TransformMaker / quat_Slerp: shortest path).
-        static Vector3 Position(float[] d, ModelAnimJson a, int node, int k, float f)
+        internal static Vector3 Position(float[] d, ModelAnimJson a, int node, int k, float f)
         {
             int o = a.channels[node * 4], n = a.channels[node * 4 + 1];
             if (n <= 1) return new Vector3(d[o], d[o + 1], d[o + 2]);
@@ -134,13 +134,17 @@ namespace Tron
             return Vector3.LerpUnclamped(new Vector3(d[p], d[p + 1], d[p + 2]), new Vector3(d[q], d[q + 1], d[q + 2]), f);
         }
 
-        static Quaternion Rotation(float[] d, ModelAnimJson a, int node, int k, float f)
+        internal static Quaternion Rotation(float[] d, ModelAnimJson a, int node, int k, float f)
         {
             int o = a.channels[node * 4 + 2], n = a.channels[node * 4 + 3];
             if (n <= 1) return new Quaternion(d[o], d[o + 1], d[o + 2], d[o + 3]);
             int p = o + k * 4, q = o + Mathf.Min(k + 1, n - 1) * 4;
             return Quaternion.Slerp(new Quaternion(d[p], d[p + 1], d[p + 2], d[p + 3]), new Quaternion(d[q], d[q + 1], d[q + 2], d[q + 3]), f);
         }
+
+        // A scale channel (scales: offset, count): linear between keys, a constant when count is 1.
+        internal static float Scale(float[] d, int offset, int count, int k, float f) =>
+            count <= 1 ? d[offset] : Mathf.LerpUnclamped(d[offset + k], d[offset + Mathf.Min(k + 1, count - 1)], f);
 
         struct PoseJob : IJobParallelForTransform
         {

@@ -9,7 +9,8 @@ export/models/<model path>.bin   'TRMD', u32 version, u32 nVerts, u32 nIdx, u32 
                                  influences (nInfluences * Unity BoneWeight1: f32 weight, i32 node),
                                  animation clips (nAnimFloats * f32, indexed by the json's anims)
 Only LOD 0 is exported, at the bind pose (vertices are stored in model space). Only the animations
-the levels' instances play are exported (animation.clip: engine rules applied, channels parent-relative).
+the levels' instances play are exported (animation.clip: engine rules applied, channels parent-relative),
+with their model string keys and the uniform scale of vertex-animated pieces (binarybit's Yes / No).
 """
 import json
 import os
@@ -23,7 +24,7 @@ from butes import norm
 import ltb
 import renderstyle
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 
 OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4), ("uv", "<f4", 2),
                        ("uv2", "<f4", 2)])
@@ -45,6 +46,10 @@ def model_entry(section, model_key, prefix=""):
     <prefix>SkinN / <prefix>RenderStyleN slots, kept in position (empty slots too)."""
     return norm(section[model_key]), [norm(x) for x in butes.indexed(section, prefix + "skin")], \
         [norm(x) for x in butes.indexed(section, prefix + "renderstyle")]
+
+
+BINARY_BIT = ("props/models/binarybit.ltb",
+              ("props/rs/binarybit_idle.ltb", "props/rs/binarybit_yes.ltb", "props/rs/binarybit_no.ltb"))
 
 
 class Resolver:
@@ -134,6 +139,10 @@ class Resolver:
             # (the "on" set; death switches to Skin3..5, 0x10031128).
             file, skins, rs = self.template("Optimizer")
             return file, skins[:3], rs
+        if cls == "BinaryBit":
+            # BinaryBit::ReadProp (object.lto 0x10012c30): the hard-coded model, no skins, render styles
+            # Idle / Yes / No (docs/research/secrezzer-binarybit.md).
+            return BINARY_BIT[0], [], list(BINARY_BIT[1])
         if cls in ("PropType", "Finder", "TronTurret"):
             # TronTurret::ReadProp (object.lto 0x1006b818) reads its type from "PropType".
             t = self.proptypes.get(s("PropType" if cls == "TronTurret" else "Type").lower())
@@ -322,13 +331,14 @@ def place_glow(draws, glow):
 BONE_WEIGHT = np.dtype([("weight", "<f4"), ("bone", "<i4")])   # Unity BoneWeight1
 
 
-def skin_weights(mesh, nv):
+def skin_weights(mesh, nv, bone=None):
     """Per vertex influence count (1..4) and the influences (Unity BoneWeight1, heaviest first).
     Bone indices are model node indices. Skeletal render-direct meshes: each bone set loads
     bones[0..n-1] and blends with the vertex's first n-1 stored weights plus 1 - their sum
-    (CD3DSkelMesh::Render, D3DVBF_{n-1}WEIGHTS). Rigid and vertex-animated meshes follow one node."""
+    (CD3DSkelMesh::Render, D3DVBF_{n-1}WEIGHTS). Rigid and vertex-animated meshes follow one node
+    (`bone` when given, else the mesh's)."""
     if mesh.kind != ltb.SKEL:
-        return np.ones(nv, np.uint8), np.array([(1.0, mesh.bone)] * nv, BONE_WEIGHT)
+        return np.ones(nv, np.uint8), np.array([(1.0, mesh.bone if bone is None else bone)] * nv, BONE_WEIGHT)
     if mesh.matrix_palettes:
         raise ValueError("matrix-palette skeletal mesh not supported")
     stored = mesh.field("weights")
@@ -372,7 +382,9 @@ def model_dims(m):
 def clip_block(clips):
     """The clips as one float block and their json entries: times (s), then per node its position keys
     (3 floats each) and rotation keys (4 floats, quaternion x y z w). channels: per node posOffset,
-    posCount, rotOffset, rotCount (offsets in floats; a count is 1 for a constant channel or keys)."""
+    posCount, rotOffset, rotCount (offsets in floats; a count is 1 for a constant channel or keys).
+    scales: node, offset, count per scaled node (a vertex-animated piece's uniform scale, 1 float per key).
+    cmds: the model string keys, {t (s), s}."""
     floats, meta, n = [], [], 0
 
     def put(a):
@@ -387,6 +399,10 @@ def clip_block(clips):
                  "times": put(c.times / 1000.0), "channels": []}
         for p, q in zip(c.pos, c.rot):
             entry["channels"] += [put(p), len(p), put(q), len(q)]
+        entry["scales"] = []
+        for node, f in sorted(c.scales.items()):
+            entry["scales"] += [node, put(f), len(f)]
+        entry["cmds"] = [{"t": t / 1000.0, "s": cmd} for t, cmd in c.commands]
         meta.append(entry)
     return (np.concatenate(floats) if floats else np.zeros(0, np.float32)), meta
 
@@ -396,7 +412,11 @@ def export_model(extracted, rel, out_root, anims=(), load=None):
     load(rel): a model loader (default ltb.load), for child models."""
     m = ltb.load(os.path.join(extracted, rel))
     children = animation.load_children(extracted, rel, m, load) if anims else []
-    anim_floats, anim_meta = clip_block([animation.clip(m, children, a) for a in anims])
+    clips = [animation.clip(m, children, a) for a in anims]
+    anim_floats, anim_meta = clip_block(clips)
+    # A vertex-animated piece the clips scale follows its own node (at the origin, unrotated, like
+    # binarybit's d_Pyramid / d_NewSpike), so the node's scale scales it about the model origin.
+    scaled = {m.nodes[n].name: n for c in clips for n in c.scales}
     verts, idx, pieces, counts, weights = [], [], [], [], []
     nv = ni = 0
     for p in m.pieces:
@@ -419,7 +439,7 @@ def export_model(extracted, rel, out_root, anims=(), load=None):
                        "idxCount": int(len(tris)), "min": pos.min(0).tolist(), "max": pos.max(0).tolist()})
         verts.append(out)
         idx.append(tris)
-        c, w = skin_weights(mesh, len(out))
+        c, w = skin_weights(mesh, len(out), scaled.get(p.name))
         counts.append(c)
         weights.append(w)
         nv += len(out)

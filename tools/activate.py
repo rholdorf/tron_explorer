@@ -36,9 +36,13 @@ def prompts(extracted):
     return out
 
 
+# Classes whose ActivateType is set in code, not by a prop (SecRezzer::ReadProp, object.lto 0x10043660).
+CLASS_TYPES = {"SecRezzer": "Disable Secrezzer"}
+
+
 def level_types(objects, extracted):
     """The ActivateTypes a level's objects (dat85 form) name, by name, with their texts:
     [{"name", "on", "off"}]. Unknown names and <none> are left out."""
     table = prompts(extracted)
-    names = {o["props"].get("ActivateType") for o in objects}
+    names = {CLASS_TYPES.get(o["class"]) or o["props"].get("ActivateType") for o in objects}
     return [{"name": n, "on": table[n][0], "off": table[n][1]} for n in sorted(n for n in names if n in table)]
