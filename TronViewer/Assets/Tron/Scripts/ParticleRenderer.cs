@@ -53,11 +53,7 @@ namespace Tron
             if (!textures.TryGetValue(ps.Texture, out var t)) textures[ps.Texture] = t = DtxLoader.Load(ps.Texture);
             if (t == null) return Texture2D.whiteTexture;
             if (t.frames == null || t.frames.Length < 2) return t.tex;
-            // spr_UpdateTracker: whole milliseconds, each frame 1000 / rate (integer) long, looping.
-            int period = t.frameRate >= 1 ? 1000 / (int)t.frameRate : 0;
-            if (period <= 0) return t.frames[0];
-            long ms = (long)((Effects.Time - ps.Born) * 1000);
-            return t.frames[(int)(ms / period % t.frames.Length)];
+            return t.frames[SpriteMath.Frame(Effects.Time - ps.Born, (int)t.frameRate, t.frames.Length)];
         }
 
         Batch BatchOf(Texture tex, int blend)

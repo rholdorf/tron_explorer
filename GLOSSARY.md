@@ -224,6 +224,10 @@ _Avoid_: fx sound, ambient sound (a placed SoundFX)
 An `LTBBouncyChunk` fx key's model: launched along its key's direction, pulled by its gravity, bounced off the world at 70% speed, full bright, coloured and scaled by its keys. It is its own object, so it stands from the moment its group starts until its key ends, whether or not its key has begun. Effects linked to it ride along (m02-01's invisible carriers drag the bike's pieces).
 _Avoid_: debris (only m05-01's are), gib, bouncy chunk
 
+**ScaleSprite**:
+A placed object that is one sprite (`.spr`, its frames looping at the file's rate): sized by its texture times its scale, facing the camera or lying in its own axes (rotatable), lit by the level, switched by ON/OFF and HIDDEN/VISIBLE alike. m07's status lights are ScaleSprites in threes (on, off, no power) of which only one starts on. With `CreateSprite` it also has a lens flare: a second sprite that grows as the camera looks straight at it (Ma3a's).
+_Avoid_: sprite (an effect's Sprite is a different thing), billboard (only some face the camera), decal
+
 **Chained group**:
 The effect group a `CreateFX` key names: started as an instance of its own the moment its parent group starts (not at the key's start time), at the parent's place, then left alone: shutting the parent down doesn't reach it, and a looping parent never starts it again.
 _Avoid_: child effect, sub-effect

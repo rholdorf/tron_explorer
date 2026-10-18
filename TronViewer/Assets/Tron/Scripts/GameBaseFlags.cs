@@ -73,6 +73,15 @@ namespace Tron
             return true;
         }
 
+        // An object's own handler setting FLAG_VISIBLE (a ScaleSprite's ON / OFF): not a GameBase message, so
+        // it saves nothing for HIDDEN 0 to restore.
+        public void SetVisible(bool on)
+        {
+            if (Removed) return;
+            Visible = on;
+            Changed?.Invoke();
+        }
+
         static bool IsWord(string s, string a, string b) =>
             string.Equals(s, a, StringComparison.OrdinalIgnoreCase) || string.Equals(s, b, StringComparison.OrdinalIgnoreCase);
     }

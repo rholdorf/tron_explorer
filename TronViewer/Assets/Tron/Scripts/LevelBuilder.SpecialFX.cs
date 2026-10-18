@@ -21,7 +21,8 @@ namespace Tron
         public ClientFXMgr Effects;
         public Shader EffectShader;
         readonly RaycastHit[] fxHits = new RaycastHit[8];
-        readonly Dictionary<int, Transform> specialFXObjects = new Dictionary<int, Transform>();
+        // Objects that are only a place (SpecialFX, ScaleSprite): keyframers move their transforms.
+        readonly Dictionary<int, Transform> pointObjects = new Dictionary<int, Transform>();
         readonly List<SpecialFX> startOn = new List<SpecialFX>();
 
         void BuildSpecialFX(string exportRoot)
@@ -76,7 +77,7 @@ namespace Tron
                 fx.RemoveObject = () => flags.OnMessage(new Message(new[] { "REMOVE" }, -1));
                 Commands.Handle(i, fx.OnMessage);
                 ticker.Objects.Add((fx, go.transform));
-                specialFXObjects[i] = go.transform;
+                pointObjects[i] = go.transform;
                 if (o.Bool("StartOn", true)) startOn.Add(fx);
                 var group = Effects.Find(fx.FxName);
                 if (group == null) continue;
