@@ -13,7 +13,7 @@ namespace Tron
     // Entry point: level menu, loading, sky/world cameras, fog, HUD.
     public class TronExplorer : MonoBehaviour
     {
-        public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader;
+        public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader, effectShader;
         // Light grid interpolation order for models (ModelLighting's ltjsGridOrder), applied on level load.
         // Also "-gridorder ltjs" on the command line.
         public bool ltjsGridOrder;
@@ -54,6 +54,7 @@ namespace Tron
         {
             if (!worldShader) worldShader = Shader.Find("Tron/World");
             if (!modelShader) modelShader = Shader.Find("Tron/Model");
+            if (!effectShader) effectShader = Shader.Find("Tron/Effect");
             uiAdjust = PlayerPrefs.GetFloat(UiScalePref, 1f);
             ResolveRoots();
             DtxLoader.Root = extractedRoot;
@@ -145,13 +146,27 @@ namespace Tron
 
         // -level <name> -benchmark <seconds>: frame times at the start point with vsync off, logged
         // as one "BENCH" line, then quit. Used to measure renderer changes in the player build.
+        // -benchat "x y z yaw pitch" (LT units, degrees) measures from there instead (noclip); -benchcmd
+        // "<command>" runs a level command after the warm-up (m10-04's explosions: "msg sparksFX00 ON; ...").
         System.Collections.IEnumerator Benchmark(float seconds)
         {
             Application.runInBackground = true; // keep measuring if the window loses focus
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = -1;
             showHelp = false;
-            for (float t = 0; t < 1; t += Time.unscaledDeltaTime) yield return null; // warm-up
+            var at = GetArg("-benchat")?.Split(' ').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            for (float t = 0; t < 1; t += Time.unscaledDeltaTime) // warm-up
+            {
+                if (at != null && at.Length == 5)
+                {
+                    player.Noclip = true;
+                    player.transform.position = new Vector3(at[0], at[1], at[2]) * LT.Scale;
+                    player.SetView(at[3], at[4]);
+                }
+                yield return null;
+            }
+            var cmd = GetArg("-benchcmd");
+            if (cmd != null) level.Commands.Run(cmd);
             var ms = new System.Collections.Generic.List<float>();
             for (float t = 0; t < seconds; t += Time.unscaledDeltaTime)
             {
@@ -243,7 +258,8 @@ namespace Tron
         {
             var playerGo = new GameObject("Player");
             playerGo.AddComponent<CharacterController>();
-            var camGo = new GameObject("Main Camera");
+            // Camera.main: the effect manager's distance freeze and the particles' facing.
+            var camGo = new GameObject("Main Camera") { tag = "MainCamera" };
             camGo.transform.SetParent(playerGo.transform, false);
             mainCam = camGo.AddComponent<Camera>();
             camGo.AddComponent<AudioListener>();
@@ -371,7 +387,7 @@ namespace Tron
             DtxLoader.ClearCache();
             if (testSound) Destroy(testSound.gameObject);
             SoundLoader.ClearCache();
-            level = new LevelBuilder();
+            level = new LevelBuilder { EffectShader = effectShader };
             try
             {
                 level.Build(Path.Combine(exportRoot, "levels", match), worldShader, modelShader, exportRoot, ltjsGridOrder);

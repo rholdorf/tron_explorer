@@ -152,6 +152,7 @@ MonoBehaviour:
   modelShader: {fileID: 4800000, guid: 24dcb9a7a1f44b6c93bcc20fd49ee6d6, type: 3}
   glowBlurShader: {fileID: 4800000, guid: 52761ce732de3448ea2e4ebf46891e1f, type: 3}
   glowCompositeShader: {fileID: 4800000, guid: a5425a5cf1e094c7b99e386d535e8d44, type: 3}
+  effectShader: {fileID: 4800000, guid: 0ecbfa87b5434fa98b46c1e703b6223d, type: 3}
 --- !u!4 &1700072705
 Transform:
   m_ObjectHideFlags: 0

@@ -9,10 +9,14 @@ namespace Tron
     // transform keyframers can move; ClientFXTicker reads it each frame. Templates are never created.
     // StartOn objects turn on once every object exists (MID_ALLOBJECTSCREATED: StartSpecialFX, after the
     // relays). Effect keys whose type has no look yet count in the report as "FX <type> (NO LOOK)", once
-    // per placed object.
+    // per placed object. Types with a look: ParticleSystem (ParticleRenderer). Effects bounce and splat on
+    // the world's colliders (IntersectSegment hits the world only, so characters' and the player's
+    // controllers don't count).
     public partial class LevelBuilder
     {
         public ClientFXMgr Effects;
+        public Shader EffectShader;
+        readonly RaycastHit[] fxHits = new RaycastHit[8];
         readonly Dictionary<int, Transform> specialFXObjects = new Dictionary<int, Transform>();
         readonly List<SpecialFX> startOn = new List<SpecialFX>();
 
@@ -20,8 +24,14 @@ namespace Tron
         {
             Effects = new ClientFXMgr();
             foreach (var g in Data.fxGroups ?? new FxGroupJson[0]) Effects.Add(g.Group());
+            var effects = Effects;
+            effects.Types["ParticleSystem"] = k => new FxParticleSystem(effects);
+            effects.Intersect = IntersectWorld;
             var ticker = Root.AddComponent<ClientFXTicker>();
             ticker.Effects = Effects;
+            var particles = Root.AddComponent<ParticleRenderer>();
+            particles.Effects = Effects;
+            particles.Shader = EffectShader;
             GameObject parent = null;
             for (int i = 0; i < Data.objects.Length; i++)
             {
@@ -50,6 +60,27 @@ namespace Tron
                 foreach (var k in group.Keys)
                     if (!Effects.HasLook(k.Type)) Commands.Count("FX", k.Type, "(no look)");
             }
+        }
+
+        bool IntersectWorld(LTVec from, LTVec to, out LTVec point, out LTVec normal)
+        {
+            point = normal = default;
+            var root = Root.transform;
+            var a = root.TransformPoint(new Vector3(from.x, from.y, from.z));
+            var d = root.TransformPoint(new Vector3(to.x, to.y, to.z)) - a;
+            float len = d.magnitude;
+            if (len <= 0) return false;
+            int n = Physics.RaycastNonAlloc(a, d / len, fxHits, len, ~(1 << UseOnlyLayer), QueryTriggerInteraction.Ignore);
+            int best = -1;
+            for (int i = 0; i < n; i++)
+                if (!(fxHits[i].collider is CharacterController) && (best < 0 || fxHits[i].distance < fxHits[best].distance))
+                    best = i;
+            if (best < 0) return false;
+            var p = root.InverseTransformPoint(fxHits[best].point);
+            var nr = root.InverseTransformDirection(fxHits[best].normal);
+            point = new LTVec(p.x, p.y, p.z);
+            normal = new LTVec(nr.x, nr.y, nr.z);
+            return true;
         }
 
         void StartSpecialFX()

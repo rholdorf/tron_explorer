@@ -153,30 +153,34 @@ namespace Tron
             OnUpdate(dt);
         }
 
-        // CalcColour: linear between the keys around t, nothing written past the last.
-        void Colour(float t)
+        void Colour(float t) => KeyColour(Key.Ck, t, ref R, ref G, ref B, ref A);
+
+        void KeyScale(float t) => KeyScale(Key.Sk, t, ref Scale);
+
+        // CalcColour: linear between the keys around t (Ck: t, r, g, b, a per key; a drawn 1 - a), nothing
+        // written past the last.
+        public static void KeyColour(float[] k, float t, ref float r, ref float g, ref float b, ref float a)
         {
-            var k = Key.Ck;
             for (int i = 0; i + 9 < k.Length; i += 5)
             {
                 if (t >= k[i + 5]) continue;
-                float span = k[i + 5] - k[i], r = span > 0 ? (t - k[i]) / span : 0;
-                R = k[i + 1] + (k[i + 6] - k[i + 1]) * r;
-                G = k[i + 2] + (k[i + 7] - k[i + 2]) * r;
-                B = k[i + 3] + (k[i + 8] - k[i + 3]) * r;
-                A = 1 - (k[i + 4] + (k[i + 9] - k[i + 4]) * r);
+                float span = k[i + 5] - k[i], f = span > 0 ? (t - k[i]) / span : 0;
+                r = k[i + 1] + (k[i + 6] - k[i + 1]) * f;
+                g = k[i + 2] + (k[i + 7] - k[i + 2]) * f;
+                b = k[i + 3] + (k[i + 8] - k[i + 3]) * f;
+                a = 1 - (k[i + 4] + (k[i + 9] - k[i + 4]) * f);
                 return;
             }
         }
 
-        void KeyScale(float t)
+        // CalcScale: as KeyColour, Sk: t, scale per key.
+        public static void KeyScale(float[] k, float t, ref float scale)
         {
-            var k = Key.Sk;
             for (int i = 0; i + 3 < k.Length; i += 2)
             {
                 if (t >= k[i + 2]) continue;
                 float span = k[i + 2] - k[i];
-                Scale = k[i + 1] + (span > 0 ? (k[i + 3] - k[i + 1]) / span * (t - k[i]) : 0);
+                scale = k[i + 1] + (span > 0 ? (k[i + 3] - k[i + 1]) / span * (t - k[i]) : 0);
                 return;
             }
         }
@@ -421,6 +425,8 @@ namespace Tron
         }
     }
 
+    public delegate bool SegmentHit(LTVec from, LTVec to, out LTVec point, out LTVec normal);
+
     // The client's effect manager (CClientFXMgr) for one level: its groups by name, the running instances,
     // and the effect types the viewer has.
     public sealed class ClientFXMgr
@@ -430,6 +436,11 @@ namespace Tron
         readonly Dictionary<string, FxGroup> groups = new Dictionary<string, FxGroup>(StringComparer.OrdinalIgnoreCase);
         readonly List<FxInstance> instances = new List<FxInstance>();
         public readonly Func<double> Random;
+        // The client's time (s), summed over the updates: sprite clocks run on it.
+        public double Time { get; private set; }
+        // IntersectSegment against the world, for effects that bounce or splat: the first hit from
+        // `from` to `to` (LT units), its point and its surface normal. None set: nothing is hit.
+        public SegmentHit Intersect;
 
         // Effect types by name (any case): each makes a key's effect. A type with none gets the base
         // effect: timed, no look.
@@ -483,6 +494,7 @@ namespace Tron
         // UpdateAllActiveFX: every instance by the client frame time; finished ones go.
         public void Update(float dt, LTVec camera)
         {
+            Time += dt;
             for (int i = 0; i < instances.Count; i++)
             {
                 instances[i].Update(dt, camera);
