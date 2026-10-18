@@ -134,6 +134,18 @@ _Avoid_: logic object, controller
 A `CommandObject`: a timeline that runs its commands at set times after it is started.
 _Avoid_: sequence, cutscene (cutscenes also need cameras and dialogue)
 
+**Cutscene**:
+A scene the level plays through a dialogue whose lines, as they are spoken, cut and move scene cameras and make actors play named animations or jump to places. While a scene camera is on the player can't move, and may skip the scene where the camera allows it. Cutscenes run in the `*cin` levels and inside ordinary levels alike.
+_Avoid_: cinematic alone (the `*cin` levels are only some of them), movie (the game's Bink videos are another thing)
+
+**Dialogue**:
+A placed object that speaks up to twenty lines in turn, each a game string read by a named speaker after its own delay, each able to run a command as it starts; commands run when it starts, finishes and is cleaned up.
+_Avoid_: conversation, transmission (a one-line HUD message), subtitle (only the text of a line)
+
+**Scene camera**:
+A placed `Camera` the view switches to while it is on: it goes to named camera points and changes its field of view on command.
+_Avoid_: camera alone (the player has one too), camera point (a place a scene camera goes to)
+
 **Event counter**:
 An `EventCounter`: a count that `inc` and `dec` messages step, running the command set for each value it reaches; Tron's `reset` puts it back to its starting value.
 _Avoid_: counter variable (the command language's variables are something else)
