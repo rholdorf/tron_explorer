@@ -141,6 +141,10 @@ properties:
 Drawing the bit correctly needs props posed by an animation frame and per-state style swaps. Until then,
 the bind pose would show all three shapes on top of each other, so it isn't drawn.
 
+Correction (#51, `docs/research/secrezzer-binarybit.md`): the shapes don't overlap, they're nested.
+`d_Pyramid` and `d_NewSpike` sit inside the opaque `Byte1`, so the bind pose is the correct resting look,
+and only the `Byte1` style (slot 0) changes per state.
+
 ## Behavior phase list
 
 - BinaryBit: everything above (36 placed).
