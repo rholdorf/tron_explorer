@@ -212,6 +212,10 @@ _Avoid_: effect (that is one key's part of it), emitter
 What an fx key is (`ParticleSystem`, `Sprite`, `LTBModel`…), and the viewer's plug-in that draws it. A key whose type has no plug-in yet is still timed but shows nothing; the L report counts these keys as `FX <type> (NO LOOK)`.
 _Avoid_: fx class, effect kind
 
+**Effect model**:
+An `LTBModel` fx key's model: drawn with its own skins and render styles like a placed model (so it glows through `[GlowRSMap]`), faced and spun by its key, faded and tinted by its colour keys, and playing its clip (its `AniName`, else animation 0) once over and again. A smooth shutdown waits for the clip to end.
+_Avoid_: fx model, prop (a prop is a placed object)
+
 **Smooth shutdown**:
 How an effect ends when its key ends or its instance shuts down: smooth lets it finish (particles drain), otherwise it is cut at once. Both the key's `SmoothShutDown` and the SpecialFX's `SmoothShutdown` must allow it.
 _Avoid_: fade out (a smooth shutdown doesn't fade by itself)

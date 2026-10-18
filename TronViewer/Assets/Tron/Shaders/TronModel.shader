@@ -3,8 +3,8 @@
 // floats (tools/renderstyle.py compiles the style and refuses what this shader can't draw).
 //   stage vector a = (colorOp, colorArg1, colorArg2, texture slot), b = (alphaOp, alphaArg1, alphaArg2, uv set)
 //   ops:  0 disable, 1 SELECTARG1, 2 SELECTARG2, 3 MODULATE, 4 MODULATE2X, 5 BLENDCURRENTALPHA,
-//         6 BLENDFACTORALPHA, 7 ADD, 8 BLENDTEXTUREALPHA
-//   args: 0 CURRENT, 1 DIFFUSE, 2 TEXTURE, 3 TFACTOR; texture slot 1..2 = the piece's texture list
+//         6 BLENDFACTORALPHA, 7 ADD, 8 BLENDTEXTUREALPHA, 9 DOTPRODUCT3
+//   args: 0 CURRENT, 1 DIFFUSE, 2 TEXTURE, 3 TFACTOR; texture slot 1..3 = the piece's texture list
 //   uv set: 0 = model UVs, 1 = camera-space reflection vector xy (D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR)
 // A second pass that blends over an opaque first pass is folded in (exact, fog included); one that needs
 // the framebuffer is a later draw of the piece with its own material (LevelBuilder.CreateModelMaterials).
@@ -14,7 +14,9 @@
 // Diffuse is the D3D fixed-function lighting result for lit passes and white for unlit ones, per vertex:
 // emissive + material ambient * ambient light + sum of material diffuse * light * max(0, N.L), saturated.
 // The ambient light and up to 4 directional lights are per instance (ModelLighting.cs, set through a
-// MaterialPropertyBlock): the light grid sample, the static object lights and the sun.
+// MaterialPropertyBlock): the light grid sample, the static object lights and the sun. An effect model's
+// colour scales them (AddAmbientAndScale) and its alpha the material alpha (RenderPieceList(fAlpha)), as
+// _LTTransparency = 1 - alpha.
 // The glow buffer draws the style's [GlowRSMap] replacement pass (black when unmapped); two alpha-blended
 // glow passes fold into one premultiplied draw (_PG.y = 2, second pass in _H*, Blend One OneMinusSrcAlpha).
 // Glow draws are fogged towards black with the glow fog (_LTFogParams holds ScreenGlowFog* then).
@@ -24,6 +26,7 @@ Shader "Tron/Model"
     {
         _Tex1 ("Texture 1", 2D) = "white" {}
         _Tex2 ("Texture 2", 2D) = "white" {}
+        _Tex3 ("Texture 3", 2D) = "white" {}
         _S0a ("Pass 0 stage 0 color", Vector) = (0,0,0,0)
         _S0b ("Pass 0 stage 0 alpha", Vector) = (0,0,0,0)
         _S1a ("Pass 0 stage 1 color", Vector) = (0,0,0,0)
@@ -76,9 +79,10 @@ Shader "Tron/Model"
 
             TEXTURE2D(_Tex1); SAMPLER(sampler_Tex1);
             TEXTURE2D(_Tex2); SAMPLER(sampler_Tex2);
+            TEXTURE2D(_Tex3); SAMPLER(sampler_Tex3);
 
             CBUFFER_START(UnityPerMaterial)
-                float4 _Tex1_ST, _Tex2_ST;
+                float4 _Tex1_ST, _Tex2_ST, _Tex3_ST;
                 float4 _S0a, _S0b, _S1a, _S1b, _T0a, _T0b, _T1a, _T1b, _G0a, _G0b, _G1a, _G1b, _H0a, _H0b, _H1a, _H1b;
                 float4 _TF0, _TF1, _TFG, _TFH, _P0, _P1, _PG, _PH;
                 float4 _MatDiffuse, _MatEmissive, _MatAmbient;
@@ -95,6 +99,7 @@ Shader "Tron/Model"
             float4 _LTAmbient;
             float4 _LTLightDir[4];
             float4 _LTLightColor[4];
+            float _LTTransparency;
 
             struct appdata
             {
@@ -130,7 +135,8 @@ Shader "Tron/Model"
                 float3 light = 0;
                 [unroll] for (int k = 0; k < 4; k++)
                     light += _LTLightColor[k].rgb * max(0, dot(wn, -_LTLightDir[k].xyz));
-                o.lit = float4(saturate(_MatEmissive.rgb + _MatAmbient.rgb * _LTAmbient.rgb + _MatDiffuse.rgb * light), _MatDiffuse.a);
+                o.lit = float4(saturate(_MatEmissive.rgb + _MatAmbient.rgb * _LTAmbient.rgb + _MatDiffuse.rgb * light),
+                               _MatDiffuse.a * (1 - _LTTransparency));
                 return o;
             }
 
@@ -149,6 +155,7 @@ Shader "Tron/Model"
                 if (op == 5) return lerp(a2, a1, curA);
                 if (op == 6) return lerp(a2, a1, tfA);
                 if (op == 7) return saturate(a1 + a2);
+                if (op == 9) return saturate(4 * dot(a1.rgb - 0.5, a2.rgb - 0.5)).xxxx;
                 return lerp(a2, a1, texA);
             }
 
@@ -156,7 +163,8 @@ Shader "Tron/Model"
             {
                 float2 tc = sb.w > 0 ? refl : uv;
                 float4 tex = sa.w == 1 ? SAMPLE_TEXTURE2D(_Tex1, sampler_Tex1, tc)
-                           : sa.w == 2 ? SAMPLE_TEXTURE2D(_Tex2, sampler_Tex2, tc) : float4(1, 1, 1, 1);
+                           : sa.w == 2 ? SAMPLE_TEXTURE2D(_Tex2, sampler_Tex2, tc)
+                           : sa.w == 3 ? SAMPLE_TEXTURE2D(_Tex3, sampler_Tex3, tc) : float4(1, 1, 1, 1);
                 float3 c = Op(sa.x, Arg(sa.y, cur, dif, tex, tf), Arg(sa.z, cur, dif, tex, tf), cur.a, tex.a, tf.a).rgb;
                 float a = sb.x == 0 ? cur.a : Op(sb.x, Arg(sb.y, cur, dif, tex, tf), Arg(sb.z, cur, dif, tex, tf), cur.a, tex.a, tf.a).a;
                 return float4(c, a);

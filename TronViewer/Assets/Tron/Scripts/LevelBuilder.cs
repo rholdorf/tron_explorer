@@ -12,7 +12,7 @@ namespace Tron
     public partial class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 22;
+        public const int FormatVersion = 23;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -99,7 +99,7 @@ namespace Tron
             BuildModels(exportRoot);
             BuildSoundFX();
             BuildSoundButeFX();
-            BuildSpecialFX();   // LevelBuilder.SpecialFX.cs
+            BuildSpecialFX(exportRoot);   // LevelBuilder.SpecialFX.cs
             BuildKeyframers();
             JoinObjectMessages();
             BuildSpinners();
@@ -231,11 +231,6 @@ namespace Tron
             if (Data.models == null || Data.models.Length == 0) return;
             var root = new GameObject("Models");
             root.transform.SetParent(Root.transform, false);
-            var styleMaterials = new Dictionary<(int, string, string), Material[]>();
-            var models = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
-            var repeatMeshes = new Dictionary<string, Mesh>();
-            var repeats = new List<int>();
-            var repeatMats = new List<Material>();
             var built = new (LoadedModel model, Transform[] bones)[Data.models.Length];
             var mpb = new MaterialPropertyBlock();
             var lightDirs = new Vector4[ModelLighting.MaxLights];
@@ -244,7 +239,7 @@ namespace Tron
             for (int n = 0; n < Data.models.Length; n++)
             {
                 var inst = Data.models[n];
-                var model = ModelLibrary.Load(exportRoot, inst.file, models, owned);
+                var model = ModelLibrary.Load(exportRoot, inst.file, loadedModels, owned);
                 if (model == null) continue;
                 if (inst.pieces == null || inst.pieces.Length != model.data.pieces.Length)
                 {
@@ -267,34 +262,7 @@ namespace Tron
                     go.transform.localRotation = obj.Rotation;
                     if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
                 }
-                // One material per piece for its style's first draw; later draws repeat the piece as extra
-                // submeshes of the same renderer (same skinning and property block), drawn after it.
-                var mats = new Material[inst.pieces.Length];
-                repeats.Clear();
-                repeatMats.Clear();
-                for (int i = 0; i < mats.Length; i++)
-                {
-                    var p = inst.pieces[i];
-                    string tex1 = p.tex != null && p.tex.Length > 0 ? p.tex[0] : "", tex2 = p.tex != null && p.tex.Length > 1 ? p.tex[1] : "";
-                    var key = (p.style, tex1, tex2);
-                    if (!styleMaterials.TryGetValue(key, out var m))
-                        styleMaterials[key] = m = CreateModelMaterials(Data.renderStyles[p.style], tex1, tex2);
-                    mats[i] = m[0];
-                    for (int d = 1; d < m.Length; d++)
-                    {
-                        repeats.Add(i);
-                        repeatMats.Add(m[d]);
-                    }
-                }
-                var mesh = model.mesh;
-                if (repeats.Count > 0)
-                {
-                    mesh = ModelLibrary.WithRepeatedPieces(model, repeats, repeatMeshes, owned);
-                    var all = new Material[mats.Length + repeatMats.Count];
-                    mats.CopyTo(all, 0);
-                    repeatMats.CopyTo(all, mats.Length);
-                    mats = all;
-                }
+                var (mesh, mats) = ModelLook(model, inst.pieces);
                 Renderer r;
                 if (inst.skinned != 0)
                 {
@@ -319,7 +287,7 @@ namespace Tron
                 }
                 r.sharedMaterials = mats;
                 if (inst.parent < 0 && inst.looks != null && inst.looks.Length > 0 && built[n].bones != null)
-                    AddStateModel(go, inst, obj, model, built[n].bones, r, styleMaterials);
+                    AddStateModel(go, inst, obj, model, built[n].bones, r);
                 r.shadowCastingMode = ShadowCastingMode.Off;
                 r.receiveShadows = false;
                 r.lightProbeUsage = LightProbeUsage.Off;
@@ -343,7 +311,7 @@ namespace Tron
         public readonly List<StateModel> StateModels = new List<StateModel>();
 
         void AddStateModel(GameObject go, ModelInstanceJson inst, ObjectJson obj, LoadedModel model, Transform[] bones,
-                           Renderer r, Dictionary<(int, string, string), Material[]> styleMaterials)
+                           Renderer r)
         {
             var looks = new Dictionary<string, Material[]>();
             foreach (var look in inst.looks)
@@ -351,11 +319,7 @@ namespace Tron
                 var mats = new Material[look.pieces.Length];
                 for (int i = 0; i < mats.Length; i++)
                 {
-                    var p = look.pieces[i];
-                    string tex1 = p.tex != null && p.tex.Length > 0 ? p.tex[0] : "", tex2 = p.tex != null && p.tex.Length > 1 ? p.tex[1] : "";
-                    var key = (p.style, tex1, tex2);
-                    if (!styleMaterials.TryGetValue(key, out var m))
-                        styleMaterials[key] = m = CreateModelMaterials(Data.renderStyles[p.style], tex1, tex2);
+                    var m = PieceMaterials(look.pieces[i]);
                     if (m.Length != 1 || r.sharedMaterials.Length != mats.Length)
                     {
                         Debug.LogWarning($"{obj.name}: look {look.name} draws a piece more than once; its look stays as built");
@@ -452,9 +416,53 @@ namespace Tron
             return result;
         }
 
+        readonly Dictionary<string, LoadedModel> loadedModels = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<(int, string, string, string), Material[]> styleMaterials = new Dictionary<(int, string, string, string), Material[]>();
+        readonly Dictionary<string, Mesh> lookMeshes = new Dictionary<string, Mesh>();
+        readonly HashSet<Material> wireMaterials = new HashSet<Material>();
+
+        // The mesh and materials that draw a model with these piece styles (placed models, effect models):
+        // one material per piece for its style's first draw; later draws repeat the piece as extra submeshes
+        // of the same renderer (same skinning and property block), drawn after it; wireframe draws
+        // (RENDERSTYLE_WIRE) draw their submesh's triangle edges as lines.
+        (Mesh, Material[]) ModelLook(LoadedModel model, PieceStyleJson[] pieces)
+        {
+            var mats = new List<Material>(pieces.Length);
+            var repeats = new List<int>();
+            var repeatMats = new List<Material>();
+            for (int i = 0; i < pieces.Length; i++)
+            {
+                var m = PieceMaterials(pieces[i]);
+                mats.Add(m[0]);
+                for (int d = 1; d < m.Length; d++)
+                {
+                    repeats.Add(i);
+                    repeatMats.Add(m[d]);
+                }
+            }
+            var mesh = model.mesh;
+            if (repeats.Count > 0) mesh = ModelLibrary.WithRepeatedPieces(model, repeats, lookMeshes, owned);
+            mats.AddRange(repeatMats);
+            var wire = new List<int>();
+            for (int i = 0; i < mats.Count; i++)
+                if (wireMaterials.Contains(mats[i])) wire.Add(i);
+            if (wire.Count > 0) mesh = ModelLibrary.WithLines(mesh, wire, lookMeshes, owned);
+            return (mesh, mats.ToArray());
+        }
+
+        // A piece's materials, one per draw of its style, shared by every piece with the same style and textures.
+        Material[] PieceMaterials(PieceStyleJson p)
+        {
+            string Tex(int i) => p.tex != null && p.tex.Length > i ? p.tex[i] : "";
+            var key = (p.style, Tex(0), Tex(1), Tex(2));
+            if (!styleMaterials.TryGetValue(key, out var m))
+                styleMaterials[key] = m = CreateModelMaterials(Data.renderStyles[p.style], key.Item2, key.Item3, key.Item4);
+            return m;
+        }
+
         // Tron/Model materials for one compiled render style and the piece's texture list, one per draw.
         // A later draw sorts after the one before it (the engine draws a piece's passes in turn).
-        Material[] CreateModelMaterials(RenderStyleJson rs, string tex1, string tex2)
+        Material[] CreateModelMaterials(RenderStyleJson rs, string tex1, string tex2, string tex3)
         {
             var result = new Material[rs.draws.Length];
             for (int d = 0; d < result.Length; d++)
@@ -462,7 +470,8 @@ namespace Tron
                 var draw = rs.draws[d];
                 var m = new Material(modelShader) { name = d == 0 ? $"{rs.name} {tex1}" : $"{rs.name} {tex1} draw {d}" };
                 owned.Add(m);
-                foreach (var (prop, tex) in new[] { ("_Tex1", tex1), ("_Tex2", tex2) })
+                if (draw.wire != 0) wireMaterials.Add(m);
+                foreach (var (prop, tex) in new[] { ("_Tex1", tex1), ("_Tex2", tex2), ("_Tex3", tex3) })
                 {
                     if (string.IsNullOrEmpty(tex)) continue;
                     var t = DtxLoader.Load(tex);

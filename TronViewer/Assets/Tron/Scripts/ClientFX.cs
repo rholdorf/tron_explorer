@@ -40,7 +40,7 @@ namespace Tron
     }
 
     // What an effect follows: a SpecialFX object, another effect of the instance (a motion link), or the
-    // stand-in a smooth shutdown leaves. Nodes and sockets belong to models (an effect model's, later).
+    // stand-in a smooth shutdown leaves. Nodes and sockets belong to models (an effect model's).
     public interface IFxObject
     {
         LTVec Pos { get; }
@@ -115,6 +115,7 @@ namespace Tron
         public void Update(float dt)
         {
             if (Suspended || !Active) return;
+            OnBeginUpdate();
             Elapsed += dt;
             if (Parent != null)
             {
@@ -187,6 +188,8 @@ namespace Tron
 
         // Once, after Init.
         protected virtual void OnInit() { }
+        // Each update, before the base (the type's own work ahead of CBaseFX::Update).
+        protected virtual void OnBeginUpdate() { }
         // Each update, after the base.
         protected virtual void OnUpdate(float dt) { }
         // When it is shown or hidden.
@@ -199,6 +202,9 @@ namespace Tron
         public virtual void SuspendedUpdate(float dt) { }
         // When it leaves the instance.
         public virtual void Term() { }
+        // Once a frame while it exists, frozen or not: what the engine does to its object on its own
+        // (a model's animation).
+        public virtual void EngineUpdate(float dt) { }
 
         public virtual bool Attachment(string name, bool socket, out LTVec pos, out LTQuat rot)
         {
@@ -438,6 +444,8 @@ namespace Tron
         public readonly Func<double> Random;
         // The client's time (s), summed over the updates: sprite clocks run on it.
         public double Time { get; private set; }
+        // The camera's rotation in the level, for effects that face it.
+        public LTQuat CameraRot = new LTQuat(0, 0, 0, 1);
         // IntersectSegment against the world, for effects that bounce or splat: the first hit from
         // `from` to `to` (LT units), its point and its surface normal. None set: nothing is hit.
         public SegmentHit Intersect;
@@ -499,6 +507,7 @@ namespace Tron
             {
                 instances[i].Update(dt, camera);
                 if (instances[i].Done) instances.RemoveAt(i--);
+                else foreach (var fx in instances[i].Effects) fx.EngineUpdate(dt);
             }
         }
 

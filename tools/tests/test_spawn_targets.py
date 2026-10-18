@@ -69,6 +69,6 @@ def test_level_json_carries_its_spawn_names(extracted, tmp_path):
     export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
                         export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
     meta = json.loads((tmp_path / "level.json").read_text())
-    assert meta["version"] == export_level.FORMAT_VERSION == 22
+    assert meta["version"] == export_level.FORMAT_VERSION == 23
     assert meta["spawns"] == commands.spawn_names(dat85.load(os.path.join(extracted, "worlds", name + ".dat")))
     assert meta["spawns"]

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,7 +10,8 @@ namespace Tron
     // transform keyframers can move; ClientFXTicker reads it each frame. Templates are never created.
     // StartOn objects turn on once every object exists (MID_ALLOBJECTSCREATED: StartSpecialFX, after the
     // relays). Effect keys whose type has no look yet count in the report as "FX <type> (NO LOOK)", once
-    // per placed object. Types with a look: ParticleSystem (ParticleRenderer). Effects bounce and splat on
+    // per placed object. Types with a look: ParticleSystem (ParticleRenderer), LTBModel (ModelFXRenderer, keys
+    // whose model loads). Effects bounce and splat on
     // the world's colliders (IntersectSegment hits the world only, so characters' and the player's
     // controllers don't count).
     public partial class LevelBuilder
@@ -20,18 +22,30 @@ namespace Tron
         readonly Dictionary<int, Transform> specialFXObjects = new Dictionary<int, Transform>();
         readonly List<SpecialFX> startOn = new List<SpecialFX>();
 
-        void BuildSpecialFX()
+        void BuildSpecialFX(string exportRoot)
         {
             Effects = new ClientFXMgr();
-            foreach (var g in Data.fxGroups ?? new FxGroupJson[0]) Effects.Add(g.Group());
+            var looks = new Dictionary<FxKey, FxModelLook>();
+            foreach (var g in Data.fxGroups ?? new FxGroupJson[0])
+            {
+                var group = g.Group();
+                Effects.Add(group);
+                for (int i = 0; i < group.Keys.Length; i++)
+                    if (g.fx[i].type == "LTBModel" && ModelFXLook(exportRoot, g.fx[i]) is FxModelLook look) looks[group.Keys[i]] = look;
+            }
             var effects = Effects;
             effects.Types["ParticleSystem"] = k => new FxParticleSystem(effects);
+            effects.Types["LTBModel"] = k => looks.TryGetValue(k, out var l) ? new FxModel(effects, l.Clip != null ? l.Clip.length : -1) : null;
             effects.Intersect = IntersectWorld;
             var ticker = Root.AddComponent<ClientFXTicker>();
             ticker.Effects = Effects;
             var particles = Root.AddComponent<ParticleRenderer>();
             particles.Effects = Effects;
             particles.Shader = EffectShader;
+            var models = Root.AddComponent<ModelFXRenderer>();
+            models.Effects = Effects;
+            models.Lighting = lighting;
+            models.Looks = looks;
             GameObject parent = null;
             for (int i = 0; i < Data.objects.Length; i++)
             {
@@ -60,6 +74,32 @@ namespace Tron
                 foreach (var k in group.Keys)
                     if (!Effects.HasLook(k.Type)) Commands.Count("FX", k.Type, "(no look)");
             }
+        }
+
+        // An LTBModel key's look: its model with its pieces' styles, its clip. None when the model doesn't load.
+        FxModelLook ModelFXLook(string exportRoot, FxKeyJson k)
+        {
+            var file = k.props == null ? null : Array.Find(k.props, p => p.k == "Model")?.s;
+            if (string.IsNullOrEmpty(file) || k.pieces == null || k.pieces.Length == 0) return null;
+            var model = ModelLibrary.Load(exportRoot, file, loadedModels, owned);
+            if (model == null) return null;
+            if (k.pieces.Length != model.data.pieces.Length)
+            {
+                Debug.LogWarning($"Effect model {file}: {k.pieces.Length} piece styles for {model.data.pieces.Length} pieces");
+                return null;
+            }
+            var (mesh, mats) = ModelLook(model, k.pieces);
+            int a = model.FindAnim(k.anim);
+            var clip = a >= 0 ? model.data.anims[a] : null;
+            bool moves = false;
+            if (clip != null)
+            {
+                for (int n = 0; n + 3 < clip.channels.Length; n += 4)
+                    moves |= clip.channels[n + 1] > 1 || clip.channels[n + 3] > 1;
+                moves |= clip.scales != null && clip.scales.Length > 0;
+            }
+            var d = k.dims != null && k.dims.Length >= 3 ? new Vector3(k.dims[0], k.dims[1], k.dims[2]) : Vector3.zero;
+            return new FxModelLook { Model = model, Mesh = mesh, Materials = mats, Clip = clip, Moves = moves, Dims = d, VisRadius = k.visRadius };
         }
 
         bool IntersectWorld(LTVec from, LTVec to, out LTVec point, out LTVec normal)

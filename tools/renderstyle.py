@@ -26,9 +26,9 @@ BLEND = {0: "opaque", 1: "add", 2: "saturate", 3: "alpha", 4: "mod_srccolor", 5:
          10: "mul_dstcol_zero"}
 
 # The model shader's stage operations (TronModel.shader), one code space for color and alpha.
-OP_DISABLE, OP_SEL1, OP_SEL2, OP_MOD, OP_MOD2X, OP_BLEND_CUR_A, OP_BLEND_TF_A, OP_ADD, OP_BLEND_TEX_A = range(9)
+OP_DISABLE, OP_SEL1, OP_SEL2, OP_MOD, OP_MOD2X, OP_BLEND_CUR_A, OP_BLEND_TF_A, OP_ADD, OP_BLEND_TEX_A, OP_DOT3 = range(10)
 COLOR_OPS = {0: OP_DISABLE, 1: OP_SEL1, 2: OP_SEL2, 3: OP_MOD, 4: OP_MOD2X, 5: OP_BLEND_CUR_A, 6: OP_BLEND_TF_A,
-             7: OP_ADD, 19: OP_BLEND_TEX_A}
+             7: OP_ADD, 8: OP_DOT3, 19: OP_BLEND_TEX_A}
 ALPHA_OPS = {0: OP_DISABLE, 1: OP_SEL1, 2: OP_SEL2, 3: OP_MOD, 4: OP_BLEND_CUR_A, 5: OP_BLEND_TF_A, 6: OP_ADD,
              10: OP_BLEND_TEX_A}
 # Stage arguments: 0 CURRENT, 1 DIFFUSE, 2 TEXTURE, 3 TFACTOR (same codes in the shader).
@@ -133,7 +133,7 @@ def _stages(ps, where):
         args = (st.color_arg1, st.color_arg2, st.alpha_arg1, st.alpha_arg2)
         if any(a > 3 for a in args):
             raise ValueError(f"{where}: stage {i} argument {args} not supported")
-        if st.texture > 2:
+        if st.texture > 3:
             raise ValueError(f"{where}: stage {i} texture param {st.texture:#x} not supported")
         # An identity texture matrix on a stored UV set changes nothing (thorn_corruption stores one).
         transform = st.uv_transform and not (st.uv_source == 0 and getattr(st, "uv_matrix", None) == IDENTITY)
@@ -158,6 +158,7 @@ def _state(ps):
         "zwrite": int(ps.zbuffer == 0),
         "ztest": 8 if ps.zbuffer == 2 else ZFUNC[ps.ztest],
         "cull": {0: 0, 1: 2, 2: 1}[ps.cull],                           # D3D CCW culls back faces
+        "wire": int(ps.fill == 0),                                     # RENDERSTYLE_WIRE: the triangles' edges
     }
 
 
@@ -175,8 +176,8 @@ def _check(s, name):
     if len(s.passes) > 2:
         raise ValueError(f"{name}: {len(s.passes)} passes")
     for i, ps in enumerate(s.passes):
-        if ps.has_d3d or ps.bump or ps.fill != 1:
-            raise ValueError(f"{name} pass {i}: shader pass, bump map or wireframe")
+        if ps.has_d3d or ps.bump:
+            raise ValueError(f"{name} pass {i}: shader pass or bump map")
         if BLEND.get(ps.blend) not in UNITY_BLEND:
             raise ValueError(f"{name} pass {i}: blend {BLEND.get(ps.blend, ps.blend)} not supported")
 
@@ -196,7 +197,8 @@ def compile_style(s, name):
     if len(s.passes) == 2:
         p1 = s.passes[1]
         if (BLEND[p0.blend] == "opaque" and BLEND[p1.blend] in ("opaque", "alpha") and p0.cull == p1.cull
-                and p1.zbuffer == 0 and p0.zbuffer == 0 and p1.ztest in (0, 2) and p0.alpha_test == 0):
+                and p1.zbuffer == 0 and p0.zbuffer == 0 and p1.ztest in (0, 2) and p0.alpha_test == 0
+                and p0.fill == p1.fill):
             draw["passes"].append(_pass(p1, f"{name} pass 1", int(BLEND[p1.blend] == "alpha")))
         else:
             out["draws"].append(dict(_state(p1), passes=[_pass(p1, f"{name} pass 1")]))
@@ -204,23 +206,29 @@ def compile_style(s, name):
 
 
 def compile_glow(s, name):
-    """The passes a style is swapped for while drawing the screen-glow buffer ([GlowRSMap] in
-    clientbutes.txt), with the state they need. One opaque or MUL_SRCALPHA_ZERO pass (premultiplied
+    """The draws a style is swapped for while drawing the screen-glow buffer ([GlowRSMap] in
+    clientbutes.txt), each with the state it needs. One opaque or MUL_SRCALPHA_ZERO pass (premultiplied
     in the shader, blendOver 1) can be drawn over an opaque model's own state. Two alpha-blended
     passes with the same Z and cull fold into one premultiplied draw, Blend One OneMinusSrcAlpha
     (blendOver 2 on the first): over(over(dst, c0, a0), c1, a1) = c1 a1 + (1 - a1) a0 c0
-    + (1 - a0)(1 - a1) dst. No other glow style is used."""
+    + (1 - a0)(1 - a1) dst. An opaque first pass followed by any other is two draws, the second with
+    its own state (pv_meshglow). No other glow style is used."""
     _check(s, name)
     p0 = s.passes[0]
-    if len(s.passes) == 1 and BLEND[p0.blend] in ("opaque", "mul_srcalpha_zero"):
-        return dict(_state(p0), blend=UNITY_BLEND["opaque"],
-                    passes=[_pass(p0, name, int(BLEND[p0.blend] == "mul_srcalpha_zero"))])
+    first = None
+    if BLEND[p0.blend] in ("opaque", "mul_srcalpha_zero"):
+        first = dict(_state(p0), blend=UNITY_BLEND["opaque"],
+                     passes=[_pass(p0, name, int(BLEND[p0.blend] == "mul_srcalpha_zero"))])
+    if len(s.passes) == 1 and first:
+        return [first]
     if (len(s.passes) == 2 and all(BLEND[p.blend] == "alpha" for p in s.passes)
-            and len({(p.zbuffer, p.ztest, p.cull) for p in s.passes}) == 1):
-        return dict(_state(p0), blend=(1, 10),
-                    passes=[_pass(p0, f"{name} pass 0", 2), _pass(s.passes[1], f"{name} pass 1", 1)])
+            and len({(p.zbuffer, p.ztest, p.cull, p.fill) for p in s.passes}) == 1):
+        return [dict(_state(p0), blend=(1, 10),
+                     passes=[_pass(p0, f"{name} pass 0", 2), _pass(s.passes[1], f"{name} pass 1", 1)])]
+    if len(s.passes) == 2 and first:
+        return [first, dict(_state(s.passes[1]), passes=[_pass(s.passes[1], f"{name} pass 1")])]
     raise ValueError(f"{name}: glow style must be one opaque or MUL_SRCALPHA_ZERO pass, "
-                     f"or two alpha-blended passes")
+                     f"two alpha-blended passes, or an opaque pass and another")
 
 
 if __name__ == "__main__":

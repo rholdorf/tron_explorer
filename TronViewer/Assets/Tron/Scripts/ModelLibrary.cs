@@ -160,5 +160,40 @@ namespace Tron
             cache[key] = mesh;
             return mesh;
         }
+
+        // The mesh with the given submeshes drawn as the edges of their triangles (D3DFILL_WIREFRAME: each
+        // edge once per submesh, one pixel wide). Cached per mesh and submesh list.
+        public static Mesh WithLines(Mesh source, List<int> subs, Dictionary<string, Mesh> cache, List<UnityEngine.Object> owned)
+        {
+            var key = source.name + "|lines " + string.Join(",", subs);
+            if (cache.TryGetValue(key, out var mesh)) return mesh;
+            mesh = UnityEngine.Object.Instantiate(source);
+            mesh.name = $"{source.name} lines";
+            owned.Add(mesh);
+            var edges = new HashSet<(int, int)>();
+            var lines = new List<int>();
+            foreach (int s in subs)
+            {
+                var tris = source.GetIndices(s, false);
+                int baseVertex = (int)source.GetBaseVertex(s);
+                edges.Clear();
+                lines.Clear();
+                for (int t = 0; t + 2 < tris.Length; t += 3)
+                    for (int e = 0; e < 3; e++)
+                    {
+                        int a = tris[t + e], b = tris[t + (e + 1) % 3];
+                        if (edges.Add(a < b ? (a, b) : (b, a)))
+                        {
+                            lines.Add(a);
+                            lines.Add(b);
+                        }
+                    }
+                mesh.SetIndices(lines, MeshTopology.Lines, s, false, baseVertex);
+            }
+            mesh.bounds = source.bounds;
+            mesh.UploadMeshData(false);
+            cache[key] = mesh;
+            return mesh;
+        }
     }
 }

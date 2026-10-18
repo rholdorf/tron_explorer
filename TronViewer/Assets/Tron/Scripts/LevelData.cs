@@ -69,7 +69,7 @@ namespace Tron
     [Serializable] public class RenderDrawJson
     {
         public int[] blend;          // Unity BlendMode src, dst
-        public int zwrite, ztest, cull;
+        public int zwrite, ztest, cull, wire;   // wire: RENDERSTYLE_WIRE, the triangles' edges
         public RenderPassJson[] passes, glow;
     }
     [Serializable] public class RenderStyleLightingJson { public float[] ambient, diffuse, emissive; }
@@ -189,7 +189,9 @@ namespace Tron
         public FxGroup Group() => new FxGroup { Name = name, Phase = phase, Keys = Array.ConvertAll(fx ?? new FxKeyJson[0], k => k.Key()) };
     }
     // An fx key (tools/clientfx.py export_key): ck t, r, g, b, a per key (a a transparency), sk t, scale per
-    // key; props the type's own (combos as their index, paths normalized).
+    // key; props the type's own (combos as their index, paths normalized). LTBModel keys also carry their
+    // model's look (tools/export_level.py fx_models): pieces as a placed model's, the clip it plays ("" = the
+    // model has none), its lighting inputs.
     [Serializable] public class FxKeyJson
     {
         public string type, label, attach;
@@ -198,6 +200,10 @@ namespace Tron
         public bool continual, disableAtDist, randomizeStartOffset, smoothShutDown;
         public float[] offset, rotateAdd, ck, sk;
         public PropJson[] props;
+        public PieceStyleJson[] pieces;
+        public string anim;
+        public float[] dims;
+        public float visRadius;
 
         public FxKey Key()
         {

@@ -53,7 +53,7 @@ def test_one_pass_glow_rides_only_when_it_is_opaque_with_z(glow_state):
     d = draw((ONE, ZERO), 1)
     g = dict(draw((ONE, ZERO), 1), passes=[{"glow": True}], **glow_state)
     draws = [d]
-    export_models.place_glow(draws, g)
+    export_models.place_glow(draws, [g])
     assert d["glow"] == [] and len(draws) == 2
     assert state(draws[1]) == state(g) and draws[1]["passes"] == [] and draws[1]["glow"] == [{"glow": True}]
 
@@ -61,5 +61,5 @@ def test_one_pass_glow_rides_only_when_it_is_opaque_with_z(glow_state):
 def test_opaque_z_writing_one_pass_glow_rides_on_the_opaque_draw():
     d = draw((ONE, ZERO), 1, cull=0)   # the cull stays the draw's, as before
     draws = [d]
-    export_models.place_glow(draws, dict(draw((ONE, ZERO), 1), passes=[{"glow": True}]))
+    export_models.place_glow(draws, [dict(draw((ONE, ZERO), 1), passes=[{"glow": True}])])
     assert draws == [d] and d["glow"] == [{"glow": True}]

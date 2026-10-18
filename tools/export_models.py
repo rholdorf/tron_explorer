@@ -310,22 +310,25 @@ class Styles:
         return out
 
 
-DRAW_STATE = ("blend", "zwrite", "ztest", "cull")
+DRAW_STATE = ("blend", "zwrite", "ztest", "cull", "wire")
 
 
-def place_glow(draws, glow):
-    """Puts a compiled glow style (renderstyle.compile_glow) on a style's draws. The glow pass swaps the
-    whole style, states included (RemapRenderStyles), so a blended piece occludes the glow behind it.
-    A one-pass glow that writes opaque with Z rides on a draw that does too; otherwise the glow is a
-    draw of its own with the glow style's state."""
+def place_glow(draws, glows):
+    """Puts a compiled glow style (renderstyle.compile_glow: its draws) on a style's draws. The glow pass
+    swaps the whole style, states included (RemapRenderStyles), so a blended piece occludes the glow
+    behind it. A first one-pass glow that writes opaque with Z rides on a draw that does too; otherwise
+    each glow draw is a draw of its own with the glow style's state, after the style's."""
     def opaque_z(d):
-        return tuple(d["blend"]) == (1, 0) and d["zwrite"]
-    d = next((d for d in draws if len(glow["passes"]) == 1 and opaque_z(glow) and opaque_z(d)), None)
-    if d is None:
-        d = {k: glow[k] for k in DRAW_STATE}
-        d["passes"] = []
-        draws.append(d)
-    d["glow"] = glow["passes"]
+        return tuple(d["blend"]) == (1, 0) and d["zwrite"] and not d.get("wire")
+    for i, glow in enumerate(glows):
+        d = None
+        if i == 0 and len(glow["passes"]) == 1 and opaque_z(glow):
+            d = next((d for d in draws if opaque_z(d)), None)
+        if d is None:
+            d = {k: glow.get(k, 0) for k in DRAW_STATE}
+            d["passes"] = []
+            draws.append(d)
+        d["glow"] = glow["passes"]
 
 
 BONE_WEIGHT = np.dtype([("weight", "<f4"), ("bone", "<i4")])   # Unity BoneWeight1

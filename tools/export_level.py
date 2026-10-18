@@ -42,7 +42,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 22
+FORMAT_VERSION = 23
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -474,6 +474,33 @@ def character_anim(styles, extracted, rel, name):
     return m.anims[0].name if m.anims else ""
 
 
+def fx_models(groups, styles, extracted, render_styles):
+    """Each LTBModel key's look (CLTBModelFX::Init: Model, Skin0..4, RenderStyle0..3): its pieces' styles
+    (added to the level's style table) and textures as for placed models, the clip it plays (AniName, or
+    animation 0 when empty or not in the model: GetAnimIndex fails and the model keeps its first), and its
+    lighting inputs (dims, visRadius). A model that can't load gets no pieces: nothing draws."""
+    index = {c["name"]: i for i, c in enumerate(render_styles)}
+    for g in groups:
+        for k in g["fx"]:
+            if k["type"] != "LTBModel":
+                continue
+            rel = clientfx.prop(k, "Model", "")
+            k["pieces"], k["anim"], k["dims"], k["visRadius"] = [], "", [0.0, 0.0, 0.0], 0.0
+            if not rel or not os.path.isfile(os.path.join(extracted, rel)):
+                continue
+            try:
+                m = styles.model(rel)
+            except Exception as e:  # noqa: BLE001 - the engine refuses it too: nothing draws
+                print(f"effect model {rel}: {e}")
+                continue
+            skins = [clientfx.prop(k, f"Skin{i}", "") for i in range(5)]
+            rs = [clientfx.prop(k, f"RenderStyle{i}", "") for i in range(4)]
+            k["pieces"] = styles.instance_pieces(rel, skins, rs, render_styles, index)
+            k["anim"] = character_anim(styles, extracted, rel, clientfx.prop(k, "AniName", ""))
+            k["dims"] = [float(x) for x in export_models.model_dims(m)]
+            k["visRadius"] = float(m.vis_radius)
+
+
 def fx_groups(objects, library):
     """The effect groups a level's SpecialFX objects reach (with the groups their CreateFX and splats
     start) in the viewer's form (clientfx.export_group), and the names that find no group."""
@@ -539,6 +566,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
 
     soundbutes = sounds.soundbutes(extracted)
     fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted))
+    fx_models(fx, styles, extracted, render_styles)
     meta = {
         "version": FORMAT_VERSION,
         "name": rel_name,
@@ -602,11 +630,14 @@ def main():
               f"objects={len(meta['objects'])} models={len(meta['models'])}")
         index.append(rel)
         level_objects[rel] = meta["objects"]
-        fx_models, fx_sounds = clientfx.assets(meta["fxGroups"])
+        fx_files, fx_sounds = clientfx.assets(meta["fxGroups"])
         level_sounds[rel] = [b["name"] for b in meta["buteSounds"]] + fx_sounds
-        for f, anims in fx_models.items():
-            # an effect model's AniName the model lacks plays animation 0 (counted as a missing animation)
-            model_files.setdefault(f, set()).update(a for a in (character_anim(styles, root, f, a) for a in anims) if a)
+        for f in fx_files:
+            model_files.setdefault(f, set())
+        for g in meta["fxGroups"]:
+            for k in g["fx"]:
+                if k.get("anim"):   # the clip an effect model plays (fx_models)
+                    model_files[clientfx.prop(k, "Model")].add(k["anim"])
         for name in meta["fxMissing"]:
             fx_missing.setdefault(name, []).append(rel)
         for m in meta["models"]:

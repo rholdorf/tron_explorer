@@ -5,7 +5,7 @@ namespace Tron
 {
     // Runs the level's effect manager once per frame, after keyframers have moved the SpecialFX objects
     // (each object's place is read from its transform, LT units under the level root), with the camera's
-    // place for the distance freeze. Client time: Time.deltaTime.
+    // place for the distance freeze and its rotation for effects that face it. Client time: Time.deltaTime.
     [DefaultExecutionOrder(50)]
     public class ClientFXTicker : MonoBehaviour
     {
@@ -24,6 +24,11 @@ namespace Tron
             }
             var cam = Camera.main;
             var c = cam ? transform.InverseTransformPoint(cam.transform.position) : Vector3.zero;
+            if (cam)
+            {
+                var q = Quaternion.Inverse(transform.rotation) * cam.transform.rotation;
+                Effects.CameraRot = new LTQuat(q.x, q.y, q.z, q.w);
+            }
             Effects.Update(Time.deltaTime, new LTVec(c.x, c.y, c.z));
         }
 
