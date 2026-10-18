@@ -243,13 +243,22 @@ namespace Tron
             StartPos = parent != null ? parent.Pos : pos;
             StartRot = parent != null ? parent.Rot : rot;
             // CreateFXKey: every key's effect, hidden and inactive; a linked key follows the effect of the
-            // key it links to when that one exists, else the instance parent.
+            // key it links to when that one exists, else the instance parent. A CreateFX key makes no effect
+            // (CCreateFX::Init fails on purpose): its group starts now as an instance of its own, at the
+            // key's create place, with this instance's parent, looping by the key's Loop, smooth shutdown on.
+            // Nothing ties the two afterwards, and a loop never starts it again.
             var byId = new Dictionary<int, FxEffect>();
             foreach (var key in group.Keys)
             {
-                var fx = mgr.NewEffect(key);
                 IFxObject p = parent;
                 if (key.Link >= 0 && byId.TryGetValue(key.Link, out var linked)) p = linked;
+                if (string.Equals(key.Type, ClientFXMgr.CreateFX, StringComparison.OrdinalIgnoreCase))
+                {
+                    mgr.Start(key.Str("FXName"), key.Num("Loop") != 0, true, parent,
+                        p != null ? p.Pos : StartPos, p != null ? p.Rot : StartRot);
+                    continue;
+                }
+                var fx = mgr.NewEffect(key);
                 fx.Init(key, p, StartPos, StartRot);
                 byId[key.Id] = fx;
                 effects.Insert(0, fx);
@@ -438,6 +447,7 @@ namespace Tron
     public sealed class ClientFXMgr
     {
         public const float CullDistance = 6000;   // Tron's one cull distance (LT units)
+        public const string CreateFX = "CreateFX";
 
         readonly Dictionary<string, FxGroup> groups = new Dictionary<string, FxGroup>(StringComparer.OrdinalIgnoreCase);
         readonly List<FxInstance> instances = new List<FxInstance>();
@@ -476,7 +486,8 @@ namespace Tron
 
         public FxGroup Find(string name) => name != null && groups.TryGetValue(name, out var g) ? g : null;
 
-        public bool HasLook(string type) => Types.ContainsKey(type);
+        // CreateFX has none to have: it starts another group.
+        public bool HasLook(string type) => Types.ContainsKey(type) || string.Equals(type, CreateFX, StringComparison.OrdinalIgnoreCase);
 
         internal FxEffect NewEffect(FxKey key) => Types.TryGetValue(key.Type, out var make) ? make(key) ?? new FxEffect() : new FxEffect();
 

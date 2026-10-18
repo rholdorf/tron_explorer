@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 
 namespace Tron
 {
-    // An LTBModel key's look, built once per level (LevelBuilder.SpecialFX): its model, the mesh and
+    // An LTBModel or LTBBouncyChunk key's look, built once per level (LevelBuilder.SpecialFX): its model, the mesh and
     // materials its pieces draw with, the clip it plays (null = none) and its lighting inputs.
     public sealed class FxModelLook
     {
@@ -18,11 +18,11 @@ namespace Tron
         public float VisRadius;
     }
 
-    // Draws the level's effect models (FxModel) as the level's other models are drawn: a renderer per
-    // effect with its look's materials (so they reach the glow buffer through [GlowRSMap]), placed, turned
-    // and scaled as the effect says, posed at its clip time when the clip moves, lit by ModelLighting where
-    // it is (again once it has moved 32 units) with the lights scaled by its colour and its lit passes faded
-    // by its alpha. Renderers are pooled per key: an effect that ends hands its renderer to the next one
+    // Draws the level's effect models (FxModel) and chunks (FxChunk) as the level's other models are drawn:
+    // a renderer per effect with its look's materials (so they reach the glow buffer through [GlowRSMap]),
+    // placed, turned and scaled as the effect says, posed at its clip time when the clip moves, lit by
+    // ModelLighting where it is (again once it has moved 32 units), or full bright (FLAG_NOLIGHT: ambient
+    // white, no lights), with the lights scaled by its colour and its lit passes faded by its alpha. Renderers are pooled per key: an effect that ends hands its renderer to the next one
     // the same key makes. Runs after the effect manager (ClientFXTicker).
     [DefaultExecutionOrder(60)]
     public class ModelFXRenderer : MonoBehaviour
@@ -55,9 +55,9 @@ namespace Tron
             public float PosedAt = -1;
         }
 
-        readonly Dictionary<FxModel, View> views = new Dictionary<FxModel, View>();
+        readonly Dictionary<IFxModelView, View> views = new Dictionary<IFxModelView, View>();
         readonly Dictionary<FxKey, Stack<View>> pool = new Dictionary<FxKey, Stack<View>>();
-        readonly List<FxModel> gone = new List<FxModel>();
+        readonly List<IFxModelView> gone = new List<IFxModelView>();
         readonly Vector4[] scaled = new Vector4[ModelLighting.MaxLights];
         MaterialPropertyBlock mpb;
         Transform container;
@@ -69,7 +69,7 @@ namespace Tron
             foreach (var inst in Effects.Instances)
                 foreach (var fx in inst.Effects)
                 {
-                    if (!(fx is FxModel m)) continue;
+                    if (!(fx is IFxModelView m)) continue;
                     if (!views.TryGetValue(m, out var v))
                     {
                         v = Acquire(m);
@@ -92,11 +92,12 @@ namespace Tron
             gone.Clear();
         }
 
-        View Acquire(FxModel m)
+        View Acquire(IFxModelView m)
         {
-            if (!Looks.TryGetValue(m.Key, out var look)) return null;
-            if (!pool.TryGetValue(m.Key, out var free)) pool[m.Key] = free = new Stack<View>();
-            var v = free.Count > 0 ? free.Pop() : Create(m.Key, look);
+            var key = m.Effect.Key;
+            if (!Looks.TryGetValue(key, out var look)) return null;
+            if (!pool.TryGetValue(key, out var free)) pool[key] = free = new Stack<View>();
+            var v = free.Count > 0 ? free.Pop() : Create(key, look);
             v.PosedAt = -1;
             m.Nodes = (string name, bool socket, out LTVec pos, out LTQuat rot) => Attachment(v, name, socket, out pos, out rot);
             return v;
@@ -146,30 +147,40 @@ namespace Tron
             return v;
         }
 
-        void Draw(FxModel m, View v)
+        void Draw(IFxModelView m, View v)
         {
-            if (!m.Visible)
+            if (!m.Shown)
             {
                 if (v.R.enabled) v.R.enabled = false;
                 return;
             }
-            var pos = new Vector3(m.Pos.x, m.Pos.y, m.Pos.z);
-            v.T.SetLocalPositionAndRotation(pos, new Quaternion(m.Rot.x, m.Rot.y, m.Rot.z, m.Rot.w));
-            v.T.localScale = Vector3.one * m.Scale;
+            var fx = m.Effect;
+            LTVec p = m.ModelPos;
+            LTQuat q = m.ModelRot;
+            var pos = new Vector3(p.x, p.y, p.z);
+            v.T.SetLocalPositionAndRotation(pos, new Quaternion(q.x, q.y, q.z, q.w));
+            v.T.localScale = Vector3.one * fx.Scale;
             if (v.Bones != null && (v.Look.Moves || v.PosedAt < 0) && m.AnimTime != v.PosedAt)
             {
                 Pose(v, m.AnimTime);
                 v.PosedAt = m.AnimTime;
             }
             bool relight = !v.Lit || (pos - v.LitAt).sqrMagnitude > RelightDistance * RelightDistance;
-            if (relight)
+            if (relight && m.NoLight)
+            {
+                v.Ambient = Vector3.one;
+                System.Array.Clear(v.Dirs, 0, v.Dirs.Length);
+                System.Array.Clear(v.Colors, 0, v.Colors.Length);
+                v.Lit = true;
+            }
+            else if (relight)
             {
                 v.Ambient = Lighting != null ? Lighting.Compute(pos, v.Look.Dims, v.Look.VisRadius, 0, v.Dirs, v.Colors) / 255f : Vector3.zero;
                 for (int i = 0; i < v.Colors.Length; i++) v.Colors[i] /= 255f;
                 v.LitAt = pos;
                 v.Lit = true;
             }
-            var c = new Color(m.R, m.G, m.B, m.A);
+            var c = new Color(fx.R, fx.G, fx.B, fx.A);
             if (relight || c != v.Colour)
             {
                 v.Colour = c;

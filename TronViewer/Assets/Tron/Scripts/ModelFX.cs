@@ -2,6 +2,19 @@ using System;
 
 namespace Tron
 {
+    // An effect that shows a model, as ModelFXRenderer draws it: whether it shows, where, its clip time, lit
+    // or full bright, and where its nodes and sockets go once drawn. Colour and scale are the effect's.
+    public interface IFxModelView
+    {
+        FxEffect Effect { get; }
+        bool Shown { get; }
+        LTVec ModelPos { get; }
+        LTQuat ModelRot { get; }
+        float AnimTime { get; }
+        bool NoLight { get; }
+        FxModel.NodeTransform Nodes { set; }
+    }
+
     // The LTBModel effect as the game plays it (ltjs clientfxdll/ltbmodelfx.cpp; docs/research/clientfx-types.md
     // on research/clientfx-types): one model object, created with the effect at its parent's rotation turned
     // to Normal (offset in those axes), then placed by the base rules each update and turned by Facing:
@@ -13,7 +26,7 @@ namespace Tron
     // it with the key's time, SyncToModelAnim drives the key's time from it. With smooth shutdown the effect
     // waits for the clip to finish. Pos and Rot are the model object's: effects linked to it follow them.
     // Plain C#, no Unity, so tools/tests/test_model_fx.py compiles it with .NET.
-    public sealed class FxModel : FxEffect
+    public sealed class FxModel : FxEffect, IFxModelView
     {
         public const int CameraFacing = 0, AlongNormal = 1, ParentAlign = 2;
 
@@ -33,7 +46,7 @@ namespace Tron
         public float AnimRate => rate;
         public bool HasAnim => animMs >= 0;
         // Its model's nodes and sockets in the level, as last drawn (ModelFXRenderer); none until then.
-        public NodeTransform Nodes;
+        public NodeTransform Nodes { get; set; }
 
         // animLength: the clip's length (s), negative for a model with no clip.
         public FxModel(ClientFXMgr mgr, float animLength)
@@ -122,6 +135,12 @@ namespace Tron
         }
 
         public override bool IsFinishedShuttingDown => syncToKey || playDone;
+
+        FxEffect IFxModelView.Effect => this;
+        bool IFxModelView.Shown => Visible;
+        LTVec IFxModelView.ModelPos => Pos;
+        LTQuat IFxModelView.ModelRot => Rot;
+        bool IFxModelView.NoLight => false;
 
         public override bool Attachment(string name, bool socket, out LTVec pos, out LTQuat rot)
         {

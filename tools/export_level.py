@@ -478,12 +478,15 @@ def fx_models(groups, styles, extracted, render_styles):
     """Each LTBModel key's look (CLTBModelFX::Init: Model, Skin0..4, RenderStyle0..3): its pieces' styles
     (added to the level's style table) and textures as for placed models, the clip it plays (AniName, or
     animation 0 when empty or not in the model: GetAnimIndex fails and the model keeps its first), and its
-    lighting inputs (dims, visRadius). A model that can't load gets no pieces: nothing draws."""
+    lighting inputs (dims, visRadius). LTBBouncyChunk keys too (CLTBBouncyChunkFX::Init: Model and one
+    Skin, no render styles, so every piece takes the engine's backup style), with no clip. A model that
+    can't load gets no pieces: nothing draws."""
     index = {c["name"]: i for i, c in enumerate(render_styles)}
     for g in groups:
         for k in g["fx"]:
-            if k["type"] != "LTBModel":
+            if k["type"] not in ("LTBModel", "LTBBouncyChunk"):
                 continue
+            chunk = k["type"] == "LTBBouncyChunk"
             rel = clientfx.prop(k, "Model", "")
             k["pieces"], k["anim"], k["dims"], k["visRadius"] = [], "", [0.0, 0.0, 0.0], 0.0
             if not rel or not os.path.isfile(os.path.join(extracted, rel)):
@@ -493,10 +496,14 @@ def fx_models(groups, styles, extracted, render_styles):
             except Exception as e:  # noqa: BLE001 - the engine refuses it too: nothing draws
                 print(f"effect model {rel}: {e}")
                 continue
-            skins = [clientfx.prop(k, f"Skin{i}", "") for i in range(5)]
-            rs = [clientfx.prop(k, f"RenderStyle{i}", "") for i in range(4)]
+            if chunk:
+                skins, rs = [clientfx.prop(k, "Skin", "")], []
+            else:
+                skins = [clientfx.prop(k, f"Skin{i}", "") for i in range(5)]
+                rs = [clientfx.prop(k, f"RenderStyle{i}", "") for i in range(4)]
             k["pieces"] = styles.instance_pieces(rel, skins, rs, render_styles, index)
-            k["anim"] = character_anim(styles, extracted, rel, clientfx.prop(k, "AniName", ""))
+            if not chunk:
+                k["anim"] = character_anim(styles, extracted, rel, clientfx.prop(k, "AniName", ""))
             k["dims"] = [float(x) for x in export_models.model_dims(m)]
             k["visRadius"] = float(m.vis_radius)
 

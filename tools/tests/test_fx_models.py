@@ -1,4 +1,4 @@
-"""Effect models' looks (ticket #62): each LTBModel key carries its pieces' styles, its clip and its lighting
+"""Effect models' looks (ticket #62; chunks, #64): each LTBModel and LTBBouncyChunk key carries its pieces' styles, its clip and its lighting
 inputs (export_level.fx_models), and the render styles effect models use compile: wireframe passes,
 a third texture, DOTPRODUCT3 and an opaque glow pass followed by another (pv_meshglow)."""
 import pytest
@@ -53,3 +53,17 @@ def test_model_keys_carry_their_look(extracted, styles):
     # AniName the model lacks (DiscThrow): GetAnimIndex fails, the model keeps animation 0
     (trailer,) = keys["DISC_trail_Trailer"]
     assert trailer["anim"] == styles.model(clientfx.prop(trailer, "Model")).anims[0].name
+
+
+def test_chunk_keys_carry_their_model_with_its_one_skin_and_no_clip(extracted, styles):
+    # CLTBBouncyChunkFX::Init: Model and Skin, no render styles (every piece takes the engine's backup).
+    objects = [{"cls": "SpecialFX", "props": [{"k": "FxName", "t": "s", "s": "M02_01SuperCycleCrash"}]}]
+    groups, _ = export_level.fx_groups(objects, clientfx.Library(extracted))
+    table = []
+    export_level.fx_models(groups, styles, extracted, table)
+    chunks = [k for g in groups for k in g["fx"] if k["type"] == "LTBBouncyChunk"]
+    assert len(chunks) == 7   # m02_01SupercycleChunks, reached through CreateFX
+    for k in chunks:
+        assert k["pieces"] and k["anim"] == "" and k["visRadius"] > 0
+        assert all(table[p["style"]]["name"] == "<default>" for p in k["pieces"])
+        assert {t for p in k["pieces"] for t in p["tex"]} == {"tex/invisible.dtx"}

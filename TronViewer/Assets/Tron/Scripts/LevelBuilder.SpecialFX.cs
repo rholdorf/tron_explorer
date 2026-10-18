@@ -10,8 +10,9 @@ namespace Tron
     // transform keyframers can move; ClientFXTicker reads it each frame. Templates are never created.
     // StartOn objects turn on once every object exists (MID_ALLOBJECTSCREATED: StartSpecialFX, after the
     // relays). Effect keys whose type has no look yet count in the report as "FX <type> (NO LOOK)", once
-    // per placed object. Types with a look: ParticleSystem (ParticleRenderer), LTBModel (ModelFXRenderer, keys
-    // whose model loads), PlaySound (FxSoundPlayer; files load with the level, so missing ones are reported
+    // per placed object. Types with a look: ParticleSystem (ParticleRenderer), LTBModel and LTBBouncyChunk
+    // (ModelFXRenderer, keys whose model loads; a chunk without one still moves what is linked to it),
+    // CreateFX (it starts its group: ClientFXMgr), PlaySound (FxSoundPlayer; files load with the level, so missing ones are reported
     // with it). Effects bounce and splat on
     // the world's colliders (IntersectSegment hits the world only, so characters' and the player's
     // controllers don't count).
@@ -33,13 +34,15 @@ namespace Tron
                 Effects.Add(group);
                 for (int i = 0; i < group.Keys.Length; i++)
                 {
-                    if (g.fx[i].type == "LTBModel" && ModelFXLook(exportRoot, g.fx[i]) is FxModelLook look) looks[group.Keys[i]] = look;
+                    if ((g.fx[i].type == "LTBModel" || g.fx[i].type == "LTBBouncyChunk") && ModelFXLook(exportRoot, g.fx[i]) is FxModelLook look)
+                        looks[group.Keys[i]] = look;
                     if (g.fx[i].type == "PlaySound") SoundLoader.Load(group.Keys[i].Str("Sound"));
                 }
             }
             var effects = Effects;
             effects.Types["ParticleSystem"] = k => new FxParticleSystem(effects);
             effects.Types["LTBModel"] = k => looks.TryGetValue(k, out var l) ? new FxModel(effects, l.Clip != null ? l.Clip.length : -1) : null;
+            effects.Types["LTBBouncyChunk"] = k => new FxChunk(effects);
             var sounds = Root.AddComponent<FxSoundPlayer>();
             effects.Types["PlaySound"] = k => new FxSound(sounds.Play);
             effects.Intersect = IntersectWorld;
@@ -82,7 +85,8 @@ namespace Tron
             }
         }
 
-        // An LTBModel key's look: its model with its pieces' styles, its clip. None when the model doesn't load.
+        // An LTBModel or LTBBouncyChunk key's look: its model with its pieces' styles, its clip (chunks have none).
+    // None when the model doesn't load.
         FxModelLook ModelFXLook(string exportRoot, FxKeyJson k)
         {
             var file = k.props == null ? null : Array.Find(k.props, p => p.k == "Model")?.s;
@@ -95,7 +99,7 @@ namespace Tron
                 return null;
             }
             var (mesh, mats) = ModelLook(model, k.pieces);
-            int a = model.FindAnim(k.anim);
+            int a = k.type == "LTBModel" ? model.FindAnim(k.anim) : -1;
             var clip = a >= 0 ? model.data.anims[a] : null;
             bool moves = false;
             if (clip != null)

@@ -9,6 +9,7 @@ Driver lines (tab-separated):
                                   (UpdatePos), offset x,y,z, ck t,r,g,b,a,..., sk t,s,..., dist (1:
                                   DisableAtDist), smooth (0/1), maxoff, rand (0/1), step, drain (s a
                                   shutting-down effect takes to finish)
+  create <id> <group> <loop>      a CreateFX key starting <group> (looping when <loop> is 1)
   sfx <name> <group> <loop> <smooth> <onetime> <x y z> [yaw]
                                   a SpecialFX object (yaw in degrees)
   msg <sfx> <words>               a message to it (prints "unhandled" if it doesn't take it)
@@ -17,6 +18,7 @@ Driver lines (tab-separated):
   state                           "inst <group> <elapsed> <suspended>" per instance, then
                                   "fx <id> <active><shutting><visible> <elapsed> <r g b a> <scale> <x y z>"
                                   per effect in update order
+  insts                           "i <group> <elapsed> <loop> <has a parent>" per instance
 Probe effects print "term <id>" when they leave; OneTime objects print "removed <name>".
 """
 import pytest
@@ -87,6 +89,14 @@ static class Driver
                     g.Keys = g.Keys.Concat(new[] { k }).ToArray();
                     break;
                 }
+                case "create":
+                {
+                    var k = new FxKey { Type = "CreateFX", Id = int.Parse(a[1]), Start = 0, End = g.Phase, Continual = true };
+                    k.Strs["FXName"] = a[2];
+                    k.Nums["Loop"] = new[] { F(a[3]) };
+                    g.Keys = g.Keys.Concat(new[] { k }).ToArray();
+                    break;
+                }
                 case "sfx":
                 {
                     float yaw = a.Length > 9 ? F(a[9]) * (float)Math.PI / 180 : 0;
@@ -107,6 +117,10 @@ static class Driver
                     break;
                 case "frame":
                     mgr.Update(F(a[1]), a.Length > 4 ? new LTVec(F(a[2]), F(a[3]), F(a[4])) : default);
+                    break;
+                case "insts":
+                    foreach (var inst in mgr.Instances)
+                        Console.WriteLine($"i\t{inst.Group.Name}\t{N(inst.Elapsed)}\t{(inst.Loop ? 1 : 0)}\t{(inst.Parent != null ? 1 : 0)}");
                     break;
                 case "state":
                     foreach (var inst in mgr.Instances)
@@ -236,3 +250,37 @@ def test_an_instance_freezes_beyond_the_cull_distance_only_when_every_effect_all
     out = run("group\tg\t1", "key\t1\t0\t1\tdist=1", "key\t2\t0.5\t1", "sfx\to\tg\t1\t1\t0\t0\t0\t0",
               "msg\to\tON", far, "state")
     assert out[0] == ["inst", "g", "0.5", "0"]
+
+
+def insts(out):
+    """(group, elapsed, loop, has a parent) per instance in the state lines."""
+    return [tuple(r[1:]) for r in out if r[0] == "i"]
+
+
+def test_create_fx_starts_its_group_as_an_instance_of_its_own(run):
+    """CCreateFX::Init fails on purpose: the manager starts the named group at once (before the rest of the
+    parent's keys run), with the parent instance's parent and the key's Loop, and keeps no effect for the
+    key. A one-shot parent has no parent, so neither has the child; the child runs on its own clock."""
+    groups = ["group\tkid\t2", "key\t7\t0\t2", "group\tg\t1", "create\t1\tkid\t0", "key\t2\t0\t1",
+              "sfx\to\tg\t0\t1\t0\t5\t0\t0"]
+    out = run(*groups, "msg\to\tON", "frame\t0.5", "insts", "state")
+    assert insts(out) == [("kid", "0.5", "0", "0"), ("g", "0.5", "0", "0")], out
+    assert [r[1] for r in out if r[0] == "fx"] == ["7", "2"], out
+    assert {r[6] for r in out if r[0] == "fx"} == {"5 0 0"}, out
+    out = run(*groups, "msg\to\tON", "frame\t1.5", "insts")
+    assert insts(out) == [("kid", "1.5", "0", "0")], out    # the parent has ended, the child plays on
+
+
+def test_create_fx_under_a_loop_starts_once_and_outlives_it(run):
+    """A looping parent never creates the child again; OFF shuts the parent down, not the child (which has
+    the SpecialFX object as its parent and its own Loop)."""
+    groups = ["group\tkid\t5", "key\t7\t0\t5", "group\tg\t1", "create\t1\tkid\t1", "key\t2\t0\t1",
+              "sfx\to\tg\t1\t0\t0\t0\t0\t0"]
+    out = run(*groups, "msg\to\tON", "frame\t0.6", "frame\t0.6", "frame\t0.6", "msg\to\tOFF", "insts")
+    assert insts(out) == [("kid", "1.8", "1", "1")], out
+
+
+def test_create_fx_naming_no_group_makes_nothing(run):
+    out = run("group\tg\t1", "create\t1\tnowhere\t0", "key\t2\t0\t1", "sfx\to\tg\t0\t1\t0\t0\t0\t0",
+              "msg\to\tON", "insts")
+    assert insts(out) == [("g", "0", "0", "0")], out

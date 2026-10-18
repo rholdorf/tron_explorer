@@ -220,6 +220,14 @@ _Avoid_: fx model, prop (a prop is a placed object)
 A `PlaySound` fx key's sound: it starts on the key's first update and is cut when the key ends, however long the wave, so a looping group plays it again each phase and only a key covering the whole phase plays on unbroken. Heard by the placed sounds' rules (its own radii, volume, priority), positioned unless `PlayLocal`.
 _Avoid_: fx sound, ambient sound (a placed SoundFX)
 
+**Chunk**:
+An `LTBBouncyChunk` fx key's model: launched along its key's direction, pulled by its gravity, bounced off the world at 70% speed, full bright, coloured and scaled by its keys. It is its own object, so it stands from the moment its group starts until its key ends, whether or not its key has begun. Effects linked to it ride along (m02-01's invisible carriers drag the bike's pieces).
+_Avoid_: debris (only m05-01's are), gib, bouncy chunk
+
+**Chained group**:
+The effect group a `CreateFX` key names: started as an instance of its own the moment its parent group starts (not at the key's start time), at the parent's place, then left alone: shutting the parent down doesn't reach it, and a looping parent never starts it again.
+_Avoid_: child effect, sub-effect
+
 **Smooth shutdown**:
 How an effect ends when its key ends or its instance shuts down: smooth lets it finish (particles drain), otherwise it is cut at once. Both the key's `SmoothShutDown` and the SpecialFX's `SmoothShutdown` must allow it.
 _Avoid_: fade out (a smooth shutdown doesn't fade by itself)
