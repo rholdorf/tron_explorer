@@ -40,6 +40,14 @@ namespace Tron
         int renderVarsVersion = -1;
         readonly ScreenFade fade = new ScreenFade();
         const float LevelStartFadeTime = 1.5f;   // ScreenFadeInAtLevelStartTime
+        // The HUD text the player's messages show (HudText): the game's strings (cres.dll), the typed mission
+        // text, the transmission queue, the font they're drawn in, and the interface sounds they play.
+        System.Collections.Generic.Dictionary<int, string> gameStrings = new System.Collections.Generic.Dictionary<int, string>();
+        readonly MissionText missionText = new MissionText();
+        readonly TransmissionQueue transmissions = new TransmissionQueue();
+        HudFont hudFont;
+        AudioSource typeSound;
+        [Serializable] class StringsJson { public int[] ids; public string[] texts; }
         float fps;
 
         void Start()
@@ -52,6 +60,7 @@ namespace Tron
             TextureEffects.Root = extractedRoot;
             SoundLoader.Root = exportRoot == null ? null : Path.Combine(exportRoot, "sounds");
             gameObject.AddComponent<SpriteAnimator>();
+            SetupHudText();
             var indexPath = Path.Combine(exportRoot ?? "", "levels.json");
             if (exportRoot != null && File.Exists(indexPath))
                 levels = JsonUtility.FromJson<LevelIndexJson>(File.ReadAllText(indexPath)).levels;
@@ -173,6 +182,40 @@ namespace Tron
         }
 
         void OnDestroy() => RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
+
+        // [MissionText] TypeSound / ScrollSound and the transmissions' msgfadeout soundbute: interface sounds,
+        // unpositioned.
+        const string TypeSoundFile = "interface/snd/type.wav", ScrollSoundFile = "interface/snd/enter.wav",
+                     TransmissionSoundFile = "interface/snd/msgfadeout.wav";
+
+        void SetupHudText()
+        {
+            var path = Path.Combine(exportRoot ?? "", "hud", "strings.json");
+            if (exportRoot != null && File.Exists(path))
+            {
+                var j = JsonUtility.FromJson<StringsJson>(File.ReadAllText(path));
+                for (int i = 0; i < j.ids.Length; i++) gameStrings[j.ids[i]] = j.texts[i];
+            }
+            else Debug.LogWarning($"{path} not found: mission texts and transmissions show nothing; run tools/export_level.py");
+            hudFont = HudFont.Load(exportRoot);
+            typeSound = gameObject.AddComponent<AudioSource>();
+            typeSound.loop = true;
+            typeSound.spatialBlend = 0;
+            typeSound.playOnAwake = false;
+            missionText.TypeSound = on =>
+            {
+                if (!on) { typeSound.Stop(); return; }
+                typeSound.clip = SoundLoader.Load(TypeSoundFile);
+                if (typeSound.clip) typeSound.Play();
+            };
+            missionText.ScrollSound = () => PlayInterfaceSound(ScrollSoundFile);
+        }
+
+        void PlayInterfaceSound(string file)
+        {
+            var clip = SoundLoader.Load(file);
+            if (clip) typeSound.PlayOneShot(clip);
+        }
 
         static string GetArg(string name)
         {
@@ -323,6 +366,8 @@ namespace Tron
             var sw = Stopwatch.StartNew();
             LogCommandReport();
             level?.Destroy();
+            missionText.Clear();
+            transmissions.Clear();
             DtxLoader.ClearCache();
             if (testSound) Destroy(testSound.gameObject);
             SoundLoader.ClearCache();
@@ -393,6 +438,8 @@ namespace Tron
                 if (level.Data.objects[i].cls == "WorldProperties")
                     PlayerMessages.HandleWorldProperties(level.Commands, i, renderVars);
             PlayerMessages.Handle(level.Commands, PlayerId, renderVars, fade, TeleportTo);
+            HudMessages.Handle(level.Commands, PlayerId, id => gameStrings.TryGetValue(id, out var t) ? t : null,
+                               missionText, transmissions, () => PlayInterfaceSound(TransmissionSoundFile));
             ApplyRenderVars();
             // In game only the Z buffer is cleared each frame (InterfaceMgr: CLEARSCREEN_RENDER); the
             // color buffer is cleared to black (0) on screen transitions. Additive/translucent sky
@@ -483,6 +530,8 @@ namespace Tron
             {
                 renderVars.Update(Time.deltaTime);
                 fade.Update(Time.deltaTime);
+                missionText.Update(Time.deltaTime);
+                transmissions.Update(Time.deltaTime);
                 ApplyRenderVars();
             }
         }
@@ -559,6 +608,9 @@ namespace Tron
                 GUI.color = prev;
             }
             if (capturing) return;   // -shots: the scene only
+            bool hudText = Event.current.type == EventType.Repaint && level != null && hudFont != null;
+            // The game's HUD text goes under the menu, but over the viewer's info bar and help.
+            if (hudText && menuOpen) DrawHudText();
 
             uiScale = AutoUiScale() * uiAdjust;
             EnsureStyles();
@@ -596,7 +648,6 @@ namespace Tron
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
             GUI.Label(new Rect(8, 8, Mathf.Min(hs.x, w - 16), hs.y), hudContent, hudStyle);
-            DrawUsePrompt(w, h);
             if (showHelp)
             {
                 var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · E usar · " +
@@ -604,24 +655,40 @@ namespace Tron
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }
+            if (hudText) DrawHudText();
         }
 
-        // The use prompt (CTargetMgr, layout.txt): the target's ActivateType text for its state, centered at
-        // (320, 300) of a 640x480 layout, size 14, yellow, grey while locked. A target whose type has no
-        // text for the state shows just the key.
-        GUIStyle promptStyle;
+        // The game's HUD text, in font 0 over the screen fade, in 640 x 480 layout units (HudFont):
+        // - the mission text ([MissionText]): typed at (100, 132), lines downwards, no wrapping;
+        // - the transmissions ([AnnouncementMessageQueue]): each line centred on x 320, wrapped at 400, the
+        //   messages bottom-justified at y 80, the newest lowest; shadow 0xBF black (ltjs CHUDMessage);
+        // - the use prompt (CTargetMgr): the target's ActivateType text for its state, centred at (320, 300),
+        //   yellow, grey while locked; a target whose type has no text for the state shows just the key.
+        const float HudCharHeight = 14;
 
-        void DrawUsePrompt(float w, float h)
+        void DrawHudText()
         {
+            hudFont.Begin(Screen.width, Screen.height);
+            if (missionText.Active)
+                hudFont.Draw(hudFont.Lines(missionText.Chars, HudCharHeight), 100, 132, HudCharHeight, missionText.Alpha,
+                             count: missionText.Visible);
+            float bottom = 80;
+            for (int i = transmissions.Entries.Count - 1; i >= 0; i--)
+            {
+                var e = transmissions.Entries[i];
+                if (!e.Visible) continue;
+                var lines = hudFont.Lines(e.Chars, HudCharHeight, 400);
+                bottom -= hudFont.BlockHeight(lines.Count, HudCharHeight);
+                hudFont.Draw(lines, 320, bottom, HudCharHeight, e.Alpha, centred: true, shadowAlpha: 0xBF / 255f);
+            }
             var t = use ? use.Target : null;
-            if (!t || menuOpen) return;
-            var text = t.Prompt;
-            text = string.IsNullOrEmpty(text) ? "[E]" : $"[E] {text}";
-            if (promptStyle == null) promptStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, wordWrap = false };
-            promptStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(14 * h / 480));
-            promptStyle.normal.textColor = t.Awm.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
-            float y = h * 300 / 480;
-            GUI.Label(new Rect(0, y - promptStyle.fontSize, w, promptStyle.fontSize * 2), text, promptStyle);
+            if (t && !menuOpen)
+            {
+                var text = string.IsNullOrEmpty(t.Prompt) ? "[E]" : $"[E] {t.Prompt}";
+                var color = t.Awm.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
+                hudFont.DrawText(text, 320, 300 - HudCharHeight / 2, HudCharHeight, color, true);
+            }
+            hudFont.End();
         }
     }
 }

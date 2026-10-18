@@ -162,6 +162,18 @@ _Avoid_: auto fade-in (the game has none)
 A client console variable the renderer reads every frame (fog color and distances, FarZ, sky and glow fog, glow filter). Ramps and sines move it; a WorldProperties message copies every world variable back from the level's values.
 _Avoid_: cvar alone (most console variables aren't render variables), world property (that's the server's copy)
 
+**Mission text**:
+The orange block a `missiontext <id>` message types into the upper left, letter by letter, then holds and fades; a new one replaces it at once.
+_Avoid_: objective (the HUD's objective list is another thing), subtitle (that's dialogue)
+
+**Transmission**:
+A one-line message a `transmission <id>` message shows at the top centre, light blue, fading in and out; at most two show, the newest lowest.
+_Avoid_: radio message, announcement alone (the announcement queue is where Tron draws it, not the message)
+
+**Game string**:
+A text in the game's string table (`cres.dll`) that a message names by number; it may carry `<color r g b>` tags that recolour the rest of the text.
+_Avoid_: localized string, resource text
+
 ### Style baseline
 
 **Style baseline**:

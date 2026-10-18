@@ -37,6 +37,7 @@ import keyframer  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
 import sounds  # noqa: E402
+import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
 FORMAT_VERSION = 18
@@ -569,6 +570,8 @@ def main():
     print(f"{len(exported)} sound files")
     for rel, users in missing.items():
         print(f"sound file {rel} not found, named in {', '.join(users)}")
+    strings, glyphs, hud_sounds = hudtext.export_hud(root, out_root)
+    print(f"HUD: {len(strings)} strings, {len(glyphs)} glyphs, {len(hud_sounds)} sound files")
     if not only:
         with open(os.path.join(out_root, "levels.json"), "w") as f:
             json.dump({"levels": index}, f, indent=1)
