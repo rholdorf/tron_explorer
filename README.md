@@ -33,8 +33,9 @@ sees `export/levels.json`; override with `-tronroot <dir>` or `TRON_EXPLORER_ROO
 
 ## Controls
 
-WASD move · mouse look · Space jump · Shift walk · C/Ctrl crouch · N noclip (Alt = fast) ·
-G screen glow · R respawn · T next start/teleport point · Tab/Esc level menu · F1 help.
+WASD move · mouse look · Space jump · Shift walk · C/Ctrl crouch · N noclip (Alt = fast) · E use ·
+G screen glow · M sound · R respawn · T next start/teleport point · L log the commands nobody handled ·
+Tab/Esc level menu · F1 help · Ctrl/Cmd +/− text size.
 
 ## Fidelity notes
 
@@ -49,7 +50,7 @@ G screen glow · R respawn · T next start/teleport point · Tab/Esc level menu 
   the texture-pass triangles to their lightmap triangles by vertex position and gives them uv2;
   the shader does both passes in one, fog included (`d3d_rendershader_lightmap.cpp`).
 - **Light groups** (switchable lights) are added to vertex colors and lightmaps with their
-  initial color. Toggling them from scripts is part of the behavior phase.
+  initial color. Commands can't switch them yet.
 - **Textures**: DTX v-5 loaded straight to GPU (DXT1/DXT5, DXT3 re-encoded as DXT5, BGRA32).
   Command string honored: `AlphaRef`, `EnvMap`/`EnvMapAlpha` (ADDSIGNED), `DetailTex`.
   DTX fullbright flag = alpha is a self-illumination mask, and drives the screen glow.
@@ -67,20 +68,27 @@ G screen glow · R respawn · T next start/teleport point · Tab/Esc level menu 
   on the base texture or env map channel.
 - Animated `.spr` sprites cycle at their frame rate.
 
-- **Models** (`.ltb`, `tools/ltb.py`): visible `ArchiveBin`, `SecRezzer`, `Finder` and `PropType`
-  objects show their model, resolved like the game does: `ModelTemplate` in
-  `attributes/modelbutes.txt`, `Type` in `attributes/proptypes.txt`, or the object's own
-  `Filename`/`Skin`. LOD 0 at the bind pose, skin per piece from texture stage 0; render styles,
-  model lighting, characters (skeletal animation, attachments) are not done yet.
+- **Models** (`.ltb`, `tools/ltb.py`): props and characters show their model, resolved like the
+  game does: `ModelTemplate` in `attributes/modelbutes.txt`, `Type` in `attributes/proptypes.txt`,
+  or the object's own `Filename`/`Skin`. Render styles, model lighting from the level's light grid,
+  characters looping their idle animation with their attachments and hand-held weapons, standing
+  on the floor (MoveToFloor). Characters don't move or think: there is no AI.
+- **Living level**: spinning world models, keyframers (with their key commands), ambient sounds
+  (SoundFX, SoundButeFX), and the player riding moving platforms.
+- **The level reacts** (`CommandMgr`, `docs/adr/0001-commands-run-as-text-in-the-viewer.md`): the level's command language runs as in the
+  engine (`msg`, `delay`, `loop`, `rand`…). The startup command and the start point's command run at
+  load; triggers, event counters, command objects and groups relay commands; doors, lifts and
+  switches work, used with E (every permission set granted); binary bits and security rezzers
+  change look per state; teleports, screen fades, fog ramps, mission text and transmissions work.
+  Messages to systems the viewer doesn't have are counted per level (L), with the ones a Spawner
+  would create apart from dead ones.
 
-## Not yet (behavior phase)
+## Not yet
 
-Every object and all its properties are already exported in `level.json` (`objects[]`), e.g.
-`SlidingDoor`/`RotatingDoor` (`MoveDir`, `MoveDist`, `OpeningTime`, `PermissionSets`…),
-`Trigger` (`Command1..10`), `CAIHuman` (`ModelTemplate`, `Brain`, `GoalSet`), `Spawner`,
-`CommandObject`, `KeyFramer`. Next steps: a `.txt`/bute parser for `attributes/` (weapons,
-keyitems/permissions, aibutes, modelbutes), the LithTech command language (`msg X (on)` …)
-used by triggers and the level `StartupCommand`, then doors/lifts, the disc, LTB models and AI.
+Every object and all its properties are already exported in `level.json` (`objects[]`). Not built yet:
+SpecialFX / ClientFX (particles, sparks, glows), cameras, dialogue and cutscenes, characters that
+move (AI, spawners), switchable light groups, screen shake, music (DirectMusic), objectives, the HUD
+beyond the use prompt, inventory and the disc.
 
 ## Format references
 
