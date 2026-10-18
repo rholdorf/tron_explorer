@@ -29,6 +29,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 import activate  # noqa: E402
 import ambient  # noqa: E402
+import clientfx  # noqa: E402
 import commands  # noqa: E402
 import animation  # noqa: E402
 import dat85  # noqa: E402
@@ -41,7 +42,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 20
+FORMAT_VERSION = 21
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -473,7 +474,15 @@ def character_anim(styles, extracted, rel, name):
     return m.anims[0].name if m.anims else ""
 
 
-def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
+def fx_groups(objects, library):
+    """The effect groups a level's SpecialFX objects reach (with the groups their CreateFX and splats
+    start) in the viewer's form (clientfx.export_group), and the names that find no group."""
+    names = [p["s"] for o in objects if o["cls"] == "SpecialFX" for p in o["props"] if p["k"] == "FxName"]
+    groups, missing = library.reached(names)
+    return [clientfx.export_group(g) for g in groups], [n for n in missing if n.strip().lower() != "<none>"]
+
+
+def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, fx_library=None):
     w = dat85.load(dat_path)
     wr = Writer()
 
@@ -529,6 +538,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
                                             idle or animation.IdleSelector(extracted, resolver))
 
     soundbutes = sounds.soundbutes(extracted)
+    fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted))
     meta = {
         "version": FORMAT_VERSION,
         "name": rel_name,
@@ -547,6 +557,8 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "activateTypes": activate.level_types(w.objects, extracted),
         "spawns": commands.spawn_names(w),
+        "fxGroups": fx,
+        "fxMissing": fx_missing,
         "objects": objects,
         "models": models,
         "buteSounds": bute_sounds(bute_sound_keys(styles, models), soundbutes),
@@ -574,6 +586,8 @@ def main():
     resolver = export_models.Resolver(root)
     styles = export_models.Styles(root)
     idle = animation.IdleSelector(root, resolver)
+    fx_library = clientfx.Library(root)
+    fx_missing = {}     # effect group name -> levels naming it
     model_files = {}   # model file -> the animations its instances play
     level_objects = {}  # level -> its objects, for the sound files they name
     level_sounds = {}   # level -> the soundbutes its models' clips play
@@ -582,13 +596,19 @@ def main():
         rel = os.path.relpath(dat, worlds_dir)[:-4]
         if only and not any(s in rel for s in only):
             continue
-        meta = export(dat, os.path.join(out_root, "levels", rel), rel, resolver, styles, root, idle)
+        meta = export(dat, os.path.join(out_root, "levels", rel), rel, resolver, styles, root, idle, fx_library)
         tris = sum(s["count"] for m in meta["meshes"] for s in m["subs"]) // 3
         print(f"{rel:45} meshes={len(meta['meshes']):4} tris={tris:7} colliders={len(meta['colliders']):4} "
               f"objects={len(meta['objects'])} models={len(meta['models'])}")
         index.append(rel)
         level_objects[rel] = meta["objects"]
-        level_sounds[rel] = [b["name"] for b in meta["buteSounds"]]
+        fx_models, fx_sounds = clientfx.assets(meta["fxGroups"])
+        level_sounds[rel] = [b["name"] for b in meta["buteSounds"]] + fx_sounds
+        for f, anims in fx_models.items():
+            # an effect model's AniName the model lacks plays animation 0 (counted as a missing animation)
+            model_files.setdefault(f, set()).update(a for a in (character_anim(styles, root, f, a) for a in anims) if a)
+        for name in meta["fxMissing"]:
+            fx_missing.setdefault(name, []).append(rel)
         for m in meta["models"]:
             anims = model_files.setdefault(m["file"], set())
             if m["anim"]:
@@ -601,9 +621,11 @@ def main():
             print(f"model {rel}: {e}")
     print(f"{len(model_files)} models, {sum(len(a) for a in model_files.values())} animation clips")
     for (f, name), n in sorted(MISSING_ANIMS.items()):
-        print(f"idle animation {name} not in {f} or its child models, animation 0 instead: {n}")
+        print(f"animation {name} not in {f} or its child models, animation 0 instead: {n}")
     for (f, socket), n in sorted(resolver.missing_sockets.items()):
         print(f"attachment dropped, no socket {socket} on {f}: {n}")
+    for name, users in sorted(fx_missing.items()):
+        print(f"effect group {name} not found, named in {', '.join(users)}")
     for rel in sorted(styles.missing):
         print(f"render style {rel} not found, default style instead")
     for cls, n in sorted(resolver.undrawn_attachments.items()):

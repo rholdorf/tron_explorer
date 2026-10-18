@@ -190,6 +190,20 @@ _Avoid_: radio message, announcement alone (the announcement queue is where Tron
 A text in the game's string table (`cres.dll`) that a message names by number; it may carry `<color r g b>` tags that recolour the rest of the text.
 _Avoid_: localized string, resource text
 
+### Effects
+
+**Effect group**:
+A named ClientFX effect from the game's `.fxf` files: a loop of `Phase` ms holding fx keys, each an effect type (particle system, sprite, effect model, effect sound, chunk, lightning, trail…) with a start, an end, props and colour/scale keys. Names match case-insensitively; the first group loaded wins.
+_Avoid_: FX (too broad), particle effect (one type among several), FxED group (the editor's name)
+
+**Fx key**:
+One effect inside an effect group, `Type;label` in the file: it runs from its start to its end in each phase, its look driven by `Ck` (colour, alpha stored as transparency) and `Sk` (scale) keys.
+_Avoid_: effect (ambiguous with the group), keyframe (that is a keyframer's)
+
+**SpecialFX**:
+The level object that plays one effect group at its own position, switched by `ON`/`OFF`. With `Loop` it keeps one instance and shuts it down on OFF; without, each ON fires a new one-shot that plays to its end. HIDDEN/VISIBLE don't touch it.
+_Avoid_: ClientFX (that is the effect system, also fired by weapons and characters)
+
 ### Style baseline
 
 **Style baseline**:
