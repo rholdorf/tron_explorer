@@ -29,6 +29,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 import activate  # noqa: E402
 import ambient  # noqa: E402
+import commands  # noqa: E402
 import animation  # noqa: E402
 import dat85  # noqa: E402
 import export_models  # noqa: E402
@@ -40,7 +41,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 19
+FORMAT_VERSION = 20
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -545,6 +546,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None):
         "soundButeFX": ambient.sound_bute_fx(w.objects, soundbutes),
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "activateTypes": activate.level_types(w.objects, extracted),
+        "spawns": commands.spawn_names(w),
         "objects": objects,
         "models": models,
         "buteSounds": bute_sounds(bute_sound_keys(styles, models), soundbutes),

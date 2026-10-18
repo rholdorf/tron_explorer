@@ -12,7 +12,7 @@ namespace Tron
     public partial class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 19;
+        public const int FormatVersion = 20;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -107,13 +107,17 @@ namespace Tron
 
         // Every level object joins the command manager by name and class, in level order, so an object's
         // id is its index in Data.objects; builders add handlers with Commands.Handle(index, ...). Groups
-        // pass their messages on to their Object1..Object50 (Tron's 50 slots). Ticked by CommandTicker.
+        // pass their messages on to their Object1..Object50 (Tron's 50 slots). Templates are never created
+        // (GameBase::ReadProp): they join without a name, keeping the ids, so nothing reaches them. Names a
+        // Spawner would give are known, for the report. Ticked by CommandTicker.
         void JoinCommands()
         {
             Commands = new CommandMgr();
             foreach (var o in Data.objects)
             {
-                if (string.Equals(o.cls, "Group", StringComparison.OrdinalIgnoreCase))
+                if (o.Bool("Template"))
+                    Commands.Join("", o.cls);
+                else if (string.Equals(o.cls, "Group", StringComparison.OrdinalIgnoreCase))
                 {
                     var members = new string[50];
                     for (int i = 0; i < members.Length; i++) members[i] = o.Str("Object" + (i + 1));
@@ -122,6 +126,7 @@ namespace Tron
                 else
                     Commands.Join(o.name, o.cls);
             }
+            foreach (var sp in Data.spawns) Commands.Spawned(sp.name, sp.cls);
             Root.AddComponent<CommandTicker>().Commands = Commands;
         }
 

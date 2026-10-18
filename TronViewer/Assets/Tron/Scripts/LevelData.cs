@@ -23,6 +23,7 @@ namespace Tron
         public SoundButeFXJson[] soundButeFX; // SoundButeFX, on at start or not (tools/ambient.py)
         public KeyframerJson[] keyframers;   // keyframers, active at start or not (tools/keyframer.py)
         public ActivateTypeJson[] activateTypes; // the use prompts its objects name (tools/activate.py)
+        public SpawnJson[] spawns;           // the names spawners give what they create (tools/commands.py spawn_names)
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public ButeSoundJson[] buteSounds;   // the soundbutes the state models' clips play (BUTE_SOUND_KEY)
@@ -172,6 +173,9 @@ namespace Tron
 
     // An ActivateType: the use prompt shown while its object is on / off ("" for none).
     [Serializable] public class ActivateTypeJson { public string name, on, off; }
+
+    // A name a `spawn` / `spawnfrom` gives the object a Spawner creates, and the class of its template.
+    [Serializable] public class SpawnJson { public string name, cls; }
 
     [Serializable] public class PropJson { public string k, t, s; public float[] v; }
 

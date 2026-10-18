@@ -8,6 +8,7 @@ Driver lines (tab-separated):
   relay <name> <class> <command> join an object that handles every message by running <command> (itself
                                  the sender and active target), like a trigger's commands
   group <name> <member>...       join a Group
+  spawned <name> <class>         a name a Spawner would give (CommandMgr.Spawned)
   run <sender> <command>         run a command string (sender "" for none); prints "ran True|False"
   runat <sender> <target> <command>  the same with an active target
   tick <seconds>                 one frame of the pending-command table
@@ -81,6 +82,9 @@ static class Driver
                     break;
                 case "echo":
                     Console.WriteLine(a[1]);
+                    break;
+                case "spawned":
+                    mgr.Spawned(a[1], a[2]);
                     break;
                 case "report":
                     foreach (var u in mgr.Unhandled)
@@ -250,3 +254,13 @@ def test_messages_and_commands_nobody_handles_are_counted_by_verb_class_and_word
     assert sorted(o[1:] for o in out if o[0] == "unhandled") == sorted([
         ("MSG", "SpecialFX", "ON", "2"), ("MSG", "SpecialFX", "OFF", "1"), ("MSG", "(no object)", "HIDDEN", "1"),
         ("INT", "", "", "1"), ("ADD", "", "", "1")])
+
+
+def test_messages_to_a_name_a_spawner_would_give_are_counted_apart_from_dead_ones(driver):
+    out = driver([("spawned", "Mercury", "CAIHuman"), ("spawned", "anon", ""), ("obj", "a", "WorldModel"),
+                  ("run", "", "msg mercury remove; msg <CAIHuman>Mercury (addgoal x); msg anon remove; "
+                              "msg ghost hidden"),
+                  ("report",)])
+    assert sorted(o[1:] for o in out if o[0] == "unhandled") == sorted([
+        ("MSG", "(spawned CAIHuman)", "REMOVE", "1"), ("MSG", "(spawned CAIHuman)", "ADDGOAL", "1"),
+        ("MSG", "(spawned)", "REMOVE", "1"), ("MSG", "(no object)", "HIDDEN", "1")])

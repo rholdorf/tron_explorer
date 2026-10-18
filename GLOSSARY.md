@@ -114,6 +114,14 @@ _Avoid_: script, event (an event is a moment that runs a command)
 What a `msg` command delivers to one or more named objects, such as `on`, `off`, `trigger`, `hidden 1` or `lock`; each class decides what it does with it.
 _Avoid_: event, signal, command (the command is the whole `msg` line)
 
+**Spawn name**:
+The name a `spawn` or `spawnfrom` message gives the object a Spawner creates from its template. The object exists only after the spawn, so the viewer, which doesn't spawn, reports messages to it as `(spawned <class>)`.
+_Avoid_: template name (a spawn can reuse a template's name, but templates themselves never exist)
+
+**Dead target**:
+A `msg` target that names nothing in the level, now or ever: renamed, misspelt, from another level or a missing prefab part. The engine drops the message without a word; the viewer counts it under `(no object)` and never matches a close name.
+_Avoid_: broken link, missing object (a spawned object is missing only until its spawn)
+
 **Trigger**:
 A level volume that runs its commands when the player enters it or when it receives `trigger`; it can be locked and limited to a number of activations.
 _Avoid_: zone, sensor, switch (a switch is a world model the player uses)

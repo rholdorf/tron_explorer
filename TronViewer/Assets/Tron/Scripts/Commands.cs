@@ -180,6 +180,7 @@ namespace Tron
 
         readonly List<Entry> objects = new List<Entry>();
         readonly Dictionary<string, List<int>> byName = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, string> spawned = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Pending[] pending = new Pending[MaxPending];
         readonly Dictionary<(string, string, string), int> unhandled = new Dictionary<(string, string, string), int>();
         readonly Func<double> random;
@@ -233,6 +234,14 @@ namespace Tron
             return id;
         }
 
+        // A name a Spawner gives the object it creates (a system the viewer doesn't have), with its template's
+        // class: messages to it count as "(spawned <class>)" in the report, not as dead "(no object)".
+        public void Spawned(string name, string cls)
+        {
+            if (!string.IsNullOrEmpty(name) && !spawned.ContainsKey(name))
+                spawned[name] = string.IsNullOrEmpty(cls) ? "(spawned)" : $"(spawned {cls})";
+        }
+
         public string Name(int id) => id >= 0 && id < objects.Count ? objects[id].Name : "";
         public string Class(int id) => id >= 0 && id < objects.Count ? objects[id].Class : "";
 
@@ -282,8 +291,9 @@ namespace Tron
             }
             if (found.Count == 0)
             {
+                if (!spawned.TryGetValue(name, out var cls)) cls = NoObject;
                 foreach (var words in ConParse.Statements(message))
-                    if (words.Length > 0) Count("MSG", NoObject, words[0]);
+                    if (words.Length > 0) Count("MSG", cls, words[0]);
                 return;
             }
             foreach (var id in found) Deliver(sender, id, message);
@@ -332,7 +342,7 @@ namespace Tron
 
         // ---- Report ----
 
-        // Messages no handler took (verb MSG, the target's class or NoObject, the message word) and verbs
+        // Messages no handler took (verb MSG, the target's class, "(spawned <class>)" or NoObject, the message word) and verbs
         // the viewer doesn't run (variables: INT, SET, ADD, SUB, IF, WHEN, OBJ, VMSG...), and what objects count
         // themselves (an ExitTrigger's level switch), most frequent first.
         public IEnumerable<UnhandledCount> Unhandled =>
