@@ -5,11 +5,22 @@ using UnityEngine;
 namespace Tron
 {
     // Per-instance model lighting as the LithTech D3D renderer sets it up (ModelDraw::SetupModelLight,
-    // setupmodel.cpp): an ambient term from the light grid plus up to MaxLights directional lights from
-    // the sun and the static object lights, the rest folded into ambient. Port of tools/modellight.py
-    // (model_lighting), which is the tested reference. All values in LT space, colors 0-255.
+    // setupmodel.cpp): an ambient term from the light grid plus up to MaxLights device lights from the sun,
+    // the dynamic lights (DynaLight effects: D3D point lights) and the static object lights, the rest folded
+    // into ambient. Port of tools/modellight.py (model_lighting), which is the tested reference for all but
+    // the dynamic lights (FxDynaLight.Sample). All values in LT space, colors 0-255.
     public class ModelLighting
     {
+        // A dynamic light this frame: where it is, its radius and color (0-255).
+        public struct DynamicLight
+        {
+            public Vector3 Pos, Color;
+            public float Radius;
+        }
+
+        // The level's dynamic lights now (DynamicLights fills it every frame).
+        public readonly List<DynamicLight> Dynamic = new List<DynamicLight>();
+
         public const int MaxLights = 4;   // MaxModelLights console variable default
         const float DirectionalCosFov = 0.98f;   // retail StaticLightCB, [0x58d9e4]
         // A static light with cosFov above it is a spot, else omni (world_shared_bsp.cpp static lights;
@@ -86,13 +97,35 @@ namespace Tron
             return V(lt.color) * k;
         }
 
-        // A light in the relevant light list: a directional light (light == null: the sun or a narrow static
-        // spot; color already scaled) or a sampled static light, whose color the list scales by
-        // keep = 1 - ConvertToAmbient.
-        struct Slot { public float score, keep; public StaticLightJson light; public Vector3 dir, color; }
+        // A light in the relevant light list: a directional light (light == null and not point: the sun or a
+        // narrow static spot; color already scaled), a dynamic point light, or a sampled static light, whose
+        // color the list scales by keep = 1 - ConvertToAmbient.
+        struct Slot
+        {
+            public float score, keep;
+            public StaticLightJson light;
+            public bool point;
+            public DynamicLight dyn;
+            public Vector3 dir, color;
+        }
 
-        // Ambient (0-255, the D3D ambient light) and up to MaxLights directional lights for an instance:
-        // dirs[i].xyz = unit direction the light travels, colors[i].rgb = 0-255 (zero when unused).
+        static Vector3 V(LTVec v) => new Vector3(v.x, v.y, v.z);
+        static LTVec L(Vector3 v) => new LTVec(v.x, v.y, v.z);
+
+        static Vector3 PointSample(DynamicLight d, Vector3 pos) => V(FxDynaLight.Sample(L(d.Pos), d.Radius, L(d.Color), L(pos)));
+
+        // Whether a dynamic light can reach a model there (its radius and the model's VisRadius overlap): the
+        // others light it as if there were none.
+        public bool Touches(Vector3 pos, float visRadius)
+        {
+            foreach (var d in Dynamic)
+                if ((d.Pos - pos).sqrMagnitude < (d.Radius + visRadius) * (d.Radius + visRadius)) return true;
+            return false;
+        }
+
+        // Ambient (0-255, the D3D ambient light) and up to MaxLights device lights for an instance:
+        // dirs[i].xyz = unit direction the light travels, colors[i].rgb = 0-255 (zero when unused); a point
+        // light has dirs[i] = (its place in the world (Unity units), 1) and colors[i].w = its range there.
         public Vector3 Compute(Vector3 pos, Vector3 dims, float visRadius, float sunAmount, Vector4[] dirs, Vector4[] colors)
         {
             var ambient = Vector3.zero;
@@ -108,7 +141,8 @@ namespace Tron
                 if (slots.Count >= MaxLights)
                 {
                     var last = slots[slots.Count - 1];
-                    ambient += last.light == null ? last.color : Sample(last.light, pos) * last.keep;
+                    ambient += last.point ? PointSample(last.dyn, pos)
+                             : last.light == null ? last.color : Sample(last.light, pos) * last.keep;
                     slots.RemoveAt(slots.Count - 1);
                 }
                 s.keep = 1 - toAmbient;
@@ -123,6 +157,7 @@ namespace Tron
                 Insert(new Slot { dir = V(sun.dir), color = c }, c, sun.toAmbient);
             }
             ambient += SampleGrid(pos);
+            foreach (var d in Dynamic) Insert(new Slot { point = true, dyn = d, color = d.Color }, PointSample(d, pos), 0);
             foreach (var lt in lights)
             {
                 // FindObjectsInBox2: the light's box (pos +- radius) touches the model's (pos +- VisRadius).
@@ -140,6 +175,16 @@ namespace Tron
             foreach (var s in slots)
             {
                 Vector3 dir, color;
+                if (s.point)
+                {
+                    // CreatePointLightD3D: a device point light, attenuation 1, 0, 19 / radius^2 (the shader).
+                    if (s.color.x <= 0 && s.color.y <= 0 && s.color.z <= 0) continue;
+                    var p = s.dyn.Pos * LT.Scale;
+                    dirs[n] = new Vector4(p.x, p.y, p.z, 1);
+                    colors[n] = new Vector4(s.color.x, s.color.y, s.color.z, s.dyn.Radius * LT.Scale);
+                    n++;
+                    continue;
+                }
                 if (s.light == null) { dir = s.dir; color = s.color; }
                 else DeviceLight(s.light, s.keep, pos, dims, out dir, out color);
                 if (color.x <= 0 && color.y <= 0 && color.z <= 0) continue;
@@ -150,6 +195,13 @@ namespace Tron
             for (; n < dirs.Length; n++) { dirs[n] = Vector4.zero; colors[n] = Vector4.zero; }
             // CDeviceLightList::SetAmbientColor: clamp to 255 and truncate.
             return new Vector3((int)Mathf.Min(255, ambient.x), (int)Mathf.Min(255, ambient.y), (int)Mathf.Min(255, ambient.z));
+        }
+
+        // The device lights' colors from 0-255 to 0-1 (a point light's range stays).
+        public static void ToUnit(Vector4[] colors)
+        {
+            for (int i = 0; i < colors.Length; i++)
+                colors[i] = new Vector4(colors[i].x / 255f, colors[i].y / 255f, colors[i].z / 255f, colors[i].w);
         }
 
         // CRenderLight::CreateDeviceLight: quartic/linear points become a directional light sampled at the

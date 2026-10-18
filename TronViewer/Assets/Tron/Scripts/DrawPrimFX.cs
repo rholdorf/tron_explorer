@@ -57,6 +57,9 @@ namespace Tron
         // drawn as 0 1 2, 0 2 3), for the camera.
         public abstract void Render(PrimCamera cam, List<PrimVert> quads);
 
+        // The frame of the texture's .spr a quad of the last Render draws (0: its first, or the .dtx).
+        public virtual int QuadFrame(int quad) => 0;
+
         // Byte colour of a key's colour (each (int)(c x 255) clamped to 0-255, as PreRender does).
         public static uint Color(float r, float g, float b, float a) =>
             (uint)Byte(r) | (uint)Byte(g) << 8 | (uint)Byte(b) << 16 | (uint)Byte(a) << 24;

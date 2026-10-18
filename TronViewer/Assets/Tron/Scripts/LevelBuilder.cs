@@ -227,6 +227,8 @@ namespace Tron
         // prop's nodes stay at the bind pose); a character's are posed at their own animation 0, frame 0
         // (attachment models keep their geometry where it sits on the body and move it to the socket with
         // that pose), and follow it as the character moves.
+        readonly List<DynamicLights.Model> litModels = new List<DynamicLights.Model>();
+
         void BuildModels(string exportRoot)
         {
             if (Data.models == null || Data.models.Length == 0) return;
@@ -295,15 +297,17 @@ namespace Tron
                 r.reflectionProbeUsage = ReflectionProbeUsage.Off;
 
                 // Per-instance D3D lighting (ModelLighting): ambient and up to 4 directional lights, 0-1.
-                // Every instance has its own (attachments: their model's dims at the parent object's position).
+                // Every instance has its own (attachments: their model's dims at the parent object's position);
+                // DynamicLights lights it again while a dynamic light reaches it.
                 var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
                 var ambient = lighting.Compute(pos, dims, inst.visRadius, inst.sunAmount, lightDirs, lightColors);
-                for (int i = 0; i < lightColors.Length; i++) lightColors[i] /= 255f;
+                ModelLighting.ToUnit(lightColors);
                 mpb.Clear();
                 mpb.SetVector(AmbientId, ambient / 255f);
                 mpb.SetVectorArray(LightDirId, lightDirs);
                 mpb.SetVectorArray(LightColorId, lightColors);
                 r.SetPropertyBlock(mpb);
+                litModels.Add(new DynamicLights.Model { R = r, Pos = pos, Dims = dims, VisRadius = inst.visRadius, SunAmount = inst.sunAmount });
             }
             animator.Begin();
         }

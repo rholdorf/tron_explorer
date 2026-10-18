@@ -21,9 +21,10 @@ namespace Tron
     // Draws the level's effect models (FxModel) and chunks (FxChunk) as the level's other models are drawn:
     // a renderer per effect with its look's materials (so they reach the glow buffer through [GlowRSMap]),
     // placed, turned and scaled as the effect says, posed at its clip time when the clip moves, lit by
-    // ModelLighting where it is (again once it has moved 32 units), or full bright (FLAG_NOLIGHT: ambient
-    // white, no lights), with the lights scaled by its colour and its lit passes faded by its alpha. Renderers are pooled per key: an effect that ends hands its renderer to the next one
-    // the same key makes. Runs after the effect manager (ClientFXTicker).
+    // ModelLighting where it is (again once it has moved 32 units, and every frame a dynamic light reaches
+    // it), or full bright (FLAG_NOLIGHT: ambient white, no lights), with the lights scaled by its colour and its
+    // lit passes faded by its alpha. Renderers are pooled per key: an effect that ends hands its renderer to the
+    // next one the same key makes. Runs after the effect manager (ClientFXTicker) and the dynamic lights.
     [DefaultExecutionOrder(60)]
     public class ModelFXRenderer : MonoBehaviour
     {
@@ -47,7 +48,7 @@ namespace Tron
             public Transform[] Bones;
             public int Frame;
             public Vector3 LitAt;
-            public bool Lit;
+            public bool Lit, DynLit;
             public Vector3 Ambient;
             public readonly Vector4[] Dirs = new Vector4[ModelLighting.MaxLights];
             public readonly Vector4[] Colors = new Vector4[ModelLighting.MaxLights];
@@ -166,6 +167,10 @@ namespace Tron
                 v.PosedAt = m.AnimTime;
             }
             bool relight = !v.Lit || (pos - v.LitAt).sqrMagnitude > RelightDistance * RelightDistance;
+            // A dynamic light changes every frame: lit again while one reaches it, and once more when none does.
+            bool dyn = !m.NoLight && Lighting != null && Lighting.Touches(pos, v.Look.VisRadius);
+            relight |= dyn || v.DynLit;
+            v.DynLit = dyn;
             if (relight && m.NoLight)
             {
                 v.Ambient = Vector3.one;
@@ -176,7 +181,7 @@ namespace Tron
             else if (relight)
             {
                 v.Ambient = Lighting != null ? Lighting.Compute(pos, v.Look.Dims, v.Look.VisRadius, 0, v.Dirs, v.Colors) / 255f : Vector3.zero;
-                for (int i = 0; i < v.Colors.Length; i++) v.Colors[i] /= 255f;
+                ModelLighting.ToUnit(v.Colors);
                 v.LitAt = pos;
                 v.Lit = true;
             }

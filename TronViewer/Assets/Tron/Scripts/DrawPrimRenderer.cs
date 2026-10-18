@@ -6,12 +6,13 @@ using UnityEngine.Rendering;
 
 namespace Tron
 {
-    // Draws the level's DrawPrim effects (FxDrawPrim: lightning bolts, poly trails) each frame as the client
-    // shell does: every shown effect's quads for the main camera, texture x vertex colour (ColorOp Modulate),
-    // the texture repeating (DrawPrim leaves the address mode at wrap), Z read but not written, both faces, no
-    // fog. All the quads of one texture, blend mode and alpha test go in one mesh with the Tron/Effect shader,
-    // drawn by the main camera only (DrawPrim effects never reach the glow buffer). Runs after the effect
-    // manager (ClientFXTicker) and the effect models (whose nodes the bolts reach).
+    // Draws the level's DrawPrim effects (FxDrawPrim: lightning bolts, poly trails, sprite systems) each frame
+    // as the client shell does: every shown effect's quads for the main camera, texture x vertex colour
+    // (ColorOp Modulate), the texture repeating (DrawPrim leaves the address mode at wrap), Z read but not
+    // written, both faces, no fog; a .spr texture shows the frame each quad asks for. All the quads of one
+    // texture, blend mode and alpha test go in one mesh with the Tron/Effect shader, drawn by the main camera
+    // only (DrawPrim effects never reach the glow buffer). Runs after the effect manager (ClientFXTicker) and
+    // the effect models (whose nodes the bolts reach).
     [DefaultExecutionOrder(60)]
     public class DrawPrimRenderer : MonoBehaviour
     {
@@ -61,11 +62,12 @@ namespace Tron
             (BlendMode.DstColor, BlendMode.Zero),
         };
 
-        Texture TextureOf(string file)
+        Texture TextureOf(string file, int frame)
         {
             if (file == "") return Texture2D.whiteTexture;
             if (!textures.TryGetValue(file, out var t)) textures[file] = t = DtxLoader.Load(file);
-            return t != null && t.tex ? (Texture)t.tex : Texture2D.whiteTexture;
+            if (t == null || !t.tex) return Texture2D.whiteTexture;
+            return t.frames != null && frame > 0 && frame < t.frames.Length ? t.frames[frame] : t.tex;
         }
 
         Batch BatchOf(Texture tex, int blend, bool alphaTest)
@@ -103,23 +105,33 @@ namespace Tron
                     if (!(fx is FxDrawPrim dp) || !dp.Visible) continue;
                     quads.Clear();
                     dp.Render(pc, quads);
-                    if (quads.Count == 0) continue;
                     // AlphaTest Greater (the one test a key sets) against the reference D3D starts with, 0.
-                    var b = BatchOf(TextureOf(dp.Texture), dp.BlendMode, dp.AlphaTest == FxDrawPrim.AlphaGreater);
-                    int need = (b.Quads * 4 + quads.Count);
-                    if (b.Verts.Length < need) Array.Resize(ref b.Verts, Mathf.NextPowerOfTwo(need));
-                    int n = b.Quads * 4;
-                    foreach (var q in quads)
+                    bool alphaTest = dp.AlphaTest == FxDrawPrim.AlphaGreater;
+                    Batch b = null;
+                    int frame = -1;
+                    for (int qi = 0; qi < quads.Count / 4; qi++)
                     {
-                        uint c = q.Color;
-                        b.Verts[n++] = new Vert
+                        int f = dp.QuadFrame(qi);
+                        if (f != frame)
                         {
-                            pos = new Vector3(q.Pos.x, q.Pos.y, q.Pos.z),
-                            col = new Color32((byte)c, (byte)(c >> 8), (byte)(c >> 16), (byte)(c >> 24)),
-                            uv = new Vector2(q.U, q.V),
-                        };
+                            frame = f;
+                            b = BatchOf(TextureOf(dp.Texture, f), dp.BlendMode, alphaTest);
+                        }
+                        if (b.Verts.Length < b.Quads * 4 + 4) Array.Resize(ref b.Verts, Mathf.NextPowerOfTwo(b.Quads * 4 + 4));
+                        int n = b.Quads * 4;
+                        for (int i = qi * 4; i < qi * 4 + 4; i++)
+                        {
+                            var q = quads[i];
+                            uint c = q.Color;
+                            b.Verts[n++] = new Vert
+                            {
+                                pos = new Vector3(q.Pos.x, q.Pos.y, q.Pos.z),
+                                col = new Color32((byte)c, (byte)(c >> 8), (byte)(c >> 16), (byte)(c >> 24)),
+                                uv = new Vector2(q.U, q.V),
+                            };
+                        }
+                        b.Quads++;
                     }
-                    b.Quads += quads.Count / 4;
                 }
             var matrix = transform.localToWorldMatrix;
             foreach (var b in batches.Values)

@@ -459,6 +459,11 @@ namespace Tron
         public double Time { get; private set; }
         // The camera's rotation in the level, for effects that face it.
         public LTQuat CameraRot = new LTQuat(0, 0, 0, 1);
+        // Where the camera is this update (LT units), and how far the effects moved it this update
+        // (camera jitter: the game sets the camera object's position, which the player camera puts back
+        // each frame); the view is drawn from Camera + CameraOffset.
+        public LTVec Camera { get; private set; }
+        public LTVec CameraOffset;
         // IntersectSegment against the world, for effects that bounce or splat: the first hit from
         // `from` to `to` (LT units), its point and its surface normal. None set: nothing is hit.
         public SegmentHit Intersect;
@@ -517,6 +522,8 @@ namespace Tron
         public void Update(float dt, LTVec camera)
         {
             Time += dt;
+            Camera = camera;
+            CameraOffset = default;
             for (int i = 0; i < instances.Count; i++)
             {
                 instances[i].Update(dt, camera);

@@ -13,8 +13,10 @@ namespace Tron
     // per placed object. Types with a look: ParticleSystem (ParticleRenderer), LTBModel and LTBBouncyChunk
     // (ModelFXRenderer, keys whose model loads; a chunk without one still moves what is linked to it),
     // CreateFX (it starts its group: ClientFXMgr), PlaySound (FxSoundPlayer; files load with the level, so missing ones are reported
-    // with it), Sprite (SpriteDrawer, with the ScaleSprites; lit by the light grid where it is when it
-    // takes light), LightningFX and PolyTrail (DrawPrimRenderer). Templates that aim at a TargetObject (m05-01's
+    // with it), Sprite (SpriteDrawer, with the ScaleSprites; lit by the light grid and the dynamic lights where
+    // it is when it takes light), LightningFX, PolyTrail and SpriteSystem (DrawPrimRenderer), CamJitter
+    // (CameraJitter), DynaLight (DynamicLights: models and lit sprites) and Null (nothing to see; keys can be
+    // linked to it). Templates that aim at a TargetObject (m05-01's
     // seekerlightning, at the spawned seeker) count as "FX TargetObject (needs character)", once per object.
     // Effects bounce and splat on
     // the world's colliders (IntersectSegment hits the world only, so characters' and the player's
@@ -53,12 +55,25 @@ namespace Tron
             Func<LTVec, LTVec> lightAt = light == null ? null : p =>
             {
                 var l = light.SampleGrid(new Vector3(p.x, p.y, p.z));
-                return new LTVec(l.x, l.y, l.z);
+                var at = new LTVec(l.x, l.y, l.z);
+                foreach (var d in light.Dynamic)
+                    at = at + FxDynaLight.SpriteAdd(new LTVec(d.Pos.x, d.Pos.y, d.Pos.z), d.Radius,
+                        new LTVec(d.Color.x, d.Color.y, d.Color.z), p);
+                return at;
             };
             effects.Types["Sprite"] = k => new FxSprite(effects, lightAt);
             Sprites().Effects = effects;
             effects.Types["LightningFX"] = k => new FxLightning(effects);
             effects.Types["PolyTrail"] = k => new FxPolyTrail();
+            effects.Types["SpriteSystem"] = k => new FxSpriteSystem(effects, SpriteFileOf);
+            effects.Types["CamJitter"] = k => new FxCamJitter(effects);
+            effects.Types["DynaLight"] = k => new FxDynaLight(effects);
+            effects.Types["Null"] = k => new FxNull(effects);
+            Root.AddComponent<CameraJitter>().Effects = effects;
+            var dynamic = Root.AddComponent<DynamicLights>();
+            dynamic.Effects = effects;
+            dynamic.Lighting = lighting;
+            dynamic.Models.AddRange(litModels);
             var prims = Root.AddComponent<DrawPrimRenderer>();
             prims.Effects = effects;
             prims.Shader = EffectShader;
@@ -132,6 +147,21 @@ namespace Tron
             }
             var d = k.dims != null && k.dims.Length >= 3 ? new Vector3(k.dims[0], k.dims[1], k.dims[2]) : Vector3.zero;
             return new FxModelLook { Model = model, Mesh = mesh, Materials = mats, Clip = clip, Moves = moves, Dims = d, VisRadius = k.visRadius };
+        }
+
+        // A sprite system's .spr: its frames, length (each frame 1000 / rate ms) and first frame's size.
+        static FxSpriteSystem.SpriteFile SpriteFileOf(string file)
+        {
+            var t = file == "" ? null : DtxLoader.Load(file);
+            if (t == null || !t.tex) return new FxSpriteSystem.SpriteFile { Frames = 1, Width = 1, Height = 1 };
+            int frames = t.frames != null ? t.frames.Length : 1, rate = (int)t.frameRate;
+            return new FxSpriteSystem.SpriteFile
+            {
+                Frames = frames,
+                LengthMs = rate > 0 ? frames * (1000 / rate) : 0,
+                Width = t.tex.width,
+                Height = t.tex.height,
+            };
         }
 
         bool IntersectWorld(LTVec from, LTVec to, out LTVec point, out LTVec normal)

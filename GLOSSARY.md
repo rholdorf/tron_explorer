@@ -236,6 +236,18 @@ _Avoid_: arc, beam (m10-02's beams are world geometry)
 A `PolyTrail` key's ribbon: points dropped where its effect goes every interval, the newest following it, each fading by the key's colour keys over its own life and dropped when old; camera-facing, its texture running along it by distance. When its group shuts down it stops growing and fades out point by point.
 _Avoid_: poly tube (ltjs's class name), streak
 
+**Sprite system**:
+A `SpriteSystem` key's sprites: bursts of camera-facing quads made about where its effect is and left there, each stretched by its key, coloured and sized by its keys over its own life, drifting by their velocity and gravity. Only the datawraith's return in m09-03cin has one: tall streaks that rise white and turn purple.
+_Avoid_: particle system (a different type), effect sprite (one sprite that moves with its effect)
+
+**Camera jitter**:
+A `CamJitter` key's shake: every update it moves the camera a random amount up to its scale on each axis, full within its inner radius of the effect and fading to nothing at its outer radius. The player camera puts the camera back each frame, so it only shakes the view (m10-04's stumble, Ma3a's bouncing sphere, the lasers in m10-03cin).
+_Avoid_: screen shake, camera shake (the game's own word for its other shakes)
+
+**Dynamic light**:
+A `DynaLight` key's light: a point light where its effect is, coloured by its keys (flickering, with Flicker), its radius its scale. In Tron it lights models and lit sprites but never the world (the game leaves dynamic world lighting off). A model gets it like the other lights in its four-light list, so where the level already lights a model fully (Alan by the digitizer in the intro) it adds nothing to see.
+_Avoid_: light group (placed lights switched together), DynaLight object
+
 **ScaleSprite**:
 A placed object that is one sprite (`.spr`, its frames looping at the file's rate): sized by its texture times its scale, facing the camera or lying in its own axes (rotatable), lit by the level, switched by ON/OFF and HIDDEN/VISIBLE alike. m07's status lights are ScaleSprites in threes (on, off, no power) of which only one starts on. With `CreateSprite` it also has a lens flare: a second sprite that grows as the camera looks straight at it (Ma3a's).
 _Avoid_: sprite (an effect's Sprite is a different thing), billboard (only some face the camera), decal

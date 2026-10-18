@@ -14,7 +14,8 @@
 // Diffuse is the D3D fixed-function lighting result for lit passes and white for unlit ones, per vertex:
 // emissive + material ambient * ambient light + sum of material diffuse * light * max(0, N.L), saturated.
 // The ambient light and up to 4 directional lights are per instance (ModelLighting.cs, set through a
-// MaterialPropertyBlock): the light grid sample, the static object lights and the sun. An effect model's
+// MaterialPropertyBlock): the light grid sample, the static object lights and the sun; a dynamic light is a
+// D3D point light, attenuated per vertex. An effect model's
 // colour scales them (AddAmbientAndScale) and its alpha the material alpha (RenderPieceList(fAlpha)), as
 // _LTTransparency = 1 - alpha.
 // The glow buffer draws the style's [GlowRSMap] replacement pass (black when unmapped); two alpha-blended
@@ -95,7 +96,8 @@ Shader "Tron/Model"
             float _LTGlowPass;
 
             // Per instance (MaterialPropertyBlock, LevelBuilder.BuildModels), 0-1: the D3D ambient light and
-            // directional lights (xyz = direction the light travels, world space; unused lights are black).
+            // directional lights (xyz = direction the light travels, world space; unused lights are black), or
+            // point lights (w = 1: xyz = where it is in the world, the color's w its range).
             float4 _LTAmbient;
             float4 _LTLightDir[4];
             float4 _LTLightColor[4];
@@ -134,7 +136,21 @@ Shader "Tron/Model"
                 // D3D lighting (D3DRS_LIGHTING, material colors, no vertex color), Gouraud like the device.
                 float3 light = 0;
                 [unroll] for (int k = 0; k < 4; k++)
-                    light += _LTLightColor[k].rgb * max(0, dot(wn, -_LTLightDir[k].xyz));
+                {
+                    float4 ld = _LTLightDir[k];
+                    float3 l = -ld.xyz;
+                    float att = 1;
+                    if (ld.w > 0)
+                    {
+                        // A D3D point light (a dynamic light): attenuation 1 / (1 + 19 (d / range)^2), none
+                        // beyond its range.
+                        float3 v = ld.xyz - wpos;
+                        float d = length(v), q = d / _LTLightColor[k].w;
+                        l = v / max(d, 1e-6);
+                        att = d < _LTLightColor[k].w ? 1 / (1 + 19 * q * q) : 0;
+                    }
+                    light += _LTLightColor[k].rgb * att * max(0, dot(wn, l));
+                }
                 o.lit = float4(saturate(_MatEmissive.rgb + _MatAmbient.rgb * _LTAmbient.rgb + _MatDiffuse.rgb * light),
                                _MatDiffuse.a * (1 - _LTTransparency));
                 return o;
