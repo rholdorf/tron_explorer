@@ -12,7 +12,7 @@ namespace Tron
     public partial class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 21;
+        public const int FormatVersion = 22;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -99,10 +99,12 @@ namespace Tron
             BuildModels(exportRoot);
             BuildSoundFX();
             BuildSoundButeFX();
+            BuildSpecialFX();   // LevelBuilder.SpecialFX.cs
             BuildKeyframers();
             JoinObjectMessages();
             BuildSpinners();
             BuildRelays();
+            StartSpecialFX();
         }
 
         // Every level object joins the command manager by name and class, in level order, so an object's

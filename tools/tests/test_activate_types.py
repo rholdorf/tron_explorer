@@ -44,6 +44,6 @@ def test_level_json_carries_its_activate_types(extracted, tmp_path):
     export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
                         export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
     meta = json.loads((tmp_path / "level.json").read_text())
-    assert meta["version"] == export_level.FORMAT_VERSION == 21
+    assert meta["version"] == export_level.FORMAT_VERSION == 22
     assert meta["activateTypes"] == [{"name": "Disable Secrezzer", "on": "Deactivate Sec Rezzer", "off": ""},
                                      {"name": "Door Open-Close", "on": "Close Door", "off": "Open Door"}]

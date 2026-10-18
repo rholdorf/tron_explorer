@@ -24,6 +24,8 @@ namespace Tron
         public KeyframerJson[] keyframers;   // keyframers, active at start or not (tools/keyframer.py)
         public ActivateTypeJson[] activateTypes; // the use prompts its objects name (tools/activate.py)
         public SpawnJson[] spawns;           // the names spawners give what they create (tools/commands.py spawn_names)
+        public FxGroupJson[] fxGroups;       // the effect groups its SpecialFX reach (tools/clientfx.py export_group)
+        public string[] fxMissing;           // names that find no group
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public ButeSoundJson[] buteSounds;   // the soundbutes the state models' clips play (BUTE_SOUND_KEY)
@@ -176,6 +178,46 @@ namespace Tron
 
     // A name a `spawn` / `spawnfrom` gives the object a Spawner creates, and the class of its template.
     [Serializable] public class SpawnJson { public string name, cls; }
+
+    // An effect group: phase (s) and its keys at detail High, a linked key after the key it follows.
+    [Serializable] public class FxGroupJson
+    {
+        public string name;
+        public float phase;
+        public FxKeyJson[] fx;
+
+        public FxGroup Group() => new FxGroup { Name = name, Phase = phase, Keys = Array.ConvertAll(fx ?? new FxKeyJson[0], k => k.Key()) };
+    }
+    // An fx key (tools/clientfx.py export_key): ck t, r, g, b, a per key (a a transparency), sk t, scale per
+    // key; props the type's own (combos as their index, paths normalized).
+    [Serializable] public class FxKeyJson
+    {
+        public string type, label, attach;
+        public int id, link, updatePos;
+        public float start, end, maxStartOffset, startOffsetInterval;
+        public bool continual, disableAtDist, randomizeStartOffset, smoothShutDown;
+        public float[] offset, rotateAdd, ck, sk;
+        public PropJson[] props;
+
+        public FxKey Key()
+        {
+            var k = new FxKey
+            {
+                Type = type ?? "", Label = label ?? "", Attach = attach ?? "", Id = id, Link = link, UpdatePos = updatePos,
+                Start = start, End = end, Continual = continual, MaxStartOffset = maxStartOffset,
+                StartOffsetInterval = startOffsetInterval, RandomizeStartOffset = randomizeStartOffset,
+                DisableAtDist = disableAtDist, SmoothShutDown = smoothShutDown,
+                Offset = new LTVec(offset[0], offset[1], offset[2]), RotateAdd = new LTVec(rotateAdd[0], rotateAdd[1], rotateAdd[2]),
+                Ck = ck ?? new float[0], Sk = sk ?? new float[0],
+            };
+            foreach (var p in props ?? new PropJson[0])
+            {
+                if (p.t == "s") k.Strs[p.k] = p.s;
+                else k.Nums[p.k] = p.v;
+            }
+            return k;
+        }
+    }
 
     [Serializable] public class PropJson { public string k, t, s; public float[] v; }
 

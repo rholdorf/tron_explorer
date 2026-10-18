@@ -204,6 +204,18 @@ _Avoid_: effect (ambiguous with the group), keyframe (that is a keyframer's)
 The level object that plays one effect group at its own position, switched by `ON`/`OFF`. With `Loop` it keeps one instance and shuts it down on OFF; without, each ON fires a new one-shot that plays to its end. HIDDEN/VISIBLE don't touch it.
 _Avoid_: ClientFX (that is the effect system, also fired by weapons and characters)
 
+**Group instance**:
+One running copy of an effect group, with one effect per fx key created up front. A looping instance follows its SpecialFX and restarts its keys every phase. A one-shot instance stays where it started, plays each key once and ends with its last effect.
+_Avoid_: effect (that is one key's part of it), emitter
+
+**Effect type**:
+What an fx key is (`ParticleSystem`, `Sprite`, `LTBModel`…), and the viewer's plug-in that draws it. A key whose type has no plug-in yet is still timed but shows nothing; the L report counts these keys as `FX <type> (NO LOOK)`.
+_Avoid_: fx class, effect kind
+
+**Smooth shutdown**:
+How an effect ends when its key ends or its instance shuts down: smooth lets it finish (particles drain), otherwise it is cut at once. Both the key's `SmoothShutDown` and the SpecialFX's `SmoothShutdown` must allow it.
+_Avoid_: fade out (a smooth shutdown doesn't fade by itself)
+
 ### Style baseline
 
 **Style baseline**:

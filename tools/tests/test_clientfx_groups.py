@@ -81,15 +81,15 @@ def test_an_exported_key_clamps_to_the_phase_and_parses_its_props(library):
     sound = next(k for k in g["fx"] if k["type"] == "PlaySound")
     assert sound["end"] == 0.75                               # 3.0 s in the file
     chunk = next(k for k in g["fx"] if k["type"] == "LTBBouncyChunk")
-    assert chunk["props"]["Model"].startswith("fx/models/debris/m0501/")
-    assert chunk["props"]["Skin"] == ""                       # dtx|... is unset
-    assert chunk["ck"][0][0] == 0.0 and chunk["sk"][-1][0] == 1.0
+    assert clientfx.prop(chunk, "Model").startswith("fx/models/debris/m0501/")
+    assert clientfx.prop(chunk, "Skin") == ""                       # dtx|... is unset
+    assert chunk["ck"][0] == 0.0 and chunk["sk"][-2] == 1.0
 
 
 def test_ck_alpha_stays_a_transparency(library):
     """PDA_brackets' model is opaque with A = 0 on both keys: drawn alpha = 1 - a."""
     model = next(k for k in clientfx.export_group(library.find("PDA_brackets"))["fx"] if k["type"] == "LTBModel")
-    assert [c[4] for c in model["ck"]] == [0.0, 0.0]
+    assert model["ck"][4::5] == [0.0, 0.0]
 
 
 def test_a_linked_key_comes_after_the_key_it_follows(library, specialfx):
@@ -121,7 +121,7 @@ def test_level_json_carries_its_effect_groups(extracted, tmp_path):
     export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
                         export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
     meta = json.loads((tmp_path / "level.json").read_text())
-    assert meta["version"] == export_level.FORMAT_VERSION == 21
+    assert meta["version"] == export_level.FORMAT_VERSION == 22
     names = {g["name"].lower() for g in meta["fxGroups"]}
     fx_names = {p["s"].lower() for o in meta["objects"] if o["cls"] == "SpecialFX" for p in o["props"]
                 if p["k"] == "FxName" and p["s"] != "<none>"}

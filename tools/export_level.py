@@ -42,7 +42,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 21
+FORMAT_VERSION = 22
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}

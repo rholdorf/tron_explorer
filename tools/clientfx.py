@@ -209,9 +209,27 @@ def plays(key):
     return PLAYS_AT_HIGH.get(combo(props["detaillevel"]), True) if "detaillevel" in props else True
 
 
+def encode_prop(k, v):
+    """A type prop as the viewer reads object props (export_level.encode_prop): s string or path, n number
+    or combo index, v vector."""
+    if isinstance(v, str):
+        return {"k": k, "t": "s", "s": v, "v": []}
+    if isinstance(v, (list, tuple)):
+        return {"k": k, "t": "v", "s": "", "v": [float(x) for x in v]}
+    return {"k": k, "t": "n", "s": "", "v": [float(v)]}
+
+
+def prop(key, name, default=None):
+    """An exported key's type prop by name: its string, its number, or its vector."""
+    p = next((q for q in key["props"] if q["k"] == name), None)
+    if p is None:
+        return default
+    return p["s"] if p["t"] == "s" else p["v"][0] if p["t"] == "n" else p["v"]
+
+
 def export_key(key, phase):
-    """One fx key in the viewer's form. Ck: [t, r, g, b, a] in 0..1, a as stored (a transparency: drawn
-    alpha = 1 - a); Sk: [t, scale]."""
+    """One fx key in the viewer's form. Ck: t, r, g, b, a per key, flat, in 0..1, a as stored (a
+    transparency: drawn alpha = 1 - a); Sk: t, scale per key, flat (JsonUtility reads no nested arrays)."""
     start = min(max(key["start"], 0.0), phase)
     end = min(max(key["end"], 0.0), phase)
     base, props, ck, sk = {}, {}, [], []
@@ -239,8 +257,9 @@ def export_key(key, phase):
         "randomizeStartOffset": combo(base.get("randomizestartoffset", "0")) == 1,
         "startOffsetInterval": base.get("startoffsetinterval", 0.0),
         "smoothShutDown": combo(base.get("smoothshutdown", "1")) == 1,
-        "ck": sorted(ck, key=lambda c: c[0]), "sk": sorted(sk, key=lambda s: s[0]),
-        "props": props,
+        "ck": [x for c in sorted(ck, key=lambda c: c[0]) for x in c],
+        "sk": [x for k in sorted(sk, key=lambda k: k[0]) for x in k],
+        "props": [encode_prop(k, v) for k, v in props.items()],
     }
 
 
@@ -266,12 +285,12 @@ def assets(groups):
     models, sounds = {}, []
     for g in groups:
         for k in g["fx"]:
-            p = k["props"]
-            if k["type"] in ("LTBModel", "LTBBouncyChunk") and p.get("Model"):
-                anims = models.setdefault(p["Model"], set())
-                if p.get("AniName"):
-                    anims.add(p["AniName"])
-            for s in (p.get("Sound"), p.get("ChunkSound")):
+            model = prop(k, "Model")
+            if k["type"] in ("LTBModel", "LTBBouncyChunk") and model:
+                anims = models.setdefault(model, set())
+                if prop(k, "AniName"):
+                    anims.add(prop(k, "AniName"))
+            for s in (prop(k, "Sound"), prop(k, "ChunkSound")):
                 if s and s not in sounds:
                     sounds.append(s)
     return models, sounds
