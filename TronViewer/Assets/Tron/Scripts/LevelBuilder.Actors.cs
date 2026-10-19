@@ -20,6 +20,11 @@ namespace Tron
         public readonly Dictionary<string, GameObject> Attachments = new Dictionary<string, GameObject>(StringComparer.OrdinalIgnoreCase);
         public readonly List<DynamicLights.Model> Lit = new List<DynamicLights.Model>();
 
+        // Its head tracking (TrackedNodes.cs): the LookAt group, and per node in model order its bone and its bind
+        // pose relative to its parent. Null without one.
+        public LookAtGroup LookAt;
+        public readonly List<(TrackedNode node, int bone, LTFrame fromParent)> Tracked = new List<(TrackedNode, int, LTFrame)>();
+
         public void Begin(GameObject root, ModelInstanceJson inst, (LoadedModel model, Transform[] bones) built, float sunAmount)
         {
             Root = root;
@@ -28,6 +33,54 @@ namespace Tron
             Idle = inst.anim ?? "";
             Dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
             SunAmount = sunAmount;
+            if (Model != null && Bones != null && inst.lookAt != null && inst.lookAt.Length > 0) BuildLookAt(inst.lookAt);
+        }
+
+        // CTrackedNodeContext::_Init for kTrack_LookAt: each node the model has, constrained as given; a node
+        // is the child of the next (LinkNodes); a clone copies its node's orientation. Nodes the model lacks
+        // are left out (CreateTrackingNode fails).
+        void BuildLookAt(LookAtNodeJson[] nodes)
+        {
+            var group = new LookAtGroup();
+            TrackedNode previous = null;
+            const float Deg = Mathf.Deg2Rad;
+            foreach (var n in nodes)
+            {
+                int bone = NodeIndex(n.name);
+                TrackedNode t = null;
+                if (bone >= 0)
+                {
+                    LTVec? V(float[] v) => v != null && v.Length >= 3 ? new LTVec(v[0], v[1], v[2]) : (LTVec?)null;
+                    float A(float[] v, int i) => v != null && v.Length > i ? v[i] * Deg : 0;
+                    t = new TrackedNode(n.name, V(n.axis), V(n.up), A(n.discomfort, 0), A(n.discomfort, 1), A(n.max, 0), A(n.max, 1),
+                                        n.maxVel * Deg);
+                    if (previous != null) t.Child = previous;
+                    Add(t, bone);
+                    int clone = NodeIndex(n.clone);
+                    if (clone >= 0) Add(TrackedNode.Clone(n.clone, t), clone);
+                }
+                previous = t;
+            }
+            if (Tracked.Count == 0) return;
+            Tracked.Sort((a, b) => a.bone.CompareTo(b.bone));   // parents first, as the model evaluates them
+            foreach (var t in Tracked) group.Nodes.Add(t.node);
+            LookAt = group;
+
+            void Add(TrackedNode t, int bone)
+            {
+                int parent = Model.data.nodes[bone].parent;
+                var local = parent >= 0 ? Model.BindMatrix(parent).inverse * Model.BindMatrix(bone) : Model.BindMatrix(bone);
+                Tracked.Add((t, bone, LevelBuilder.ToFrame(local)));
+            }
+        }
+
+        int NodeIndex(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return -1;
+            var nodes = Model.data.nodes;
+            for (int i = 0; i < nodes.Length; i++)
+                if (string.Equals(nodes[i].name, name, StringComparison.OrdinalIgnoreCase)) return i;
+            return -1;
         }
 
         public void AddAttachment(string position, GameObject go)
@@ -97,6 +150,12 @@ namespace Tron
             a.ShowAttachments = on => ShowAttachments(body, on);
             a.Attach = (position, name) => Attach(id, body, position, name);
             a.Detach = position => Detach(body, position);
+            if (body.LookAt != null)
+            {
+                a.Track = on => body.LookAt.SetActive(on);
+                if (tracking.Count == 0 && modelAnimator) modelAnimator.Posed += UpdateTracking;
+                tracking.Add(body);
+            }
             FxInstance icon = null;
             var anchor = new ActorAnchor(a);
             a.TalkIcon = on =>
@@ -217,6 +276,48 @@ namespace Tron
             return (ToLT(o.Position), ToLT(o.Rotation), o.Bool("MoveToFloor", true));
         }
 
+        // The characters with a LookAt group, and where the player's head is on the player (its eye).
+        readonly List<CharacterBody> tracking = new List<CharacterBody>();
+        Vector3 playerEye;
+
+        // Each frame once the bones are posed (ModelAnimator.Posed): every tracked node of a character still in the
+        // level turns its bone toward the player's head (TRACKLOOKAT: SetTrackedTarget(player, "Head")), in the
+        // level's space, parents first; a node that is off leaves the animation as it is.
+        void UpdateTracking()
+        {
+            if (!player) return;
+            float dt = Time.deltaTime;
+            var level = Root.transform;
+            var toLevel = level.worldToLocalMatrix;
+            var eye = level.InverseTransformPoint(player.transform.TransformPoint(playerEye));
+            var target = new LTVec(eye.x, eye.y, eye.z);
+            foreach (var body in tracking)
+            {
+                if (!body.Root || !body.Root.activeInHierarchy) continue;
+                foreach (var (node, index, fromParent) in body.Tracked)
+                {
+                    var bone = body.Bones[index];
+                    var frame = ToFrame(toLevel * bone.localToWorldMatrix);
+                    if (!node.Update(ToFrame(toLevel * bone.parent.localToWorldMatrix), fromParent, ref frame, target, dt)) continue;
+                    var f = new Vector3(frame.F.x, frame.F.y, frame.F.z);
+                    var u = new Vector3(frame.U.x, frame.U.y, frame.U.z);
+                    bone.rotation = level.rotation * Quaternion.LookRotation(f, u);
+                }
+            }
+        }
+
+        // A matrix's rotation (its columns, scale taken out) and translation.
+        internal static LTFrame ToFrame(Matrix4x4 m)
+        {
+            LTVec Col(int c)
+            {
+                var v = ((Vector3)m.GetColumn(c)).normalized;
+                return new LTVec(v.x, v.y, v.z);
+            }
+            var t = m.GetColumn(3);
+            return new LTFrame(Col(0), Col(1), Col(2), new LTVec(t.x, t.y, t.z));
+        }
+
         // The body of the character joined as `id`, placed or spawned; null if none.
         public CharacterBody Body(int id) =>
             PlacedCharacters.TryGetValue(id, out var b) ? b : SpawnedCharacters.TryGetValue(id, out var s) ? s : null;
@@ -226,6 +327,7 @@ namespace Tron
         {
             playerId = id;
             player = p;
+            playerEye = p && p.Cam ? p.Cam.transform.localPosition : Vector3.zero;
         }
 
         static LTVec ToLT(Vector3 v) => new LTVec(v.x, v.y, v.z);

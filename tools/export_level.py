@@ -376,7 +376,8 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
     childModels (characters): its ChildModel_N files (animation.child_model_files). anims (characters):
     every animation it can play by name, {name, from} (animation.playable: its idle, the `named_anims`
     the level's commands name and DXBLoop where its model has them, from = ""; then every animation of
-    its childModels, from = the file).
+    its childModels, from = the file). lookAt (characters): the nodes it turns to look at something
+    (Resolver.look_at_nodes).
 
     Every instance carries its lighting inputs (modellight.py): dims (its model's, times its scale),
     the model's visRadius and sunAmount = sun_amount(object, dims) (0 without one), at pos. Attachments
@@ -463,6 +464,7 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
         parent = len(models) - 1
         models[parent]["anim"] = character_anim(styles, extracted, r[0], idle.idle(o, i) if idle else None)
         models[parent].update(character_anims(styles, extracted, o, r[0], [models[parent]["anim"], *named_anims]))
+        models[parent]["lookAt"] = resolver.look_at_nodes(o)
         attach(i, parent, resolver.attachments(o), True, styles.model(r[0]).sockets)
     parents = {name: (m, {s.name.lower() for s in styles.model(models[m]["file"]).sockets})
                for name, m in by_name.items()}

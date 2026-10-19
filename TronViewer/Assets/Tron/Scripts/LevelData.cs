@@ -50,7 +50,10 @@ namespace Tron
     // childModels (characters): its ChildModel_N files. anims (characters): every animation it can play by
     // name, in lookup order, one per name (tools/animation.py playable): the model's clip (from "") or a
     // ChildModel_N file's.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; public string[] childModels; public AnimRefJson[] anims; public int template; public string name; }
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; public string[] childModels; public AnimRefJson[] anims; public int template; public string name; public LookAtNodeJson[] lookAt; }
+    // A node a character turns to look at something (tools/export_models.py Resolver.look_at_nodes): axis and up
+    // empty for the defaults, angles in degrees.
+    [Serializable] public class LookAtNodeJson { public string name, clone; public float[] axis, up, discomfort, max; public float maxVel; }
     [Serializable] public class AnimRefJson { public string name, @from; }
     // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
     [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }

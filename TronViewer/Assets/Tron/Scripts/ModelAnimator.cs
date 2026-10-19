@@ -161,7 +161,14 @@ namespace Tron
         }
 
         // Before rendering: the skinned meshes read the bones.
-        void LateUpdate() => job.Complete();
+        // Then what turns bones over the animation (head tracking) has them posed.
+        public event Action Posed;
+
+        void LateUpdate()
+        {
+            job.Complete();
+            Posed?.Invoke();
+        }
 
         void Dispose()
         {

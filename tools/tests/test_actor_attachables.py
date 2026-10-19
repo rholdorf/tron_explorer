@@ -50,6 +50,19 @@ def test_a_level_that_turns_a_talk_icon_on_ships_ai_talkicon(extracted):
     assert [g["name"] for g in groups] == ["AI_talkicon"] and missing == []
 
 
+def test_a_character_carries_its_skeletons_look_at_nodes(extracted):
+    # modelbutes.txt: Male_Program_orange (m04-02's mp01, which `tracklookat`s the player) has Skeleton 0, whose
+    # LookAtTrackingNodes is [TrackingNodes0]: the right eye (the left one cloning it) and the head.
+    resolver = export_models.Resolver(extracted)
+    obj = {"cls": "CAIHuman", "name": "mp01", "pos": [0, 0, 0], "rot": [0, 0, 0],
+           "props": [{"k": "ModelTemplate", "t": "s", "s": "Male_Program_orange"}]}
+    assert resolver.look_at_nodes(obj) == [
+        {"name": "Face_REye", "clone": "Face_LEye", "axis": [0.0, 0.0, 1.0], "up": [0.0, 1.0, 0.0],
+         "discomfort": [0.0, 0.0], "max": [30.0, 15.0], "maxVel": 180.0},
+        {"name": "Head", "clone": "", "axis": None, "up": None, "discomfort": [25.0, 25.0], "max": [55.0, 45.0],
+         "maxVel": 180.0}]
+
+
 def test_a_name_that_draws_nothing_is_left_out(extracted):
     resolver, styles = export_models.Resolver(extracted), export_models.Styles(extracted)
     assert export_level.attachables(["NoSuchThing"], resolver, styles, extracted, []) == []
