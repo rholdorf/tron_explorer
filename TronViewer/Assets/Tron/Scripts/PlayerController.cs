@@ -22,6 +22,9 @@ namespace Tron
 
         public bool Noclip;
         public bool InputEnabled = true;
+        // While a scene camera is live (SceneCameraView): no horizontal velocity, as the server's
+        // CPlayerObj::UpdateClientViewPos; the player still falls.
+        public bool Held;
         public Camera Cam;
 
         CharacterController cc;
@@ -58,6 +61,7 @@ namespace Tron
 
         public void Teleport(Vector3 worldPos, float yawDeg)
         {
+            freeFlight = false;   // a spawn ends free flight where it puts the player
             cc.enabled = false;
             transform.position = worldPos;
             cc.enabled = true;
@@ -92,8 +96,48 @@ namespace Tron
             if (Physics.Raycast(pos, Vector3.down, out var hit, PlayerMessages.FloorCastDistance * LT.Scale,
                                 ~(1 << LevelBuilder.SkyLayer), QueryTriggerInteraction.Ignore))
                 pos.y = PlayerMessages.DropToFloor(pos.y / LT.Scale, hit.point.y / LT.Scale, HalfHeight) * LT.Scale;
+            float p = Mathf.Clamp(teleportPitch, -89f, 89f);
+            if (freeFlight)
+            {
+                kept = (pos, teleportYaw, p, false);
+                return;
+            }
             Teleport(pos, teleportYaw);
-            pitch = Mathf.Clamp(teleportPitch, -89f, 89f);
+            pitch = p;
+        }
+
+        // Free flight (SceneCameraView, the explorer's key during a scene): the body flies in noclip from the
+        // given place and view while the scene runs; the player's own place, view and noclip are kept and come
+        // back when it ends. A teleport meanwhile (a scene's end) moves the kept place instead.
+        bool freeFlight;
+        (Vector3 pos, float yaw, float pitch, bool noclip) kept;
+        public bool FreeFlight => freeFlight;
+
+        public void BeginFreeFlight(Vector3 bodyPos, float yawDeg, float pitchDeg)
+        {
+            if (freeFlight) return;
+            kept = (transform.position, yaw, pitch, Noclip);
+            freeFlight = true;
+            Noclip = true;
+            cc.enabled = false;
+            transform.position = bodyPos;
+            yaw = yawDeg;
+            pitch = Mathf.Clamp(pitchDeg, -89f, 89f);
+            velocity = Vector3.zero;
+            standingOn = null;
+        }
+
+        public void EndFreeFlight()
+        {
+            if (!freeFlight) return;
+            freeFlight = false;
+            cc.enabled = false;
+            transform.position = kept.pos;
+            yaw = kept.yaw;
+            pitch = kept.pitch;
+            Noclip = kept.noclip;
+            velocity = Vector3.zero;
+            standingOn = null;
         }
 
         void Update()
@@ -109,7 +153,7 @@ namespace Tron
                 var md = mouse.delta.ReadValue() * mouseSensitivity;
                 yaw += md.x;
                 pitch = Mathf.Clamp(pitch - md.y, -89f, 89f);
-                if (kb.nKey.wasPressedThisFrame) Noclip = !Noclip;
+                if (kb.nKey.wasPressedThisFrame && !freeFlight) Noclip = !Noclip;
             }
             transform.rotation = Quaternion.Euler(0, yaw, 0);
             if (Cam) Cam.transform.localRotation = Quaternion.Euler(pitch, 0, 0);
@@ -163,8 +207,8 @@ namespace Tron
             var wish = (transform.forward * move.y + transform.right * move.x) * speed;
             var horiz = new Vector3(velocity.x, 0, velocity.z);
             horiz = Vector3.MoveTowards(horiz, wish, (grounded ? groundAccel : airAccel) * dt);
-            velocity.x = horiz.x;
-            velocity.z = horiz.z;
+            velocity.x = Held ? 0 : horiz.x;
+            velocity.z = Held ? 0 : horiz.z;
 
             if (grounded)
             {
