@@ -14,12 +14,14 @@ namespace Tron
                             // (shared; ModelLibrary.WithRepeatedPieces makes variants for multi-draw styles)
         public float[] animData;   // the clips' float block (data.anims index into it)
 
-        // Index of the clip named `name` in data.anims, or -1.
-        public int FindAnim(string name)
+        // Index of the clip named `name` in data.anims, or -1: the model's own (or its .ltb children's), or,
+        // given `from`, the one from that ChildModel_N file.
+        public int FindAnim(string name, string from = "")
         {
             if (data.anims == null || string.IsNullOrEmpty(name)) return -1;
             for (int i = 0; i < data.anims.Length; i++)
-                if (string.Equals(data.anims[i].name, name, StringComparison.OrdinalIgnoreCase)) return i;
+                if (string.Equals(data.anims[i].name, name, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(data.anims[i].@from ?? "", from ?? "", StringComparison.OrdinalIgnoreCase)) return i;
             return -1;
         }
 
@@ -38,7 +40,7 @@ namespace Tron
     // Reads exported models (export/models/<file>.json + .bin, see tools/export_models.py).
     public static class ModelLibrary
     {
-        public const int FormatVersion = 4;
+        public const int FormatVersion = 5;
         const int HeaderSize = 24, VertexSize = 44, BoneWeightSize = 8;
 
         // Loaded once per level; the meshes go to `owned` so the level frees them.

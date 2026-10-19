@@ -24,7 +24,7 @@ from butes import norm
 import ltb
 import renderstyle
 
-FORMAT_VERSION = 4
+FORMAT_VERSION = 5
 
 OUT_VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("rgba", "u1", 4), ("uv", "<f4", 2),
                        ("uv2", "<f4", 2)])
@@ -387,7 +387,9 @@ def clip_block(clips):
     (3 floats each) and rotation keys (4 floats, quaternion x y z w). channels: per node posOffset,
     posCount, rotOffset, rotCount (offsets in floats; a count is 1 for a constant channel or keys).
     scales: node, offset, count per scaled node (a vertex-animated piece's uniform scale, 1 float per key).
-    cmds: the model string keys, {t (s), s}."""
+    cmds: the model string keys, {t (s), s}. interp: the blend (s) from the previous pose into the clip's
+    first frame when it starts (trk_ScanToKeyFrame), 0 a cut. from (export_model): "" for a clip of the
+    model or its .ltb children, else the ChildModel_N file it comes from."""
     floats, meta, n = [], [], 0
 
     def put(a):
@@ -398,7 +400,7 @@ def clip_block(clips):
         return n - len(a)
 
     for c in clips:
-        entry = {"name": c.name, "length": c.length / 1000.0, "keys": len(c.times),
+        entry = {"name": c.name, "length": c.length / 1000.0, "interp": c.interp_ms / 1000.0, "keys": len(c.times),
                  "times": put(c.times / 1000.0), "channels": []}
         for p, q in zip(c.pos, c.rot):
             entry["channels"] += [put(p), len(p), put(q), len(q)]
@@ -411,12 +413,20 @@ def clip_block(clips):
 
 
 def export_model(extracted, rel, out_root, anims=(), load=None):
-    """Writes the model and the clips of `anims` (animation names in the model or its child models).
-    load(rel): a model loader (default ltb.load), for child models."""
+    """Writes the model and the clips of `anims`: animation names in the model or its child models, or
+    (name, file) for a ChildModel_N file's animation. load(rel): a model loader (default ltb.load), for
+    child models."""
     m = ltb.load(os.path.join(extracted, rel))
+    load = load or (lambda r: ltb.load(os.path.join(extracted, r)))
     children = animation.load_children(extracted, rel, m, load) if anims else []
-    clips = [animation.clip(m, children, a) for a in anims]
+    clips, sources = [], []
+    for a in anims:
+        name, source = (a, "") if isinstance(a, str) else a
+        clips.append(animation.clip(m, children, name, load(source) if source else None))
+        sources.append(source)
     anim_floats, anim_meta = clip_block(clips)
+    for entry, source in zip(anim_meta, sources):
+        entry["from"] = source
     # A vertex-animated piece the clips scale follows its own node (at the origin, unrotated, like
     # binarybit's d_Pyramid / d_NewSpike), so the node's scale scales it about the model origin.
     scaled = {m.nodes[n].name: n for c in clips for n in c.scales}

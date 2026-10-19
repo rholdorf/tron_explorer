@@ -21,6 +21,7 @@ All positions are raw LithTech units/space (left-handed, Y up — same handednes
 """
 import json
 import os
+import re
 import struct
 import sys
 
@@ -361,7 +362,8 @@ def bute_sounds(names, soundbutes):
              "outer": float(soundbutes.get(n, "outerradius", 0.0))} for n in names if soundbutes.is_soundbute(n)]
 
 
-def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor_caster=None, idle=None):
+def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor_caster=None, idle=None,
+                    named_anims=()):
     """Objects that show an .ltb the exporter can find (see export_models.Resolver), and the render
     styles their pieces use. Characters are skinned (bones = the model's nodes) and are followed by
     their attachments: parent = the character's entry, socket = the parent model socket they sit at.
@@ -369,6 +371,10 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
     pos: where the instance spawns, after MoveToFloor (floor.py) against floor_caster with its model's
     dims (animation 0's, times its scale). anim (characters): the animation it loops, the idle that
     idle (animation.IdleSelector) picks, else animation 0, the one a model spawns in.
+    childModels (characters): its ChildModel_N files (animation.child_model_files). anims (characters):
+    every animation it can play by name, {name, from} (animation.playable: its idle, the `named_anims`
+    the level's commands name and DXBLoop where its model has them, from = ""; then every animation of
+    its childModels, from = the file).
 
     Every instance carries its lighting inputs (modellight.py): dims (its model's, times its scale),
     the model's visRadius and sunAmount = sun_amount(object, dims) (0 without one), at pos. Attachments
@@ -446,6 +452,7 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
             continue
         parent = len(models) - 1
         models[parent]["anim"] = character_anim(styles, extracted, r[0], idle.idle(o, i) if idle else None)
+        models[parent].update(character_anims(styles, extracted, o, r[0], [models[parent]["anim"], *named_anims]))
         attach(i, parent, resolver.attachments(o), True, styles.model(r[0]).sockets)
     parents = {name: (m, {s.name.lower() for s in styles.model(models[m]["file"]).sockets})
                for name, m in by_name.items()}
@@ -472,6 +479,33 @@ def character_anim(styles, extracted, rel, name):
             return a.name
         MISSING_ANIMS[(rel, name)] = MISSING_ANIMS.get((rel, name), 0) + 1
     return m.anims[0].name if m.anims else ""
+
+
+ANIM_PARAM = re.compile(r"(?i)\banim\s*=\s*([^\s();\"]+)")
+
+
+def scripted_anims(w):
+    """The animations the level's goal scripts name (goalscript animate anim=X, CAIGoalAnimate's ANIM),
+    in its command strings (commands.level_commands), sorted, one per name (any case)."""
+    names = {}
+    for _cls, _prop, text in commands.level_commands(w):
+        for m in ANIM_PARAM.finditer(text):
+            names.setdefault(m.group(1).lower(), m.group(1))
+    return [names[k] for k in sorted(names)]
+
+
+def character_anims(styles, extracted, obj, rel, names):
+    """A character's childModels and anims (see model_instances); names: the model-side names to look up."""
+    m = styles.model(rel)
+    children = animation.load_children(extracted, rel, m, styles.model)
+    files = []
+    for f in animation.child_model_files(extracted, obj):
+        try:
+            files.append((f, styles.model(f)))
+        except Exception as e:  # noqa: BLE001 - the engine can't add it either
+            print(f"child model {f}: {e}")
+    plays = animation.playable(m, children, files, [n for n in [*names, "DXBLoop"] if n])
+    return {"childModels": [f for f, _ in files], "anims": [{"name": n, "from": f} for n, f in plays]}
 
 
 def fx_models(groups, styles, extracted, render_styles):
@@ -569,7 +603,8 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
     # Characters and props that ask for it stand on the floor (floor.py); characters loop their idle.
     models, render_styles = model_instances(objects, resolver, styles, extracted, sun_amount,
                                             floor.FloorCaster.from_world(w),
-                                            idle or animation.IdleSelector(extracted, resolver))
+                                            idle or animation.IdleSelector(extracted, resolver),
+                                            scripted_anims(w))
 
     soundbutes = sounds.soundbutes(extracted)
     fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted))
@@ -613,6 +648,11 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
     return meta
 
 
+def clip_order(a):
+    """Model clips (a name) before ChildModel_N clips ((name, file)), each by name."""
+    return ("", a) if isinstance(a, str) else (a[1], a[0])
+
+
 def main():
     import glob
     root, out_root = sys.argv[1], sys.argv[2]   # extracted dir, export dir
@@ -652,9 +692,11 @@ def main():
             if m["anim"]:
                 anims.add(m["anim"])
             anims.update(m.get("clips", []))
+            # A character's playable animations: names in its model ("") or (name, ChildModel_N file).
+            anims.update(a["name"] if not a["from"] else (a["name"], a["from"]) for a in m.get("anims", []))
     for rel, anims in sorted(model_files.items()):
         try:
-            export_models.export_model(root, rel, out_root, sorted(anims), styles.model)
+            export_models.export_model(root, rel, out_root, sorted(anims, key=clip_order), styles.model)
         except Exception as e:  # noqa: BLE001 - report and keep exporting the rest
             print(f"model {rel}: {e}")
     print(f"{len(model_files)} models, {sum(len(a) for a in model_files.values())} animation clips")

@@ -48,6 +48,9 @@ namespace Tron
         public readonly Dictionary<string, GameObject> WorldModelObjects = new Dictionary<string, GameObject>();
         // Object index -> the model instances drawn for it that aren't attachments (a bin and its frame).
         readonly Dictionary<int, List<GameObject>> modelObjects = new Dictionary<int, List<GameObject>>();
+        // Object index -> a character's animations: Play(name, loop) plays any of them by name (its model's,
+        // its .ltb children's, its ChildModel_N files'), blending in over the clip's interp time.
+        public readonly Dictionary<int, CharacterAnimation> Characters = new Dictionary<int, CharacterAnimation>();
         // World model name -> the level object that owns it (the one BuildWorldModels placed it by).
         readonly Dictionary<string, ObjectJson> worldModelOwners = new Dictionary<string, ObjectJson>(StringComparer.OrdinalIgnoreCase);
         public readonly List<string> MissingTextures = new List<string>();
@@ -223,7 +226,7 @@ namespace Tron
 
         // Model instances (see tools/export_models.py), at their spawn position (after MoveToFloor). Props:
         // a MeshRenderer at the bind pose. Characters: a SkinnedMeshRenderer over one Transform per model
-        // node, looping their clip (ModelAnimator). Attachments hang from their parent's socket node (a
+        // node, looping their idle; Characters plays any of their animations by name (ModelAnimator). Attachments hang from their parent's socket node (a
         // prop's nodes stay at the bind pose); a character's are posed at their own animation 0, frame 0
         // (attachment models keep their geometry where it sits on the body and move it to the socket with
         // that pose), and follow it as the character moves.
@@ -271,8 +274,13 @@ namespace Tron
                 {
                     var bones = BuildBones(go.transform, model, inst.parent >= 0);
                     built[n] = (model, bones);
-                    if (inst.parent < 0 && !string.IsNullOrEmpty(inst.anim) && !animator.Play(model, inst.anim, bones))
-                        Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
+                    if (inst.parent < 0 && obj.cls == "CAIHuman")
+                    {
+                        var anims = inst.anims != null && inst.anims.Length > 0 ? inst.anims : new[] { new AnimRefJson { name = inst.anim, @from = "" } };   // older exports
+                        var character = Characters[inst.obj] = animator.Add(model, bones, anims);
+                        if (!string.IsNullOrEmpty(inst.anim) && !character.Play(inst.anim, true))
+                            Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
+                    }
                     var smr = go.AddComponent<SkinnedMeshRenderer>();
                     smr.sharedMesh = mesh;
                     smr.bones = bones;

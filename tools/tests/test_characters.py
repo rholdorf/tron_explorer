@@ -3,6 +3,7 @@ import os
 import struct
 
 import numpy as np
+import pytest
 
 import export_models
 import ltb
@@ -264,3 +265,92 @@ def test_holster_weapons_without_hand_weapons_on_the_object_does_nothing(extract
     r = export_models.Resolver(extracted)
     assert r.attachments(holstered("IC_Regular", RightHand="<none>")) == r.attachments(human("IC_Regular"))
     assert r.weapon_at(holstered("IC_Regular", RightHand2="ICRegularDisc"), "RightHand2") == "ICRegularDisc"
+
+
+M06_GEN = "chars/models/cinematic/mission06/m06_gen.ltb"
+M04_MP = "chars/models/cinematic/mission04/m04_maleprogram.ltb"
+
+
+def character_entry(extracted, obj, named=()):
+    import export_level
+    models, _styles = export_level.model_instances([obj], export_models.Resolver(extracted),
+                                                   export_models.Styles(extracted), extracted, named_anims=named)
+    return models[0]
+
+
+def test_character_plays_the_animations_of_its_child_model_files(extracted):
+    # CAI puts ChildModel_1..3 in ObjectCreateStruct.m_Filenames[1..3]: their animations join the model's,
+    # found by name (docs/research/cutscene-actors.md).
+    ch = character_entry(extracted, human("Male_Program", ChildModel_1="Chars\\Models\\Cinematic\\Mission06\\M06_Gen.ltb"))
+    assert ch["childModels"] == [M06_GEN]
+    plays = {a["name"]: a["from"] for a in ch["anims"]}
+    assert plays["M06MpTalking"] == M06_GEN and plays["M06DancerCompiler"] == M06_GEN
+    assert plays[ch["anim"]] == ""   # the idle, in the model's .ltb children
+
+
+def test_each_character_plays_its_first_child_model_with_the_name(extracted):
+    # M06MpTalking is in both files (a 200 ms blend in m06_gen, a cut in m04_maleprogram): per character,
+    # the first ChildModel_N that has it.
+    ch = character_entry(extracted, human("Male_Program", ChildModel_1="chars\\models\\cinematic\\mission04\\M04_MaleProgram.ltb",
+                                          ChildModel_2="chars\\models\\cinematic\\mission06\\M06_Gen.ltb"))
+    assert ch["childModels"] == [M04_MP, M06_GEN]
+    names = [x["name"].lower() for x in ch["anims"]]
+    assert len(names) == len(set(names))
+    plays = {x["name"]: x["from"] for x in ch["anims"]}
+    assert plays["M06MpTalking"] == M04_MP and plays["M06DancerCompiler"] == M06_GEN
+
+
+def test_the_model_shadows_its_child_model_files(extracted):
+    # Model::FindAnim order: the model, its .ltb children, then the ChildModel_N files. m09_gen's 'Base'
+    # loses to civmale's own.
+    ch = character_entry(extracted, human("Male_Program", ChildModel_1="chars\\models\\cinematic\\mission09\\m09_gen.ltb"))
+    plays = {x["name"].lower(): x["from"] for x in ch["anims"]}
+    assert plays["base"] == "" and plays["m09mpfirstday"] == "chars/models/cinematic/mission09/m09_gen.ltb"
+
+
+def test_animations_the_level_names_in_the_model_are_playable(extracted):
+    # A goal script can name an animation of the model's .ltb children (Base_General's Gen_PointRight);
+    # those the level names come along, the others don't. A name found nowhere is left out.
+    ch = character_entry(extracted, human("Male_Program"), named={"gen_pointright", "NoSuchAnim"})
+    plays = {x["name"].lower(): x["from"] for x in ch["anims"]}
+    assert plays["gen_pointright"] == "" and "nosuchanim" not in plays
+    assert "gen_halt" not in plays
+
+
+def test_model_exports_child_model_clips_with_their_blend_time(extracted, tmp_path):
+    # The same name from two files is two clips, told apart by `from`. interp: the clip's interpMS (s), the
+    # blend from the previous pose into its first frame (trk_ScanToKeyFrame); 0 is a cut.
+    rel = "chars/models/civmale.ltb"
+    meta = export_models.export_model(extracted, rel, str(tmp_path),
+                                      ["Gen_Idle01", ("M06MpTalking", M06_GEN), ("M06MpTalking", M04_MP)])
+    clips = [(a["name"], a["from"], a["interp"], a["keys"]) for a in meta["anims"]]
+    assert clips == [("Gen_Idle01", "", pytest.approx(0.2), 24), ("M06MpTalking", M06_GEN, 0.2, 153),
+                     ("M06MpTalking", M04_MP, 0.0, 153)]
+    talk = meta["anims"][1]
+    assert talk["length"] == pytest.approx(15.133)
+    assert len(talk["channels"]) == 4 * len(meta["nodes"])
+
+
+def test_child_model_clip_is_the_file_s_not_the_model_s(extracted, tmp_path):
+    # m09_gen has its own 'Base': exported from the file, it is the file's animation, posed on civmale.
+    m09 = "chars/models/cinematic/mission09/m09_gen.ltb"
+    meta = export_models.export_model(extracted, "chars/models/civmale.ltb", str(tmp_path),
+                                      ["base", ("Base", m09)])
+    own, file_base = meta["anims"]
+    assert (own["from"], file_base["from"]) == ("", m09)
+    m = ltb.load(os.path.join(extracted, m09))
+    assert file_base["keys"] == len(ltb.find_anim(m.anims, "Base").times)
+
+
+def test_level_names_the_animations_its_goal_scripts_play(world):
+    # m06-03's Ma3a: goalscript animate anim=Launch animate anim=Landing loop=0 / anim=Fly loop=1, in its
+    # props and keyframer keys alike; compared case-insensitively.
+    import export_level
+    names = {n.lower() for n in export_level.scripted_anims(world("retailsingleplayer/m06-03"))}
+    assert {"launch", "landing", "fly", "base", "m06jetpointing"} <= names
+    assert "loop" not in names and "1" not in names
+
+
+def test_missing_child_model_files_are_skipped(extracted):
+    ch = character_entry(extracted, human("IC_Regular", ChildModel_1="Chars\\models\\Base_IC.lta", ChildModel_2=""))
+    assert ch["childModels"] == []
