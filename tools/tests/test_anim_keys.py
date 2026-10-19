@@ -1,5 +1,5 @@
 """A character's animation keys (TronViewer/.../AnimTrack.cs), compiled with .NET: a key fires when the
-clip's time crosses it, the rule StateModel.FireKeys follows for props: the keys at times in (before, after]
+clip's time crosses it, the rule StateModel plays props' clips by too: the keys at times in (before, after]
 each advance, the ones at 0 when the clip starts; a loop fires the rest of its lap, then from the top; none
 while the clip blends in (its time held at 0), its keys at 0 once the blend is over. The engine's tracker fires
 a character's keys as it passes them (CCharacter::HandleModelString, MID_MODELSTRINGKEY). Expected values are

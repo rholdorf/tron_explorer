@@ -23,10 +23,11 @@ namespace Tron
         int self, player = -1;
         AmbientSound shots;
 
+        // Its clips as AnimTrack plays them (no blend: a state's clip cuts in), their animation keys' texts.
+        AnimTrack track;
+        string[][] keyTexts;
         ModelAnimJson clip;
-        bool loop, ended;
-        float time;
-        int nextKey;
+        bool ended;
 
         public void Init(IStateModel state, LoadedModel model, Transform[] bones, Renderer render,
                          Dictionary<string, Material[]> looks, Dictionary<string, ButeSoundJson> sounds,
@@ -43,6 +44,11 @@ namespace Tron
             this.cls = cls;
             this.promptOn = promptOn ?? "";
             this.promptOff = promptOff ?? "";
+            var anims = model.data.anims ?? Array.Empty<ModelAnimJson>();
+            var infos = new AnimTrack.ClipInfo[anims.Length];
+            keyTexts = new string[anims.Length][];
+            for (int i = 0; i < anims.Length; i++) infos[i] = ModelAnimator.ClipInfo(model, anims[i], 0, out keyTexts[i]);
+            track = new AnimTrack(infos);
             // The use ray's target: the object's dims (half-extents, LithTech units, scale included).
             var box = new GameObject("use box") { layer = LevelBuilder.UseOnlyLayer };
             box.transform.SetParent(transform, false);
@@ -56,67 +62,49 @@ namespace Tron
 
         void Start() => State.Start();
 
+        // The clip on the server clock: its keys as it crosses them, its pose; a clip played once (or a looping one
+        // with a single key) ends past its last key.
         void Update()
         {
             if (clip == null || ended) return;
-            float before = time;
-            time += commands.FrameTime;
-            if (loop && clip.length > 0)
-            {
-                if (time >= clip.length)
-                {
-                    FireKeys(before, clip.length + 1);   // the rest of the lap, then from the top
-                    time %= clip.length;
-                    nextKey = 0;
-                    before = -1;
-                }
-                FireKeys(before, time);
-                Pose(time);
-                return;
-            }
-            FireKeys(before, time);
-            if (time < clip.length) { Pose(time); return; }
-            Pose(clip.length);
+            track.Advance(commands.FrameTime);
+            FireKeys();
+            Pose();
+            if (track.Looping ? clip.length > 0 : !track.Done) return;
             ended = true;
             State.OnClipEnd();
         }
 
-        // Fires the keys at times in (from, to], and the ones at 0 when from < 0.
-        void FireKeys(float from, float to)
+        void FireKeys()
         {
-            var cmds = clip.cmds;
-            if (cmds == null) return;
-            while (nextKey < cmds.Length && cmds[nextKey].t <= to)
-            {
-                var k = cmds[nextKey++];
-                if (k.t > from || (from < 0 && k.t <= 0)) Key(k.s);
-            }
+            foreach (var (c, k) in track.Fired) Key(keyTexts[c][k]);
+            track.Fired.Clear();
         }
 
+        // Each statement of an animation key (ConParse): BUTE_SOUND_KEY <soundbute> plays it, the rest go to the state.
         void Key(string text)
         {
-            foreach (var statement in text.Split(';'))
+            foreach (var w in ConParse.Statements(text))
             {
-                var w = statement.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                 if (w.Length == 0) continue;
                 if (w.Length >= 2 && string.Equals(w[0], "BUTE_SOUND_KEY", StringComparison.OrdinalIgnoreCase)) PlaySound(w[1]);
-                else State.OnKey(statement.Trim());
+                else State.OnKey(w);
             }
         }
 
         void PlaySound(string name)
         {
-            if (!sounds.TryGetValue(name, out var b) || b.files == null || b.files.Length == 0) return;
-            var c = SoundLoader.Load(b.files[UnityEngine.Random.Range(0, b.files.Length)]);
+            if (!sounds.TryGetValue(name, out var b)) return;
+            var c = SoundLoader.Load(b.AnyFile());
             if (!c) return;
             if (!shots) shots = AmbientSound.Add(gameObject, b.inner, b.outer, 100, false, 0);
             shots.Source.PlayOneShot(c);
         }
 
-        void Pose(float t)
+        void Pose()
         {
             var d = model.animData;
-            ModelAnimator.Key(d, clip, t, out int k, out float f);
+            track.Key(out int k, out float f);
             for (int n = 0; n < bones.Length; n++)
                 bones[n].SetLocalPositionAndRotation(ModelAnimator.Position(d, clip, n, k, f), ModelAnimator.Rotation(d, clip, n, k, f));
             var sc = clip.scales;
@@ -132,12 +120,10 @@ namespace Tron
             if (i < 0) { Debug.LogWarning($"{name}: no clip {name} in {model.data.file}"); return; }
             foreach (var b in bones) b.localScale = Vector3.one;
             clip = model.data.anims[i];
-            loop = looping;
             ended = false;
-            time = 0;
-            nextKey = 0;
-            FireKeys(-1, 0);
-            Pose(0);
+            track.Play(i, looping);
+            FireKeys();
+            Pose();
         }
 
         public void SetLook(string look)

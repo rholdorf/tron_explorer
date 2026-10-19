@@ -60,7 +60,15 @@ namespace Tron
     // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
     [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }
     // A soundbute an animation key plays: one of its files at random, radii in LithTech units.
-    [Serializable] public class ButeSoundJson { public string name; public string[] files; public float inner, outer; }
+    [Serializable] public class ButeSoundJson
+    {
+        public string name;
+        public string[] files;
+        public float inner, outer;
+
+        // One of its files at random (the sound manager's pick), null when it has none.
+        public string AnyFile() => files != null && files.Length > 0 ? files[UnityEngine.Random.Range(0, files.Length)] : null;
+    }
 
     // Model lighting inputs (tools/modellight.py). Colors are 0-255.
     [Serializable] public class LightGridJson { public float[] origin, cell; public int[] dims; }

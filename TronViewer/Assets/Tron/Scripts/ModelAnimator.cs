@@ -305,22 +305,9 @@ namespace Tron
             Dispose();
         }
 
-        // t (seconds, already wrapped: AnimTracker loops with t %= lastKeyTime) lies between key k and k + 1
-        // at fraction f. k is the last key with time <= t, so a zero-length interval between two keys
-        // sharing a time is never used (tools/animation.py key_at).
-        internal static void Key(float[] d, ModelAnimJson a, float t, out int k, out float f)
-        {
-            int lo = 0, hi = a.keys - 1;
-            while (lo < hi)
-            {
-                int mid = (lo + hi + 1) >> 1;
-                if (d[a.times + mid] <= t) lo = mid; else hi = mid - 1;
-            }
-            k = lo;
-            if (k + 1 >= a.keys) { f = 0; return; }
-            float t0 = d[a.times + k], t1 = d[a.times + k + 1];
-            f = t1 > t0 ? Mathf.Clamp01((t - t0) / (t1 - t0)) : 0;
-        }
+        // The clip's key interval at t (AnimTrack.KeyAt).
+        internal static void Key(float[] d, ModelAnimJson a, float t, out int k, out float f) =>
+            AnimTrack.KeyAt(d, a.times, a.keys, t, out k, out f);
 
         // Positions interpolate linearly, rotations by slerp (TransformMaker / quat_Slerp: shortest path).
         internal static Vector3 Position(float[] d, ModelAnimJson a, int node, int k, float f)

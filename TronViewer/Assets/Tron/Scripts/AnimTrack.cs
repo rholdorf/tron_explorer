@@ -15,7 +15,7 @@ namespace Tron
     // at exactly its time and wraps past it (t %= last key time); a clip played once holds its last key
     // (time clamped 1 ms past it) and is Done past it, or at once with a single key (trk_IsStopped).
     //
-    // Animation keys (tools/test_anim_keys.py; the rule StateModel.FireKeys follows): a key fires when the time
+    // Animation keys (tools/test_anim_keys.py; StateModel plays a prop's clips through it too): a key fires when the time
     // crosses it, the ones at 0 when the clip starts (at Play or Restart, or when its blend-in is over: none
     // fire while blending), a loop fires the rest of its lap then from the top. Fired collects them.
     public sealed class AnimTrack
@@ -130,20 +130,28 @@ namespace Tron
             }
         }
 
-        // The key interval the time lies in (ModelAnimator.Key's rule): key k, fraction f toward k + 1.
+        // The key interval the time lies in: key k, fraction f toward k + 1.
         public void Key(out int k, out float f)
         {
             var t = clips[Clip].Times;
-            float time = Math.Min(Time, t[t.Length - 1]);
-            int lo = 0, hi = t.Length - 1;
+            KeyAt(t, 0, t.Length, Math.Min(Time, t[t.Length - 1]), out k, out f);
+        }
+
+        // t (seconds, already wrapped: AnimTracker loops with t %= lastKeyTime) lies between key k and k + 1 of the
+        // `count` key times at times[offset] at fraction f. k is the last key with time <= t, so a zero-length
+        // interval between two keys sharing a time is never used (tools/animation.py key_at).
+        public static void KeyAt(float[] times, int offset, int count, float t, out int k, out float f)
+        {
+            int lo = 0, hi = count - 1;
             while (lo < hi)
             {
                 int mid = (lo + hi + 1) >> 1;
-                if (t[mid] <= time) lo = mid; else hi = mid - 1;
+                if (times[offset + mid] <= t) lo = mid; else hi = mid - 1;
             }
             k = lo;
-            if (k + 1 >= t.Length) { f = 0; return; }
-            f = t[k + 1] > t[k] ? Math.Min(Math.Max((time - t[k]) / (t[k + 1] - t[k]), 0f), 1f) : 0f;
+            if (k + 1 >= count) { f = 0; return; }
+            float t0 = times[offset + k], t1 = times[offset + k + 1];
+            f = t1 > t0 ? Math.Min(Math.Max((t - t0) / (t1 - t0), 0f), 1f) : 0f;
         }
 
         // The tracker's current key: the first whose time is not before t (m_CurKey), the last at the end.

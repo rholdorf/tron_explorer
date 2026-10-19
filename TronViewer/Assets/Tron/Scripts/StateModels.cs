@@ -27,7 +27,7 @@ namespace Tron
         PromptState Prompt { get; }
         void Start();
         bool OnMessage(Message m, bool fromPlayer);
-        void OnKey(string statement);
+        void OnKey(string[] words);   // a statement of an animation key, as ConParse splits it
         void OnClipEnd();
     }
 
@@ -146,9 +146,8 @@ namespace Tron
         }
 
         // Animation keys (0x10014260): "RS <slot> <file>" swaps the render style (slot 0 is the look).
-        public void OnKey(string statement)
+        public void OnKey(string[] w)
         {
-            var w = statement.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
             if (w.Length < 3 || !string.Equals(w[0], "RS", StringComparison.OrdinalIgnoreCase) || w[1] != "0") return;
             var file = w[2].ToLowerInvariant();
             host.SetLook(file.Contains("_yes") ? "yes" : file.Contains("_no") ? "no" : "idle");
@@ -201,7 +200,7 @@ namespace Tron
             return true;
         }
 
-        public void OnKey(string statement) { }
+        public void OnKey(string[] words) { }
 
         public void OnClipEnd()
         {
