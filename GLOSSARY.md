@@ -142,6 +142,10 @@ _Avoid_: cinematic alone (the `*cin` levels are only some of them), movie (the g
 A placed object that speaks up to twenty lines in turn, each a game string read by a named speaker after its own delay, each able to run a command as it starts; commands run when it starts, finishes and is cleaned up.
 _Avoid_: conversation, transmission (a one-line HUD message), subtitle (only the text of a line)
 
+**Voice**:
+A dialogue line's sound, `voice/<id>.wav`, whose id also names the line's subtitle string; the line lasts as long as it plays. `00000` and cut lines have none and end at once.
+_Avoid_: dialogue sound, speech file
+
 **Scene camera**:
 A placed `Camera` the view switches to while it is on: it goes to named camera points and changes its field of view on command.
 _Avoid_: camera alone (the player has one too), camera point (a place a scene camera goes to)

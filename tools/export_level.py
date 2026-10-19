@@ -38,11 +38,12 @@ import floor  # noqa: E402
 import keyframer  # noqa: E402
 import ltb  # noqa: E402
 import modellight  # noqa: E402
+import dialogue  # noqa: E402
 import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 23
+FORMAT_VERSION = 24
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -592,6 +593,8 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "activateTypes": activate.level_types(w.objects, extracted),
         "spawns": commands.spawn_names(w),
+        "dialogues": dialogue.dialogues(objects, extracted),
+        "speakers": dialogue.speakers(objects, extracted),
         "fxGroups": fx,
         "fxMissing": fx_missing,
         "objects": objects,
@@ -638,7 +641,7 @@ def main():
         index.append(rel)
         level_objects[rel] = meta["objects"]
         fx_files, fx_sounds = clientfx.assets(meta["fxGroups"])
-        level_sounds[rel] = [b["name"] for b in meta["buteSounds"]] + fx_sounds
+        level_sounds[rel] = [b["name"] for b in meta["buteSounds"]] + fx_sounds + dialogue.voices(meta["dialogues"])
         for f in fx_files:
             model_files.setdefault(f, set())
         for g in meta["fxGroups"]:

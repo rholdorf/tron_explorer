@@ -8,6 +8,8 @@ string table, its font and the HUD's sounds, written to <export>/hud/.
   PointSize 20 into its own pages (twencen_20.ffa) and scales them to the asked char height; the viewer does
   the same from a larger render (HudFont.cs has the scale, measured on the reference video). Metrics are in
   atlas pixels: "size" is the em, "ascent" the win ascent (glyph "oy" is from there down).
+- subtitles.json: the dialogue subtitles' layout (layout.txt [Subtitle]; docs/research/dialogue.md, branch
+  research/dialogue). They use font 0 as above and show the string whose id is the voice's.
 - the sounds the HUD plays (MissionText TypeSound / ScrollSound, the msgfadeout soundbute), to
   <export>/sounds/ like the levels' sounds.
 """
@@ -130,11 +132,29 @@ def build_font(ttf, chars):
     return img, meta
 
 
+def _point(value):
+    """A layout point as layout.txt writes it, "(x,y)"."""
+    return [int(v) for v in str(value).strip("() ").split(",")]
+
+
+def subtitle_layout(extracted):
+    """The dialogue subtitles' look and place (layout.txt [Subtitle], read by CHUDSubtitles): the font
+    number (0, the HUD font), size in pixels, colour, the box's lines, and its top-left corner and width
+    in 640x480 layout units, in play (FullScreenPos/FullScreenWidth) and while a scene camera is on
+    (Pos/Width). LineScrollTime is there too but subtitles don't read it."""
+    s = butes.load(os.path.join(extracted, "attributes", "layout.txt"))["Subtitle"]
+    return {"font": s["font"], "fontSize": s["fontsize"], "numLines": s["numlines"], "color": s["textcolor"],
+            "playPos": _point(s["fullscreenpos"]), "playWidth": s["fullscreenwidth"],
+            "cinematicPos": _point(s["pos"]), "cinematicWidth": s["width"]}
+
+
 def export_hud(extracted, out_root):
-    """Writes <out_root>/hud/{strings.json, font.png, font.json} and the HUD's sound files. Returns
-    (strings, glyphs, sound files exported)."""
+    """Writes <out_root>/hud/{strings.json, font.png, font.json, subtitles.json} and the HUD's sound files.
+    Returns (strings, glyphs, sound files exported)."""
     out = os.path.join(out_root, "hud")
     os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, "subtitles.json"), "w") as f:
+        json.dump(subtitle_layout(extracted), f, separators=(",", ":"))
     strings = read_strings(os.path.join(extracted, "cres.dll"))
     ids = sorted(strings)
     with open(os.path.join(out, "strings.json"), "w", encoding="utf-8") as f:
