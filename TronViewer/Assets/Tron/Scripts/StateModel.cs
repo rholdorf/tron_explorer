@@ -6,7 +6,7 @@ namespace Tron
 {
     // A model whose look follows a state (StateModels.cs: BinaryBit, SecRezzer), on its drawn model: plays the
     // state's clips on its bones (once, holding the last frame, or looping) on the server clock, with the
-    // pieces' uniform scales and the model string keys as they pass (BUTE_SOUND_KEY plays a soundbute from
+    // pieces' uniform scales and the animation keys as they pass (BUTE_SOUND_KEY plays a soundbute from
     // the object, the others go to the state), swaps its looks (each a full set of piece materials), runs the
     // commands the state asks for with the object as sender, and is usable through a box of its dims.
     public class StateModel : MonoBehaviour, IStateModelHost, IUsable

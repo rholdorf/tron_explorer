@@ -15,7 +15,7 @@ namespace Tron
     // at exactly its time and wraps past it (t %= last key time); a clip played once holds its last key
     // (time clamped 1 ms past it) and is Done past it, or at once with a single key (trk_IsStopped).
     //
-    // String keys (tools/test_anim_keys.py; the rule StateModel.FireKeys follows): a key fires when the time
+    // Animation keys (tools/test_anim_keys.py; the rule StateModel.FireKeys follows): a key fires when the time
     // crosses it, the ones at 0 when the clip starts (at Play or Restart, or when its blend-in is over: none
     // fire while blending), a loop fires the rest of its lap then from the top. Fired collects them.
     public sealed class AnimTrack
@@ -24,18 +24,18 @@ namespace Tron
         {
             public float[] Times;   // key times, seconds, from 0, never decreasing
             public float Interp;    // seconds of blend into its first key when it starts (interpMS)
-            public float[] Keys;    // its string keys' times, seconds, never decreasing (null: none)
+            public float[] Keys;    // its animation keys' times, seconds, never decreasing (null: none)
         }
 
         const float HoldPastEnd = 0.001f;   // endTime + 1 ms
 
         readonly IReadOnlyList<ClipInfo> clips;
         float blendElapsed = -1;   // < 0: not blending
-        int nextKey;               // the first string key of the clip not yet passed
+        int nextKey;               // the first animation key of the clip not yet passed
 
         public AnimTrack(IReadOnlyList<ClipInfo> clips) { this.clips = clips; }
 
-        // The string keys crossed since the caller last cleared it: (clip, index in its Keys).
+        // The animation keys crossed since the caller last cleared it: (clip, index in its Keys).
         public readonly List<(int clip, int key)> Fired = new List<(int, int)>();
 
         public int Clip { get; private set; } = -1;
@@ -118,7 +118,7 @@ namespace Tron
             FireKeys(before, Time);
         }
 
-        // The string keys at times in (from, to], and the ones at 0 when from < 0.
+        // The animation keys at times in (from, to], and the ones at 0 when from < 0.
         void FireKeys(float from, float to)
         {
             var keys = clips[Clip].Keys;

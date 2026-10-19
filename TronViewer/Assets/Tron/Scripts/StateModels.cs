@@ -9,7 +9,7 @@ namespace Tron
     public interface IStateModelHost
     {
         // Starts a clip from its first frame; a clip that doesn't loop holds its last frame and reports
-        // its end (OnClipEnd). Its model string keys come back through OnKey as they pass.
+        // its end (OnClipEnd). Its animation keys come back through OnKey as they pass.
         void Play(string clip, bool loop);
         void SetLook(string look);
         // A command string, the object as sender.
@@ -145,7 +145,7 @@ namespace Tron
             else if (from == State.Flying) host.SetLook(yes ? "yes" : "no");
         }
 
-        // Model string keys (0x10014260): "RS <slot> <file>" swaps the render style (slot 0 is the look).
+        // Animation keys (0x10014260): "RS <slot> <file>" swaps the render style (slot 0 is the look).
         public void OnKey(string statement)
         {
             var w = statement.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);

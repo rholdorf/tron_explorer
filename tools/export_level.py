@@ -345,7 +345,7 @@ def state_looks(cls, skins, rs):
 
 
 def bute_sound_keys(styles, models):
-    """The soundbutes the state models' clips name in BUTE_SOUND_KEY model string keys, in order."""
+    """The soundbutes the state models' clips name in BUTE_SOUND_KEY animation keys, in order."""
     names = []
     for m in models:
         anims = {a.name.lower(): a for a in styles.model(m["file"]).anims}
@@ -371,7 +371,7 @@ def shake_sounds(objects):
 
 
 def bute_sounds(names, soundbutes):
-    """Each soundbute a model string key or a ScreenShake plays: its files and radii (inherited through its
+    """Each soundbute an animation key or a ScreenShake plays: its files and radii (inherited through its
     Parent)."""
     return [{"name": n, "files": soundbutes.files(n), "inner": float(soundbutes.get(n, "innerradius", 0.0)),
              "outer": float(soundbutes.get(n, "outerradius", 0.0))} for n in names if soundbutes.is_soundbute(n)]
@@ -606,7 +606,7 @@ def attach_names(w):
 
 
 def key_attach_names(models, styles, extracted):
-    """The attachments characters' animations hang on them by string key (CCharacter::HandleModelString:
+    """The attachments characters' animations hang on them by animation key (CCharacter::HandleModelString:
     `ATTACH <position> <name>`): the keys of every animation each character can play by name (its anims),
     sorted, one per name (any case)."""
     names = {}

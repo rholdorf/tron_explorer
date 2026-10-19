@@ -10,7 +10,7 @@ export/models/<model path>.bin   'TRMD', u32 version, u32 nVerts, u32 nIdx, u32 
                                  animation clips (nAnimFloats * f32, indexed by the json's anims)
 Only LOD 0 is exported, at the bind pose (vertices are stored in model space). Only the animations
 the levels' instances play are exported (animation.clip: engine rules applied, channels parent-relative),
-with their model string keys and the uniform scale of vertex-animated pieces (binarybit's Yes / No).
+with their animation keys and the uniform scale of vertex-animated pieces (binarybit's Yes / No).
 """
 import json
 import os
@@ -429,7 +429,7 @@ def clip_block(clips):
     (3 floats each) and rotation keys (4 floats, quaternion x y z w). channels: per node posOffset,
     posCount, rotOffset, rotCount (offsets in floats; a count is 1 for a constant channel or keys).
     scales: node, offset, count per scaled node (a vertex-animated piece's uniform scale, 1 float per key).
-    cmds: the model string keys, {t (s), s}. interp: the blend (s) from the previous pose into the clip's
+    cmds: the animation keys, {t (s), s}. interp: the blend (s) from the previous pose into the clip's
     first frame when it starts (trk_ScanToKeyFrame), 0 a cut. from (export_model): "" for a clip of the
     model or its .ltb children, else the ChildModel_N file it comes from."""
     floats, meta, n = [], [], 0

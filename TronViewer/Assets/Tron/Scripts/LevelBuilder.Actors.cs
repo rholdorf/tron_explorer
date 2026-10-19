@@ -135,7 +135,7 @@ namespace Tron
             var root = body.Root.transform;
             var a = body.Actor = Actors.Add(id, body.Animation, body.Idle, AsLT(root.localPosition), AsLT(root.localRotation),
                                             AsLT(body.Dims));
-            if (body.Animation != null) body.Animation.OnKey = a.ModelKey;   // its CMD keys, in the next command frame
+            if (body.Animation != null) body.Animation.OnKey = a.AnimationKey;   // its CMD keys, in the next command frame
             a.PositionOf = PositionOf;
             a.TeleportPointOf = TeleportPointOf;
             a.CastDown = (from, to) => IntersectWorld(from, to, out var hit, out _) ? hit.y : (float?)null;

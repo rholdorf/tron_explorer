@@ -63,7 +63,7 @@ def test_a_character_carries_its_skeletons_look_at_nodes(extracted):
          "maxVel": 180.0}]
 
 
-def test_animation_string_keys_attach_too(extracted):
+def test_animation_keys_attach_too(extracted):
     # CCharacter::HandleModelString `ATTACH <position> <name>` (three words; m10_pop.ltb's M10PopBloody puts a
     # Tablet in Popoff's left hand). The pool is what the character plays by name.
     styles = export_models.Styles(extracted)

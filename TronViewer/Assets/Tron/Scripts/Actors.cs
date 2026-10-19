@@ -142,8 +142,8 @@ namespace Tron
 
         readonly List<string> keys = new List<string>();
 
-        // A string key its animation crossed (MID_MODELSTRINGKEY), run in the next command frame (RunKeys).
-        public void ModelKey(string text)
+        // An animation key its animation crossed (MID_MODELSTRINGKEY), run in the next command frame (RunKeys).
+        public void AnimationKey(string text)
         {
             if (!Removed) keys.Add(text);
         }
@@ -467,7 +467,7 @@ namespace Tron
             foreach (var a in all) a.Update(frameTime);
         }
 
-        // The string keys the animations crossed since the last command frame, after the actors' updates.
+        // The animation keys the animations crossed since the last command frame, after the actors' updates.
         public void RunKeys()
         {
             for (int i = 0; i < all.Count; i++) all[i].RunKeys();

@@ -59,7 +59,7 @@ namespace Tron
     [Serializable] public class AnimRefJson { public string name, @from; }
     // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
     [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }
-    // A soundbute a model string key plays: one of its files at random, radii in LithTech units.
+    // A soundbute an animation key plays: one of its files at random, radii in LithTech units.
     [Serializable] public class ButeSoundJson { public string name; public string[] files; public float inner, outer; }
 
     // Model lighting inputs (tools/modellight.py). Colors are 0-255.
@@ -294,7 +294,7 @@ namespace Tron
     // times (seconds) at `times`; channels: per node posOffset, posCount, rotOffset, rotCount (offsets in
     // floats; a count is 1 for a constant channel, else keys). Parent-relative position xyz, quaternion xyzw.
     // scales: node, offset, count per node whose vertex-animated piece the clip scales uniformly (1 float a
-    // key); cmds: its model string keys (t in seconds). interp: seconds of blend from the previous pose into
+    // key); cmds: its animation keys (t in seconds). interp: seconds of blend from the previous pose into
     // its first key when it starts (0: a cut). from: "" for the model's or its .ltb children's animation, else
     // the ChildModel_N file it comes from (the same name can come from several).
     [Serializable] public class ModelAnimJson { public string name, @from; public float length, interp; public int keys, times; public int[] channels, scales; public AnimCmdJson[] cmds; }

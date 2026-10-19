@@ -23,7 +23,7 @@ namespace Tron
         internal readonly AnimTrack track;
         readonly Dictionary<string, int> byName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         readonly ModelAnimator owner;
-        readonly List<string[]> keyTexts = new List<string[]>();   // per track clip, its string keys in time order
+        readonly List<string[]> keyTexts = new List<string[]>();   // per track clip, its animation keys in time order
         readonly int[][] keyed;        // per track clip, its nodes with a keyed channel
         readonly bool[][] isKeyed;     // per track clip, per node
         readonly bool[] always;        // per node: posed every frame (head tracking turns it after the job)
@@ -32,7 +32,7 @@ namespace Tron
         internal int[] slotOf;         // per node, its slot after slotBase; -1 when the job leaves it
         bool settled;                  // its moving bones hold the playing clip's pose, so only keyed ones change
 
-        // Each string key its animation crosses (the clip's cmds: "cmd msg ...", FOOTSTEP_KEY...), as it does.
+        // Each animation key its animation crosses (the clip's cmds: "cmd msg ...", FOOTSTEP_KEY...), as it does.
         public Action<string> OnKey;
         internal int slotBase;
 
@@ -342,7 +342,7 @@ namespace Tron
         // Whether node n has a keyed position or rotation in the clip (more than one key).
         internal static bool Keyed(ModelAnimJson a, int n) => a.channels[n * 4 + 1] > 1 || a.channels[n * 4 + 3] > 1;
 
-        // A clip as AnimTrack plays it, blending in over `interp` seconds, its string keys in time order (their
+        // A clip as AnimTrack plays it, blending in over `interp` seconds, its animation keys in time order (their
         // texts in `texts`).
         internal static AnimTrack.ClipInfo ClipInfo(LoadedModel model, ModelAnimJson a, float interp, out string[] texts)
         {

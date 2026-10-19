@@ -35,7 +35,7 @@ namespace Tron
         public float Radius, Duration;
     }
 
-    // The level's dialogues, and each character's dialogue sound (CCharacter's m_eCurDlgSndType: one at a time,
+    // The level's dialogues, and each character's voice (CCharacter's m_eCurDlgSndType: one at a time,
     // a new line kills the one it was saying). A line lasts until its voice has played (the client reports the
     // sound done; here at the first update after its duration ran out on the server clock); a line with no sound
     // ends at once.

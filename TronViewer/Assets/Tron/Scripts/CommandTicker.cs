@@ -19,7 +19,7 @@ namespace Tron
             Commands?.Update();
             Characters?.Update();
             Actors?.Update(Commands?.FrameTime ?? Time.deltaTime);
-            Actors?.RunKeys();   // the string keys their animations crossed (CMD keys run commands)
+            Actors?.RunKeys();   // the animation keys their animations crossed (CMD keys run commands)
             Dialogues?.Update(Time.deltaTime);
             ScreenShakes?.Update();
         }

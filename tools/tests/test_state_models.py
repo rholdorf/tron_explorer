@@ -7,7 +7,7 @@ Driver lines (tab-separated):
   new rezzer                                             a SecRezzer
   start | end                                            Start / the playing clip ends
   msg <words> <fromPlayer 0/1>                           a message; prints "handled 0/1" when not handled
-  key <statement>                                        a model string key
+  key <statement>                                        an animation key
   state                                                  prints "state <Current> <CanUse> <Prompt>"
 Host output: "play <clip> <loop>", "look <name>", "run <command>", "count <word>".
 """
