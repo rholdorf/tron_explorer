@@ -106,7 +106,9 @@ class Resolver:
     def _skins(value):
         return [norm(s) for s in value.split(";") if s.strip()] if value else []
 
-    def resolve(self, obj):
+    def resolve(self, obj, spawned=False):
+        """spawned: the object is a template a Spawner copies (CObjectTemplateMgr::AddTemplate stores it
+        with Template FALSE), so the copy is created like a placed object."""
         p = {q["k"]: q for q in obj["props"]}
 
         def s(key):
@@ -119,7 +121,7 @@ class Resolver:
 
         # GameBase::ReadProp: a Template object is saved as a spawner template and never created;
         # in single player an object with SinglePlayer off isn't created either.
-        if b("Template", False) or not b("SinglePlayer"):
+        if (b("Template", False) and not spawned) or not b("SinglePlayer"):
             return None
         if not b("Visible") or b("StartHidden", False):
             return None

@@ -12,7 +12,7 @@ namespace Tron
     public partial class LevelBuilder
     {
         public const int SkyLayer = 30;
-        public const int FormatVersion = 24;
+        public const int FormatVersion = 25;
         const int HeaderSize = 32, VertexSize = 44;
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
@@ -82,6 +82,7 @@ namespace Tron
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
             JoinCommands();
+            JoinCharacters();   // LevelBuilder.Spawners.cs
 
             BuildMaterials();
 
@@ -97,6 +98,7 @@ namespace Tron
             BuildActiveWorldModels();   // LevelBuilderDoors.cs
             bin = null;
             BuildModels(exportRoot);
+            BuildSpawners();   // LevelBuilder.Spawners.cs
             BuildSoundFX();
             BuildSoundButeFX();
             BuildSpecialFX(exportRoot);   // LevelBuilder.SpecialFX.cs
@@ -113,7 +115,8 @@ namespace Tron
         // id is its index in Data.objects; builders add handlers with Commands.Handle(index, ...). Groups
         // pass their messages on to their Object1..Object50 (Tron's 50 slots). Templates are never created
         // (GameBase::ReadProp): they join without a name, keeping the ids, so nothing reaches them. Names a
-        // Spawner would give are known, for the report. Ticked by CommandTicker.
+        // Spawner would give are known, for the report; spawned characters join after the level's objects
+        // (LevelBuilder.Spawners.cs). Ticked by CommandTicker.
         void JoinCommands()
         {
             Commands = new CommandMgr();
@@ -230,88 +233,113 @@ namespace Tron
         // that pose), and follow it as the character moves.
         readonly List<DynamicLights.Model> litModels = new List<DynamicLights.Model>();
 
+        // What building a model instance needs, kept for the characters spawned later (LevelBuilder.Spawners.cs).
+        Transform modelRoot;
+        ModelAnimator modelAnimator;
+        string modelExportRoot;
+        readonly MaterialPropertyBlock modelProps = new MaterialPropertyBlock();
+        readonly Vector4[] lightDirs = new Vector4[ModelLighting.MaxLights];
+        readonly Vector4[] lightColors = new Vector4[ModelLighting.MaxLights];
+
+        // Spawner templates (template = 1) wait for their spawn.
         void BuildModels(string exportRoot)
         {
             if (Data.models == null || Data.models.Length == 0) return;
             var root = new GameObject("Models");
             root.transform.SetParent(Root.transform, false);
+            modelRoot = root.transform;
+            modelExportRoot = exportRoot;
             var built = new (LoadedModel model, Transform[] bones)[Data.models.Length];
-            var mpb = new MaterialPropertyBlock();
-            var lightDirs = new Vector4[ModelLighting.MaxLights];
-            var lightColors = new Vector4[ModelLighting.MaxLights];
-            var animator = root.AddComponent<ModelAnimator>();
+            modelAnimator = root.AddComponent<ModelAnimator>();
             for (int n = 0; n < Data.models.Length; n++)
             {
                 var inst = Data.models[n];
-                var model = ModelLibrary.Load(exportRoot, inst.file, loadedModels, owned);
-                if (model == null) continue;
-                if (inst.pieces == null || inst.pieces.Length != model.data.pieces.Length)
-                {
-                    Debug.LogWarning($"Model {inst.file}: {inst.pieces?.Length ?? 0} piece styles for {model.data.pieces.Length} pieces");
-                    continue;
-                }
+                if (inst.template != 0) continue;
                 var obj = Data.objects[inst.obj];
-                var go = new GameObject($"{obj.name} [{obj.cls}: {inst.file}]");
                 var pos = inst.pos != null && inst.pos.Length >= 3 ? new Vector3(inst.pos[0], inst.pos[1], inst.pos[2]) : obj.Position;
-                if (inst.parent >= 0)
-                {
-                    if (!AttachToSocket(go.transform, inst, built[inst.parent])) { UnityEngine.Object.Destroy(go); continue; }
-                }
-                else
-                {
-                    go.transform.SetParent(root.transform, false);
-                    if (!modelObjects.TryGetValue(inst.obj, out var shown)) modelObjects[inst.obj] = shown = new List<GameObject>();
-                    shown.Add(go);
-                    go.transform.localPosition = pos;
-                    go.transform.localRotation = obj.Rotation;
-                    if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
-                }
-                var (mesh, mats) = ModelLook(model, inst.pieces);
-                Renderer r;
-                if (inst.skinned != 0)
-                {
-                    var bones = BuildBones(go.transform, model, inst.parent >= 0);
-                    built[n] = (model, bones);
-                    if (inst.parent < 0 && !string.IsNullOrEmpty(inst.anim) && !animator.Play(model, inst.anim, bones))
-                        Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
-                    var smr = go.AddComponent<SkinnedMeshRenderer>();
-                    smr.sharedMesh = mesh;
-                    smr.bones = bones;
-                    smr.localBounds = SkinnedBounds(go.transform, model, bones);
-                    r = smr;
-                }
-                else
-                {
-                    // A prop with sockets can carry attachments (bin berries, tank turrets): its node
-                    // Transforms at the bind pose, the pose its mesh is drawn in.
-                    if (model.data.sockets != null && model.data.sockets.Length > 0)
-                        built[n] = (model, BuildBones(go.transform, model, false));
-                    go.AddComponent<MeshFilter>().sharedMesh = mesh;
-                    r = go.AddComponent<MeshRenderer>();
-                }
-                r.sharedMaterials = mats;
-                if (inst.parent < 0 && inst.looks != null && inst.looks.Length > 0 && built[n].bones != null)
-                    AddStateModel(go, inst, obj, model, built[n].bones, r);
-                r.shadowCastingMode = ShadowCastingMode.Off;
-                r.receiveShadows = false;
-                r.lightProbeUsage = LightProbeUsage.Off;
-                r.reflectionProbeUsage = ReflectionProbeUsage.Off;
-
-                // Per-instance D3D lighting (ModelLighting): ambient and up to 4 directional lights, 0-1.
-                // Every instance has its own (attachments: their model's dims at the parent object's position);
-                // DynamicLights lights it again while a dynamic light reaches it.
-                var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
-                var ambient = lighting.Compute(pos, dims, inst.visRadius, inst.sunAmount, lightDirs, lightColors);
-                ModelLighting.ToUnit(lightColors);
-                mpb.Clear();
-                mpb.SetVector(AmbientId, ambient / 255f);
-                mpb.SetVectorArray(LightDirId, lightDirs);
-                mpb.SetVectorArray(LightColorId, lightColors);
-                r.SetPropertyBlock(mpb);
-                litModels.Add(new DynamicLights.Model { R = r, Pos = pos, Dims = dims, VisRadius = inst.visRadius, SunAmount = inst.sunAmount });
+                var go = BuildInstance(n, obj.name, pos, obj.Rotation, inst.sunAmount,
+                                       inst.parent >= 0 ? built[inst.parent] : default, out built[n]);
+                if (go == null || inst.parent >= 0) continue;
+                if (!modelObjects.TryGetValue(inst.obj, out var shown)) modelObjects[inst.obj] = shown = new List<GameObject>();
+                shown.Add(go);
             }
-            animator.Begin();
+            modelAnimator.Begin();
         }
+
+        // Model instance n, named for its object `name`: a root instance at pos / rot under the models root, an
+        // attachment on `parent`'s socket; lit at pos with sunAmount. built: its model and node Transforms
+        // when it has them (characters, props with sockets). Null when it can't be drawn.
+        GameObject BuildInstance(int n, string name, Vector3 pos, Quaternion rot, float sunAmount,
+                                 (LoadedModel model, Transform[] bones) parent, out (LoadedModel model, Transform[] bones) built)
+        {
+            built = default;
+            var inst = Data.models[n];
+            var model = ModelLibrary.Load(modelExportRoot, inst.file, loadedModels, owned);
+            if (model == null) return null;
+            if (inst.pieces == null || inst.pieces.Length != model.data.pieces.Length)
+            {
+                Debug.LogWarning($"Model {inst.file}: {inst.pieces?.Length ?? 0} piece styles for {model.data.pieces.Length} pieces");
+                return null;
+            }
+            var obj = Data.objects[inst.obj];
+            var go = new GameObject($"{name} [{obj.cls}: {inst.file}]");
+            if (inst.parent >= 0)
+            {
+                if (!AttachToSocket(go.transform, inst, parent)) { UnityEngine.Object.Destroy(go); return null; }
+            }
+            else
+            {
+                go.transform.SetParent(modelRoot, false);
+                go.transform.localPosition = pos;
+                go.transform.localRotation = rot;
+                if (inst.scale != null && inst.scale.Length >= 3) go.transform.localScale = new Vector3(inst.scale[0], inst.scale[1], inst.scale[2]);
+            }
+            var (mesh, mats) = ModelLook(model, inst.pieces);
+            Renderer r;
+            if (inst.skinned != 0)
+            {
+                var bones = BuildBones(go.transform, model, inst.parent >= 0);
+                built = (model, bones);
+                if (inst.parent < 0 && !string.IsNullOrEmpty(inst.anim) && !modelAnimator.Play(model, inst.anim, bones))
+                    Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
+                var smr = go.AddComponent<SkinnedMeshRenderer>();
+                smr.sharedMesh = mesh;
+                smr.bones = bones;
+                smr.localBounds = SkinnedBounds(go.transform, model, bones);
+                r = smr;
+            }
+            else
+            {
+                // A prop with sockets can carry attachments (bin berries, tank turrets): its node
+                // Transforms at the bind pose, the pose its mesh is drawn in.
+                if (model.data.sockets != null && model.data.sockets.Length > 0)
+                    built = (model, BuildBones(go.transform, model, false));
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                r = go.AddComponent<MeshRenderer>();
+            }
+            r.sharedMaterials = mats;
+            if (inst.parent < 0 && inst.looks != null && inst.looks.Length > 0 && built.bones != null)
+                AddStateModel(go, inst, obj, model, built.bones, r);
+            r.shadowCastingMode = ShadowCastingMode.Off;
+            r.receiveShadows = false;
+            r.lightProbeUsage = LightProbeUsage.Off;
+            r.reflectionProbeUsage = ReflectionProbeUsage.Off;
+
+            // Per-instance D3D lighting (ModelLighting): ambient and up to 4 directional lights, 0-1.
+            // Every instance has its own (attachments: their model's dims at the parent object's position);
+            // DynamicLights lights it again while a dynamic light reaches it.
+            var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
+            var ambient = lighting.Compute(pos, dims, inst.visRadius, sunAmount, lightDirs, lightColors);
+            ModelLighting.ToUnit(lightColors);
+            modelProps.Clear();
+            modelProps.SetVector(AmbientId, ambient / 255f);
+            modelProps.SetVectorArray(LightDirId, lightDirs);
+            modelProps.SetVectorArray(LightColorId, lightColors);
+            r.SetPropertyBlock(modelProps);
+            litModels.Add(new DynamicLights.Model { R = r, Pos = pos, Dims = dims, VisRadius = inst.visRadius, SunAmount = sunAmount });
+            return go;
+        }
+
 
         // The state models (BinaryBit, SecRezzer: StateModels.cs) on their drawn model.
         public readonly List<StateModel> StateModels = new List<StateModel>();

@@ -234,12 +234,51 @@ namespace Tron
             return id;
         }
 
-        // A name a Spawner gives the object it creates (a system the viewer doesn't have), with its template's
-        // class: messages to it count as "(spawned <class>)" in the report, not as dead "(no object)".
+        // A name a Spawner gives the object it creates, with its template's class: messages to it while no
+        // object has it (before the spawn, or a class the viewer doesn't spawn) count as "(spawned <class>)"
+        // in the report, not as dead "(no object)".
         public void Spawned(string name, string cls)
         {
             if (!string.IsNullOrEmpty(name) && !spawned.ContainsKey(name))
                 spawned[name] = string.IsNullOrEmpty(cls) ? "(spawned)" : $"(spawned {cls})";
+        }
+
+        // FindNamedObjects: the regular objects with this name, in the order they joined.
+        public List<int> Named(string name) =>
+            !string.IsNullOrEmpty(name) && byName.TryGetValue(name, out var ids) ? ids.Where(i => !objects[i].Lite).ToList() : new List<int>();
+
+        // SendTriggerMsgToObject: a message to one object (a command runs as one, the object its active target).
+        public void SendTo(int sender, int id, string message) => Deliver(sender, id, message);
+
+        // SendMixedTriggerMsgToObject (an AI's Initial, its queued messages): each part (ParseTriggerMsg)
+        // sent on its own.
+        public void SendMixedTo(int sender, int id, string message)
+        {
+            foreach (var part in MixedParts(message)) Deliver(sender, id, part);
+        }
+
+        // ParseTriggerMsg (ltjs serverutilities.cpp): splits on ';' outside parentheses and quotes (kept in
+        // step with tools/commands.py mixed_parts). Empty text has no parts.
+        public static List<string> MixedParts(string text)
+        {
+            var parts = new List<string>();
+            if (string.IsNullOrEmpty(text)) return parts;
+            int start = 0, depth = 0;
+            bool quote = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c == '(' && !quote) depth++;
+                else if (c == ')' && !quote && depth > 0) depth--;
+                else if (c == '"') quote = !quote;
+                else if (c == ';' && !quote && depth == 0)
+                {
+                    parts.Add(text.Substring(start, i - start));
+                    start = i + 1;
+                }
+            }
+            parts.Add(text.Substring(start));
+            return parts;
         }
 
         public string Name(int id) => id >= 0 && id < objects.Count ? objects[id].Name : "";

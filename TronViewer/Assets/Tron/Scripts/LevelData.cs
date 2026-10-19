@@ -24,6 +24,7 @@ namespace Tron
         public KeyframerJson[] keyframers;   // keyframers, active at start or not (tools/keyframer.py)
         public ActivateTypeJson[] activateTypes; // the use prompts its objects name (tools/activate.py)
         public SpawnJson[] spawns;           // the names spawners give what they create (tools/commands.py spawn_names)
+        public SpawnSiteJson[] spawnSites;   // where Spawners create characters (tools/export_level.py spawn_sites)
         public FxGroupJson[] fxGroups;       // the effect groups its SpecialFX reach (tools/clientfx.py export_group)
         public string[] fxMissing;           // names that find no group
         public ObjectJson[] objects;
@@ -43,7 +44,8 @@ namespace Tron
     // Attachments carry their own (their model's dims, at the parent object's position).
     // pos: where the instance spawns (the object's position after MoveToFloor; attachments: their parent's).
     // anim: the clip a character loops (a name in its model's anims), "" for none.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; }
+    // template 1: a CAIHuman template a Spawner copies (and its attachments), built only at a spawn site.
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; public int template; }
     // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
     [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }
     // A soundbute a model string key plays: one of its files at random, radii in LithTech units.
@@ -178,6 +180,10 @@ namespace Tron
 
     // A name a `spawn` / `spawnfrom` gives the object a Spawner creates, and the class of its template.
     [Serializable] public class SpawnJson { public string name, cls; }
+    // A Spawner creating its CAIHuman template (object indices) at object `at`'s place (the spawner's, or a
+    // spawnfrom object's): the template's root model instance (-1: it draws nothing), where the character
+    // stands there (LT units, after MoveToFloor), the place's rotation (Euler, radians) and the sky's light.
+    [Serializable] public class SpawnSiteJson { public int spawner, at, template, model; public float[] pos, rot; public float sunAmount; }
 
     // An effect group: phase (s) and its keys at detail High, a linked key after the key it follows.
     [Serializable] public class FxGroupJson

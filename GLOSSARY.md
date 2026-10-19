@@ -15,7 +15,7 @@ A model placed in a level as a static object, resolved through the prop/model at
 _Avoid_: static model, decoration
 
 **Character**:
-A `CAIHuman` placed in a level, built from its model template: model, skins, render styles and default attachments.
+A `CAIHuman` placed in a level or spawned from a spawner template, built from its model template: model, skins, render styles and default attachments. Its `Initial` runs on its first update, and the messages it gets before then wait for its second.
 _Avoid_: NPC, enemy, AI (AI is behavior, not the character)
 
 **Model template**:
@@ -115,8 +115,12 @@ What a `msg` command delivers to one or more named objects, such as `on`, `off`,
 _Avoid_: event, signal, command (the command is the whole `msg` line)
 
 **Spawn name**:
-The name a `spawn` or `spawnfrom` message gives the object a Spawner creates from its template. The object exists only after the spawn, so the viewer, which doesn't spawn, reports messages to it as `(spawned <class>)`.
+The name a `spawn` or `spawnfrom` message gives the object a Spawner creates from its template. The object exists only after the spawn; before it, the viewer reports messages to the name as `(spawned <class>)`. Each spawn makes a new object, so several can share a name; a spawn with no name makes an object no `msg` can reach.
 _Avoid_: template name (a spawn can reuse a template's name, but templates themselves never exist)
+
+**Spawn site**:
+Where a Spawner creates its character: its own place, or that of the one object a `spawnfrom` names. The character stands there, dropped to the floor, turned as the place is.
+_Avoid_: spawn point (that is where the player starts)
 
 **Dead target**:
 A `msg` target that names nothing in the level, now or ever: renamed, misspelt, from another level or a missing prefab part. The engine drops the message without a word; the viewer counts it under `(no object)` and never matches a close name.
