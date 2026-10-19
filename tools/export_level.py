@@ -592,6 +592,27 @@ def attach_names(w):
     return [names[k] for k in sorted(names)]
 
 
+def key_attach_names(models, styles, extracted):
+    """The attachments characters' animations hang on them by string key (CCharacter::HandleModelString:
+    `ATTACH <position> <name>`): the keys of every animation each character can play by name (its anims),
+    sorted, one per name (any case)."""
+    names = {}
+    for m in models:
+        if not m.get("anims"):
+            continue
+        own = styles.model(m["file"])
+        mine = list(own.anims) + [a for c in animation.load_children(extracted, m["file"], own, styles.model)
+                                  for a in c.anims]
+        for ref in m["anims"]:
+            pool = styles.model(ref["from"]).anims if ref["from"] else mine
+            anim = next((a for a in pool if a.name.lower() == ref["name"].lower()), None)
+            for _t, text in getattr(anim, "commands", []):
+                for st in commands.statements(text):
+                    if len(st) == 3 and st[0].upper() == "ATTACH":
+                        names.setdefault(st[2].lower(), st[2])
+    return [names[k] for k in sorted(names)]
+
+
 def attachables(names, resolver, styles, extracted, render_styles):
     """What each attach name draws (Resolver.attachable), as a model instance the viewer builds on the
     character's socket when the message comes: {name, file, skins, styles, pieces, skinned 1, dims, visRadius}.
@@ -737,7 +758,8 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
                                             templates={s["template"] for s in sites},
                                             named_anims=scripted_anims(w))
 
-    attached = attachables(attach_names(w), resolver, styles, extracted, render_styles)
+    names = {n.lower(): n for n in key_attach_names(models, styles, extracted) + attach_names(w)}
+    attached = attachables([names[k] for k in sorted(names)], resolver, styles, extracted, render_styles)
     soundbutes = sounds.soundbutes(extracted)
     fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted), talk_icon_groups(w))
     fx_models(fx, styles, extracted, render_styles)

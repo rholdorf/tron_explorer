@@ -63,6 +63,18 @@ def test_a_character_carries_its_skeletons_look_at_nodes(extracted):
          "maxVel": 180.0}]
 
 
+def test_animation_string_keys_attach_too(extracted):
+    # CCharacter::HandleModelString `ATTACH <position> <name>` (three words; m10_pop.ltb's M10PopBloody puts a
+    # Tablet in Popoff's left hand). The pool is what the character plays by name.
+    styles = export_models.Styles(extracted)
+    models = [{"file": "chars/models/civmale.ltb",
+               "anims": [{"name": "M10PopBloody", "from": "chars/models/cinematic/mission10/m10_pop.ltb"},
+                         {"name": "m11AlanPulls", "from": "chars/models/cinematic/mission11/m11_ralan.ltb"}]}]
+    assert export_level.key_attach_names(models, styles, extracted) == ["Hard_Drive", "Tablet"]
+    resolver = export_models.Resolver(extracted)
+    assert export_level.attachables(["Tablet"], resolver, styles, extracted, [])[0]["name"] == "Tablet"
+
+
 def test_a_name_that_draws_nothing_is_left_out(extracted):
     resolver, styles = export_models.Resolver(extracted), export_models.Styles(extracted)
     assert export_level.attachables(["NoSuchThing"], resolver, styles, extracted, []) == []

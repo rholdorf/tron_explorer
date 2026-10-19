@@ -136,6 +136,46 @@ namespace Tron
         // Its GameBase REMOVE: it takes no more messages and stops updating.
         public void Remove() => Removed = true;
 
+        readonly List<string> keys = new List<string>();
+
+        // A string key its animation crossed (MID_MODELSTRINGKEY), run in the next command frame (RunKeys).
+        public void ModelKey(string text)
+        {
+            if (!Removed) keys.Add(text);
+        }
+
+        // CCharacter::HandleModelString for each statement of each key: `CMD <command>` rebuilds the command from
+        // its words (one holding a space in parentheses) and runs it if valid (IsValidCmd, Process) with the
+        // character as sender and active target; `ATTACH <position> <name>` and `DETACH <position>` (those word
+        // counts only) as the messages; `ON` / `OFF <object>` send that to the one object of the name. Its other
+        // keys (FOOTSTEP_KEY, BUTE_SOUND_KEY, DEATHFX...) do nothing here.
+        internal void RunKeys()
+        {
+            if (Removed) keys.Clear();
+            for (int i = 0; i < keys.Count; i++)
+                foreach (var words in ConParse.Statements(keys[i]))
+                {
+                    if (words.Length == 0) continue;
+                    bool Is(string k) => string.Equals(words[0], k, StringComparison.OrdinalIgnoreCase);
+                    if (Is("ATTACH") && words.Length == 3) Attach?.Invoke(words[1], words[2]);
+                    else if (Is("DETACH") && words.Length == 2) Detach?.Invoke(words[1]);
+                    else if ((Is("ON") || Is("OFF")) && words.Length == 2)
+                    {
+                        int o = FindNamed(words[1]);
+                        if (o >= 0) commands.SendTo(Id, o, Is("ON") ? "ON" : "OFF");
+                    }
+                    else if (Is("CMD") && words.Length >= 2)
+                    {
+                        var parts = new string[words.Length - 1];
+                        for (int w = 1; w < words.Length; w++)
+                            parts[w - 1] = words[w].IndexOf(' ') >= 0 ? "(" + words[w] + ")" : words[w];
+                        commands.Run(string.Join(" ", parts), Id, Id);
+                    }
+                    if (Removed) break;
+                }
+            keys.Clear();
+        }
+
         internal bool OnMessage(Message m)
         {
             if (Removed) return false;
@@ -421,6 +461,12 @@ namespace Tron
         public void Update(float frameTime)
         {
             foreach (var a in all) a.Update(frameTime);
+        }
+
+        // The string keys the animations crossed since the last command frame, after the actors' updates.
+        public void RunKeys()
+        {
+            for (int i = 0; i < all.Count; i++) all[i].RunKeys();
         }
     }
 }

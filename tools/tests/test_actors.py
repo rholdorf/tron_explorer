@@ -35,6 +35,8 @@ sealed class FakeAnimation : IActorAnimation
     readonly string who;
     readonly AnimTrack track;
     readonly List<string> names = new List<string>();
+    readonly List<string[]> texts = new List<string[]>();
+    public Action<string> OnKey;
     public FakeAnimation(string who, string clips)
     {
         this.who = who;
@@ -43,9 +45,18 @@ sealed class FakeAnimation : IActorAnimation
         {
             var p = c.Split(':');
             names.Add(p[0]);
-            infos.Add(new AnimTrack.ClipInfo { Times = Array.ConvertAll(p[1].Split(','), F), Interp = F(p[2]) });
+            // string keys: "t=text|t=text", '~' standing for ';' in the text
+            var keys = p.Length > 3 ? p[3].Split('|') : new string[0];
+            texts.Add(Array.ConvertAll(keys, k => k.Substring(k.IndexOf('=') + 1).Replace('~', ';')));
+            infos.Add(new AnimTrack.ClipInfo { Times = Array.ConvertAll(p[1].Split(','), F), Interp = F(p[2]),
+                                               Keys = Array.ConvertAll(keys, k => F(k.Substring(0, k.IndexOf('=')))) });
         }
         track = new AnimTrack(infos);
+    }
+    void Flush()
+    {
+        foreach (var (clip, key) in track.Fired) OnKey?.Invoke(texts[clip][key]);
+        track.Fired.Clear();
     }
     static float F(string s) => float.Parse(s, CultureInfo.InvariantCulture);
     int Find(string n) => names.FindIndex(x => string.Equals(x, n, StringComparison.OrdinalIgnoreCase));
@@ -55,16 +66,22 @@ sealed class FakeAnimation : IActorAnimation
         int i = Find(n);
         if (i < 0) return false;
         track.Play(i, loop);
+        Flush();
         if (Program.Verbose) Console.WriteLine("play\t" + who + "\t" + names[i] + "\t" + (loop ? 1 : 0));
         return true;
     }
     public void Restart(bool loop)
     {
         track.Restart(loop);
+        Flush();
         Console.WriteLine("restart\t" + who + "\t" + (loop ? 1 : 0));
     }
     public bool Done => track.Done;
-    public void Advance(float dt) => track.Advance(dt);
+    public void Advance(float dt)
+    {
+        track.Advance(dt);
+        Flush();
+    }
 }
 
 static class Program
@@ -104,7 +121,8 @@ static class Program
                     anim.Play(a[2], true);
                     anims.Add(anim);
                     var actor = actors.Add(id, anim, a[2], new LTVec(0, 0, 0), Yaw(0), new LTVec(10, float.Parse(a[4], CultureInfo.InvariantCulture), 10));
-                    actor.PositionOf = o => byName.TryGetValue(mgr.Name(o), out var other) && mgr.Class(o) == "CAIHuman" ? other.Pos : positions.TryGetValue(o, out var p) ? p : (LTVec?)null;
+                    anim.OnKey = actor.ModelKey;
+                    actor.PositionOf =o => byName.TryGetValue(mgr.Name(o), out var other) && mgr.Class(o) == "CAIHuman" ? other.Pos : positions.TryGetValue(o, out var p) ? p : (LTVec?)null;
                     actor.TeleportPointOf = o => points.TryGetValue(o, out var tp) ? tp : ((LTVec, LTQuat, bool)?)null;
                     actor.CastDown = (from, to) => floor.HasValue && floor.Value <= from.y && floor.Value >= to.y ? floor : null;
                     actor.ShowAttachments = on => Console.WriteLine("attachments\t" + who + "\t" + (on ? 1 : 0));
@@ -129,8 +147,17 @@ static class Program
                     break;
                 }
                 case "obj":
-                    positions[mgr.Join(a[1], a[2])] = P(a[3]);
+                {
+                    int id = mgr.Join(a[1], a[2]);
+                    positions[id] = P(a[3]);
+                    string n = a[1];
+                    mgr.Handle(id, m =>
+                    {
+                        Console.WriteLine("msg\t" + n + "\t" + (m.Sender >= 0 ? mgr.Name(m.Sender) : "-") + "\t" + string.Join("|", m.Words));
+                        return true;
+                    });
                     break;
+                }
                 case "floor":
                     floor = float.Parse(a[1], CultureInfo.InvariantCulture);
                     break;
@@ -144,6 +171,7 @@ static class Program
                     frame++;
                     characters.Update();
                     actors.Update(dt);
+                    actors.RunKeys();
                     foreach (var an in anims) an.Advance(dt);
                     Console.WriteLine("frame\t" + frame);
                     break;
@@ -363,3 +391,38 @@ def test_the_three_talk_icons_are_one_icon_on_while_any_last_said_so(driver):
     out = driver([JET, *START, ("run", "msg jet (sayicon 1 12026); msg jet (listenicon true); msg jet (askicon 0); "
                                        "msg jet (askicon 0); msg jet (listenicon yes)")])
     assert out == [*STARTED, ("talkicon", "jet", "1"), ("talkicon", "jet", "0"), ("talkicon", "jet", "1")]
+
+
+# A once animation with string keys: a CMD key at 0.5 s and one at 0.5 s holding two statements.
+KEYED = ("character", "jet", "Idle", "Idle:0,2:0;Examine:0,1:0:0.5=cmd msg door (on)|1=cmd msg door off~FOOTSTEP_KEY 1", 30)
+
+
+def test_a_cmd_string_key_runs_its_command_from_the_character_in_the_next_command_frame(driver):
+    # CCharacter::HandleModelString: `CMD <command>` runs IsValidCmd + Process with the character as sender and
+    # active target; other keys (FOOTSTEP_KEY) do nothing here. Frame 3 plays Examine; its time crosses 0.5 s
+    # as the animations advance after frame 4's update, and the command runs in frame 5's command frame.
+    out = driver([KEYED, ("obj", "door", "Door", "0,0,0"), *START,
+                  ("run", "msg jet (goalscript animate anim=Examine)"), ("frame", 0.25), ("frame", 0.25),
+                  ("frame", 0.5), ("frame", 0.5)])
+    assert out == [*STARTED, ("play", "jet", "Examine", "0"), ("frame", "3"), ("frame", "4"),
+                   ("msg", "door", "jet", "on"), ("frame", "5"), ("msg", "door", "jet", "off"), ("frame", "6")]
+
+
+def test_a_removed_characters_keys_run_nothing(driver):
+    out = driver([KEYED, ("obj", "door", "Door", "0,0,0"), *START,
+                  ("run", "msg jet (goalscript animate anim=Examine)"), ("frame", 0.5), ("run", "msg jet remove"),
+                  ("frame", 0.5)])
+    assert ("msg", "door", "jet", "on") not in out
+
+
+def test_attach_detach_on_and_off_string_keys(driver):
+    # HandleModelString: ATTACH with exactly a position and a name, DETACH with exactly a position (m01_jet's
+    # `DETACH LeftLowerArm Jet_Disc` has one word too many: nothing), ON / OFF <object> send it ON / OFF.
+    keyed = ("character", "jet", "Idle",
+             "Idle:0,2:0;Examine:0,1:0:0=ATTACH LeftLowerArm Jet_Disc~DETACH LeftLowerArm Jet_Disc~DETACH RightHand"
+             "|0.5=ON door~OFF door~ON nobody", 30)
+    out = driver([keyed, ("obj", "door", "Door", "0,0,0"), *START,
+                  ("run", "msg jet (goalscript animate anim=Examine)"), ("frame", 0.5), ("frame", 0.5)])
+    assert out == [*STARTED, ("play", "jet", "Examine", "0"), ("attach", "jet", "LeftLowerArm", "Jet_Disc"),
+                   ("detach", "jet", "RightHand"), ("frame", "3"), ("msg", "door", "jet", "ON"),
+                   ("msg", "door", "jet", "OFF"), ("frame", "4")]
