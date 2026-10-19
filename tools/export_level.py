@@ -358,8 +358,21 @@ def bute_sound_keys(styles, models):
     return names
 
 
+def shake_sounds(objects):
+    """The ShakeSound names of a level's ScreenShake objects (level.json form), once each, in order."""
+    names = []
+    for o in objects:
+        if o["cls"] != "ScreenShake":
+            continue
+        name = next((p["s"] for p in o["props"] if p["k"] == "ShakeSound" and p["t"] == "s"), "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def bute_sounds(names, soundbutes):
-    """Each soundbute a model string key plays: its files and radii (inherited through its Parent)."""
+    """Each soundbute a model string key or a ScreenShake plays: its files and radii (inherited through its
+    Parent)."""
     return [{"name": n, "files": soundbutes.files(n), "inner": float(soundbutes.get(n, "innerradius", 0.0)),
              "outer": float(soundbutes.get(n, "outerradius", 0.0))} for n in names if soundbutes.is_soundbute(n)]
 
@@ -763,6 +776,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
     soundbutes = sounds.soundbutes(extracted)
     fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted), talk_icon_groups(w))
     fx_models(fx, styles, extracted, render_styles)
+    key_sounds = bute_sound_keys(styles, models)
     meta = {
         "version": FORMAT_VERSION,
         "name": rel_name,
@@ -789,7 +803,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
         "objects": objects,
         "models": models,
         "attachables": attached,
-        "buteSounds": bute_sounds(bute_sound_keys(styles, models), soundbutes),
+        "buteSounds": bute_sounds(key_sounds + [n for n in shake_sounds(objects) if n not in key_sounds], soundbutes),
         "renderStyles": render_styles,
         "lightGrid": {"origin": list(w.light_grid.base), "cell": list(w.light_grid.cell),
                       "dims": list(w.light_grid.dims)},

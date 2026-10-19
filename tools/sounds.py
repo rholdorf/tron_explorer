@@ -1,6 +1,6 @@
 """Sound files: which files a level's sound names play, and their export as 16-bit PCM WAV.
 
-A sound name (SoundFX Sound, SoundButeFX SoundBute, KeyFramer ActiveSound, the state sounds of doors,
+A sound name (SoundFX Sound, SoundButeFX SoundBute, KeyFramer ActiveSound, ScreenShake ShakeSound, the state sounds of doors,
 switches and moving world models) is looked up as a soundbute
 first and taken as a file path otherwise (CGameSoundMgr FillPSIFromButeOrParams). A soundbute plays one
 of its Path0..N files; missing keys come from its Parent chain (CHierarchicalButeMgr).
@@ -114,7 +114,8 @@ AWM_SOUNDS = ("PowerOnSound", "OnSound", "PowerOffSound", "OffSound", "LockedSou
 DOOR_SOUNDS = ("OpeningSound", "OpenSound", "ClosingSound", "ClosedSound")
 
 # The sound name properties of each class that plays one, in the order they're listed
-SOUND_PROPS = {"SoundFX": ("Sound",), "SoundButeFX": ("SoundBute",), "KeyFramer": ("ActiveSound",)}
+SOUND_PROPS = {"SoundFX": ("Sound",), "SoundButeFX": ("SoundBute",), "KeyFramer": ("ActiveSound",),
+               "ScreenShake": ("ShakeSound",)}
 for _cls in ("SlidingWorldModel", "RotatingWorldModel", "SlidingSwitch", "RotatingSwitch"):
     SOUND_PROPS[_cls] = AWM_SOUNDS
 for _cls in ("SlidingDoor", "RotatingDoor"):

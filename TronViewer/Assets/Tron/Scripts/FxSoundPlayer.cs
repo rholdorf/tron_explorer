@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Tron
 {
-    // Plays the effects' sounds (FxSound) through AmbientSound, the placed sounds' rules: falloff between the
+    // Plays the effects' sounds (FxSound), and the screen shakes', through AmbientSound, the placed sounds' rules: falloff between the
     // key's radii, earshot, the volume curve, behind-the-listener loss, priority. 3D unless PlayLocal (then
     // unpanned at full falloff); pitch changes speed too. Each voice is a GameObject under the level root
     // (LT units), pooled: a killed voice waits for the next sound. A file missing from the export plays
@@ -32,9 +32,14 @@ namespace Tron
             }
         }
 
-        public IFxVoice Play(FxSound fx, LTVec pos)
+        public IFxVoice Play(FxSound fx, LTVec pos) =>
+            PlayAt(fx.Sound, pos, fx.Inner, fx.Outer, fx.Volume, fx.Local, fx.Priority, fx.Loop, fx.Pitch);
+
+        // A sound file at pos (LT units), between the radii; volume 0-100; priority as the game's (0: MISC_LOW).
+        public IFxVoice PlayAt(string file, LTVec pos, float inner, float outer, int volume = 100, bool local = false,
+                               int priority = 0, bool loop = false, float pitch = 1)
         {
-            var clip = SoundLoader.Load(fx.Sound);
+            var clip = SoundLoader.Load(file);
             if (!clip) return null;
             var v = free.Count > 0 ? free.Pop() : null;
             if (v == null)
@@ -45,14 +50,14 @@ namespace Tron
             }
             var a = v.Sound;
             a.gameObject.SetActive(true);
-            a.Inner = fx.Inner;
-            a.Outer = fx.Outer;
-            a.Volume = fx.Volume;
-            a.Local = fx.Local;
-            a.Source.spatialBlend = fx.Local ? 0 : 1;
-            a.Source.priority = AmbientVolume.UnityPriority(fx.Priority);
+            a.Inner = inner;
+            a.Outer = outer;
+            a.Volume = volume;
+            a.Local = local;
+            a.Source.spatialBlend = local ? 0 : 1;
+            a.Source.priority = AmbientVolume.UnityPriority(priority);
             v.Move(pos);
-            a.Play(clip, fx.Loop, fx.Pitch);
+            a.Play(clip, loop, pitch);
             return v;
         }
     }

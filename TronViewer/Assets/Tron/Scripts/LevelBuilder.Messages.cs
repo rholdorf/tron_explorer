@@ -12,8 +12,8 @@ namespace Tron
     // comes first, so a removed object takes no more messages; the class words don't overlap with it.
     public partial class LevelBuilder
     {
-        // Object ids that have their GameBase handler.
-        readonly HashSet<int> withFlags = new HashSet<int>();
+        // Object ids that have their GameBase handler, and their flags.
+        readonly Dictionary<int, GameBaseFlags> withFlags = new Dictionary<int, GameBaseFlags>();
 
         // The level's object ids by name (any case), in level order: built once, on first use.
         Dictionary<string, List<int>> objectsByName;
@@ -62,7 +62,7 @@ namespace Tron
             }
             if (remove != null) f.Remove += remove;
             Commands.Handle(id, f.OnMessage);
-            withFlags.Add(id);
+            withFlags[id] = f;
             return f;
         }
 
@@ -100,7 +100,7 @@ namespace Tron
                 if (obj == null) continue;
                 var named = ObjectsNamed(obj.name);
                 int k = named.FindIndex(i => Data.objects[i] == obj);   // the owner, of the objects with its name
-                if (k < 0 || withFlags.Contains(named[k])) continue;
+                if (k < 0 || withFlags.ContainsKey(named[k])) continue;
                 int id = named[k];
                 if (!WorldModelObjects.TryGetValue(kv.Key, out var wm)) continue;
                 var gos = new[] { wm };
@@ -112,7 +112,7 @@ namespace Tron
             }
             foreach (var kv in modelObjects)
             {
-                if (withFlags.Contains(kv.Key)) continue;
+                if (withFlags.ContainsKey(kv.Key)) continue;
                 var obj = Data.objects[kv.Key];
                 var gos = kv.Value;
                 var start = StartFlags.Visible | If(obj.Bool("Solid", true), StartFlags.Solid) |

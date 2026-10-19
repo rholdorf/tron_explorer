@@ -559,6 +559,7 @@ namespace Tron
                 scene.Playing = playing;
                 scene.Suspended = capturing || benchAt;
             }
+            if (level?.IOCamView) level.IOCamView.Suspended = capturing || benchAt;
             if (player) player.InputEnabled = playing && !(scene && scene.ShowingScene);
             if (level != null)
             {
@@ -658,6 +659,8 @@ namespace Tron
                 GUI.DrawTexture(new Rect(0, Screen.height - bar, Screen.width, bar), Texture2D.whiteTexture);
                 GUI.color = prev;
             }
+            // iocam's IONode frame (CHUDIOCamera), over its inset, under the rest of the HUD.
+            if (Event.current.type == EventType.Repaint && level?.IOCamView && !menuOpen) level.IOCamView.DrawFrame();
             // The screen fade's black overlay, over the scene and its glow, under the viewer's HUD and menu.
             if (Event.current.type == EventType.Repaint && level != null && fade.Alpha > 0)
             {

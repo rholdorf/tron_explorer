@@ -12,6 +12,7 @@ namespace Tron
         public Characters Characters;   // the characters' first updates, after the command table
         public Actors Actors;           // then the characters' AI updates (Actors.cs)
         public Dialogues Dialogues;     // the dialogues' updates and the subtitle's clock, after them
+        public ScreenShakes ScreenShakes;   // then the screen shakes' timers
 
         void Update()
         {
@@ -20,6 +21,7 @@ namespace Tron
             Actors?.Update(Commands?.FrameTime ?? Time.deltaTime);
             Actors?.RunKeys();   // the string keys their animations crossed (CMD keys run commands)
             Dialogues?.Update(Time.deltaTime);
+            ScreenShakes?.Update();
         }
     }
 }

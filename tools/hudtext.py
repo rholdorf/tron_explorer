@@ -148,13 +148,32 @@ def subtitle_layout(extracted):
             "cinematicPos": _point(s["pos"]), "cinematicWidth": s["width"]}
 
 
+def iocam_layout(extracted):
+    """The IO camera's inset (layout.txt [Miscellaneous] IOCameraRect, IOCameraFOVX/Y, read by cshell.dll at
+    0x100a7200) and its HUD frame ([IONodeCam], CHUDIOCamera), in 640x480 layout units, as the viewer's IOCamLayout
+    names them. Piece2MaxFlicker is spelt so in the file."""
+    layout = butes.load(os.path.join(extracted, "attributes", "layout.txt"))
+    m, c = layout["Miscellaneous"], layout["IONodeCam"]
+    return {"rect": _point(m["iocamerarect"]), "fovX": float(m["iocamerafovx"]), "fovY": float(m["iocamerafovy"]),
+            "center": _point(c["center"]),
+            "piece1Tex": butes.norm(c["piece1tex"]), "piece1MinAlpha": c["piece1minalpha"],
+            "piece1MaxAlpha": c["piece1maxalpha"], "piece1Period": c["piece1period"], "piece1Radius": c["piece1radius"],
+            "piece2Tex": butes.norm(c["piece2tex"]), "piece2MinInterval": c["piece2mininterval"],
+            "piece2MaxInterval": c["piece2maxinterval"], "piece2MinRadius": c["piece2minradius"],
+            "piece2MaxRadius": c["piece2maxradius"], "piece2MinFlickers": c["piece2minflickers"],
+            "piece2MaxFlickers": c["piece2maxflicker"], "piece2FlickerTime": c["piece2flickertime"]}
+
+
 def export_hud(extracted, out_root):
-    """Writes <out_root>/hud/{strings.json, font.png, font.json, subtitles.json} and the HUD's sound files.
+    """Writes <out_root>/hud/{strings.json, font.png, font.json, subtitles.json, iocam.json} and the HUD's sound
+    files.
     Returns (strings, glyphs, sound files exported)."""
     out = os.path.join(out_root, "hud")
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "subtitles.json"), "w") as f:
         json.dump(subtitle_layout(extracted), f, separators=(",", ":"))
+    with open(os.path.join(out, "iocam.json"), "w") as f:
+        json.dump(iocam_layout(extracted), f, separators=(",", ":"))
     strings = read_strings(os.path.join(extracted, "cres.dll"))
     ids = sorted(strings)
     with open(os.path.join(out, "strings.json"), "w", encoding="utf-8") as f:

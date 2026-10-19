@@ -32,6 +32,11 @@ def test_a_level_names_sounds_in_soundfx_soundbutefx_and_keyframers_whether_live
     assert sounds.sound_names(objects) == ["Snd\\amb\\drone12.WAV", "routerrands", "snd\\lifts\\lift1.wav"]
 
 
+def test_a_screen_shake_names_its_shake_sound():
+    objects = [obj("ScreenShake", ShakeSound="screenshake_ones2"), obj("ScreenShake", ShakeSound="")]
+    assert sounds.sound_names(objects) == ["screenshake_ones2"]
+
+
 def test_a_pcm_file_is_copied_as_it_is(extracted, tmp_path):
     out = sounds.export_file(extracted, "snd/amb/drone12.wav", str(tmp_path))
     assert out == os.path.join(str(tmp_path), "sounds", "snd", "amb", "drone12.wav")
@@ -72,3 +77,13 @@ def test_doors_switches_and_moving_world_models_name_the_sounds_of_their_states(
     assert sounds.sound_names(objects) == [
         "snd\\doors\\Door1.WAV", "snd\\doors\\Door2.WAV", "snd\\lifts\\lift_02_sp.wav", "snd\\switch\\lock_1.wav",
         "snd\\switch\\keypad_02.WAV", "snd\\event\\surgefuseblow.wav", "snd\\a.wav", "snd\\b.wav"]
+
+
+def test_a_level_lists_the_files_of_the_soundbutes_its_screen_shakes_play(extracted):
+    # The viewer picks one of them for each pulse (PlaySoundFromPos); a plain file plays as it is.
+    import export_level
+    objects = [obj("ScreenShake", ShakeSound="screenshake_ones"), obj("ScreenShake", ShakeSound="Weapons\\impacts\\dullimpact.WAV"),
+               obj("ScreenShake", ShakeSound="screenshake_ones"), obj("Prop", ShakeSound="screenshake_ones2")]
+    assert export_level.shake_sounds(objects) == ["screenshake_ones", "Weapons\\impacts\\dullimpact.WAV"]
+    [b] = export_level.bute_sounds(export_level.shake_sounds(objects), sounds.soundbutes(extracted))
+    assert b["files"] == ["snd/event/screenshake_02.wav", "snd/event/screenshake_01.wav", "snd/event/screenshake_03.wav"]

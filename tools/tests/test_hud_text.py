@@ -194,3 +194,16 @@ def test_the_hud_sounds_are_exported(hud):
     out, _, _, files = hud
     assert files == ["interface/snd/type.wav", "interface/snd/enter.wav", "interface/snd/msgfadeout.wav"]
     assert all((out / "sounds" / f).is_file() for f in files)
+
+
+def test_the_io_camera_and_its_frame_are_exported_as_layout_txt_has_them(hud):
+    # layout.txt [Miscellaneous] IOCameraRect / FOVX / FOVY (the live line, not the commented-out older rect) and
+    # [IONodeCam], named as the viewer's IOCamLayout reads them.
+    out, _, _, _ = hud
+    assert json.loads((out / "hud" / "iocam.json").read_text()) == {
+        "rect": [252, 105, 389, 278], "fovX": 70.0, "fovY": 60.0, "center": [320, 357],
+        "piece1Tex": "interface/hud/ionode_hud.dtx", "piece1MinAlpha": 0.27, "piece1MaxAlpha": 0.36,
+        "piece1Period": 3.0, "piece1Radius": 256.0,
+        "piece2Tex": "interface/hud/ionode_static.dtx", "piece2MinInterval": 0.01, "piece2MaxInterval": 0.25,
+        "piece2MinRadius": 248.0, "piece2MaxRadius": 264.0, "piece2MinFlickers": 12, "piece2MaxFlickers": 22,
+        "piece2FlickerTime": 0.04}
