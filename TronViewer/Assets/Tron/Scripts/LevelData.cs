@@ -292,6 +292,7 @@ namespace Tron
         public LTVec LTPosition => new LTVec(pos[0], pos[1], pos[2]);   // the same, for the plain C# cores
         // LithTech stores (pitch, yaw, roll) in radians; both engines are left-handed Y-up.
         public Quaternion Rotation => Quaternion.Euler(rot[0] * Mathf.Rad2Deg, rot[1] * Mathf.Rad2Deg, rot[2] * Mathf.Rad2Deg);
+        public LTQuat LTRotation => LTQuat.FromEuler(rot[0], rot[1], rot[2]);   // the engine's LTRotation, for the cores
     }
 
     [Serializable] public class LevelIndexJson { public string[] levels; }

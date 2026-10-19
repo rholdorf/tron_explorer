@@ -208,7 +208,7 @@ namespace Tron
                         }
                         else if (pointObjects.TryGetValue(i, out var sfx)) gos = new[] { sfx };
                         else gos = Array.Empty<Transform>();
-                        motion.AddTarget(new LTVec(pos.x, pos.y, pos.z), LTQuat.FromEuler(obj.rot[0], obj.rot[1], obj.rot[2]));
+                        motion.AddTarget(new LTVec(pos.x, pos.y, pos.z), obj.LTRotation);
                         shown.Add(gos);
                     }
                 }

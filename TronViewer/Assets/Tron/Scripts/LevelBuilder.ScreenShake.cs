@@ -63,7 +63,7 @@ namespace Tron
         // The player joins (ConnectPlayer): what the shakes measure their area from, and its IOCAM message.
         void ConnectShakes(int id, PlayerController p)
         {
-            ScreenShakes.PlayerPos = () => p ? AsLT(Root.transform.InverseTransformPoint(p.transform.position)) : (LTVec?)null;
+            ScreenShakes.PlayerPos = () => p ? WorldToLT(p.transform.position) : (LTVec?)null;
             IOCam.Handle(Commands, id, PlaceOf, FirstAlive, Exists);
         }
 
@@ -72,18 +72,7 @@ namespace Tron
         // FindNamedObjects' first object of the name that is still in the level, -1 if none.
         int FirstAlive(string name) => Commands.Named(name).Where(Exists).DefaultIfEmpty(-1).First();
 
-        // The position and rotation the first object of that name has now: a character where it stands, a point a
-        // keyframer moves where it is, else where the level placed it.
-        CameraPose? PlaceOf(string name)
-        {
-            int id = FirstAlive(name);
-            if (id < 0) return null;
-            var actor = Body(id)?.Actor;
-            if (actor != null) return new CameraPose(actor.Pos, actor.Rot);
-            if (id >= Data.objects.Length) return null;
-            if (pointObjects.TryGetValue(id, out var t) && t) return new CameraPose(AsLT(t.localPosition), AsLT(t.localRotation));
-            var o = Data.objects[id];
-            return new CameraPose(o.LTPosition, LTQuat.FromEuler(o.rot[0], o.rot[1], o.rot[2]));
-        }
+        // The position and rotation the first object of that name still in the level has now (PoseOf).
+        CameraPose? PlaceOf(string name) => PoseOf(FirstAlive(name));
     }
 }

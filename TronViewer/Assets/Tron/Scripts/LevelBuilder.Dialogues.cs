@@ -32,8 +32,8 @@ namespace Tron
             voices.Host = SpeakerTransform;
             Dialogues.PlayVoice = voices.Play;
             Dialogues.KillVoice = voices.Kill;
-            Dialogues.SpeakerPos = id => ToLT(SpeakerTransform(id).position);
-            Dialogues.ListenerPos = () => ToLT(ListenerPosition());
+            Dialogues.SpeakerPos = id => WorldToLT(SpeakerTransform(id).position);
+            Dialogues.ListenerPos = () => WorldToLT(ListenerPosition());
             Root.GetComponent<CommandTicker>().Dialogues = Dialogues;
 
             var list = Data.dialogues ?? new DialogueJson[0];
@@ -84,12 +84,6 @@ namespace Tron
             go.transform.SetParent(Root.transform, false);
             go.transform.localPosition = Data.objects[id].Position;
             return speakerPlaces[id] = go.transform;
-        }
-
-        LTVec ToLT(Vector3 world)
-        {
-            var p = Root.transform.InverseTransformPoint(world);
-            return new LTVec(p.x, p.y, p.z);
         }
 
         static AudioListener listener;

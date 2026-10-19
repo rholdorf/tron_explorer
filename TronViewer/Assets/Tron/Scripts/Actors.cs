@@ -412,12 +412,7 @@ namespace Tron
             Track?.Invoke(on);
         }
 
-        // FindNamedObject: the one object with the name (none or several: -1).
-        int FindNamed(string name)
-        {
-            var ids = commands.Named(name);
-            return ids.Count == 1 ? ids[0] : -1;
-        }
+        int FindNamed(string name) => commands.FindNamed(name);
 
         static float Dot(LTVec a, LTVec b) => a.x * b.x + a.y * b.y + a.z * b.z;
 

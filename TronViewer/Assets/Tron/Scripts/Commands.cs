@@ -247,6 +247,13 @@ namespace Tron
         public List<int> Named(string name) =>
             !string.IsNullOrEmpty(name) && byName.TryGetValue(name, out var ids) ? ids.Where(i => !objects[i].Lite).ToList() : new List<int>();
 
+        // FindNamedObject: the one regular object with this name, -1 for none or several.
+        public int FindNamed(string name)
+        {
+            var ids = Named(name);
+            return ids.Count == 1 ? ids[0] : -1;
+        }
+
         // SendTriggerMsgToObject: a message to one object (a command runs as one, the object its active target).
         public void SendTo(int sender, int id, string message) => Deliver(sender, id, message);
 

@@ -118,8 +118,8 @@ namespace Tron
             if (m.Is("SPAWN")) Spawn(id, sp, id, m.Arg(0));
             else if (m.Is("SPAWNFROM"))
             {
-                var from = commands.Named(m.Arg(0));
-                Spawn(id, sp, from.Count == 1 && sp.Sites.ContainsKey(from[0]) ? from[0] : id, m.Arg(1));
+                int from = commands.FindNamed(m.Arg(0));
+                Spawn(id, sp, from >= 0 && sp.Sites.ContainsKey(from) ? from : id, m.Arg(1));
             }
             return true;
         }
