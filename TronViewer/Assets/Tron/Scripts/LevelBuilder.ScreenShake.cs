@@ -28,16 +28,12 @@ namespace Tron
             var jitter = Root.GetComponent<CameraJitter>();
             if (!jitter) jitter = Root.AddComponent<CameraJitter>();
             jitter.Shake = CameraShake;
-            var buteSounds = new Dictionary<string, ButeSoundJson>(StringComparer.OrdinalIgnoreCase);
-            foreach (var b in Data.buteSounds ?? Array.Empty<ButeSoundJson>()) buteSounds[b.name] = b;
             var player = Root.GetComponent<FxSoundPlayer>();
             if (!player) player = Root.AddComponent<FxSoundPlayer>();
-            var rng = new System.Random();
             ScreenShakes.PlaySound = (pos, sound, radius) =>
             {
-                var file = buteSounds.TryGetValue(sound.Trim(), out var b)
-                    ? (b.files != null && b.files.Length > 0 ? b.files[rng.Next(b.files.Length)] : null) : sound;
-                if (file != null) player.PlayAt(file, pos, radius * Dialogues.InnerRadiusPercent, radius);
+                var file = ButeSounds.TryGetValue(sound.Trim(), out var b) ? b.AnyFile() : sound;
+                if (file != null) player.PlayAt(file, pos, radius * AmbientSound.InnerRadiusPercent, radius);
             };
             for (int i = 0; i < Data.objects.Length; i++)
             {

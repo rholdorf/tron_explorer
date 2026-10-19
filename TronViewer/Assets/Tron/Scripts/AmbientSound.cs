@@ -17,6 +17,8 @@ namespace Tron
         // Scales every placed sound before the curve; the game's defaults by default.
         public static float Master = AmbientVolume.GameMaster;
 
+        public const float InnerRadiusPercent = 0.25f;   // SMGR_DEFAULT_INNERRADIUSPERCENT: a 3D sound's inner radius
+
         public float Inner, Outer;   // LT units
         public int Volume = 100;     // 0-100
         public bool Ambient;
@@ -26,6 +28,16 @@ namespace Tron
         public bool IsPlaying => Source.isPlaying;
 
         static AudioListener listener;
+
+        // Its radii (LT units), volume (0-100), and whether it plays client-local (unpanned) or 3D.
+        public void Set(float inner, float outer, int volume, bool local)
+        {
+            Inner = inner;
+            Outer = outer;
+            Volume = volume;
+            Local = local;
+            Source.spatialBlend = local ? 0 : 1;
+        }
 
         // priority: the engine's (higher wins; SoundFX its prop, SoundButeFX 0, ActiveSound 1).
         public static AmbientSound Add(GameObject host, float inner, float outer, int volume, bool ambient, int priority)

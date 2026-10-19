@@ -22,10 +22,7 @@ namespace Tron
                 go.transform.SetParent(Host(v.Speaker), false);
                 a = voices[v.Speaker] = AmbientSound.Add(go, 0, 0, 100, false, 2);
             }
-            a.Inner = Dialogues.InnerRadiusPercent * v.Radius;
-            a.Outer = v.Radius;
-            a.Local = v.Local;
-            a.Source.spatialBlend = v.Local ? 0 : 1;
+            a.Set(AmbientSound.InnerRadiusPercent * v.Radius, v.Radius, 100, v.Local);
             a.Play(clip, false);
         }
 

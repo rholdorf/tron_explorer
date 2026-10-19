@@ -412,8 +412,6 @@ namespace Tron
                 }
                 looks[look.name] = mats;
             }
-            var sounds = new Dictionary<string, ButeSoundJson>(StringComparer.OrdinalIgnoreCase);
-            foreach (var b in Data.buteSounds ?? Array.Empty<ButeSoundJson>()) sounds[b.name] = b;
             var sm = go.AddComponent<StateModel>();
             IStateModel state = obj.cls == "BinaryBit"
                 ? new BinaryBit(sm, obj.Num("EnergyRequired"), obj.Bool("StartOnInSocket", true), obj.Bool("Locked"),
@@ -423,8 +421,21 @@ namespace Tron
             var type = Array.Find(Data.activateTypes ?? Array.Empty<ActivateTypeJson>(),
                                   t => string.Equals(t.name, typeName, StringComparison.OrdinalIgnoreCase));
             var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.one;
-            sm.Init(state, model, bones, r, looks, sounds, Commands, inst.obj, obj.cls, type?.on, type?.off, dims);
+            sm.Init(state, model, bones, r, looks, ButeSounds, Commands, inst.obj, obj.cls, type?.on, type?.off, dims);
             StateModels.Add(sm);
+        }
+
+        // The level's soundbutes by name, any case (level.json buteSounds: the ones animation keys and ScreenShakes play).
+        Dictionary<string, ButeSoundJson> buteSounds;
+        Dictionary<string, ButeSoundJson> ButeSounds
+        {
+            get
+            {
+                if (buteSounds != null) return buteSounds;
+                buteSounds = new Dictionary<string, ButeSoundJson>(StringComparer.OrdinalIgnoreCase);
+                foreach (var b in Data.buteSounds ?? Array.Empty<ButeSoundJson>()) buteSounds[b.name] = b;
+                return buteSounds;
+            }
         }
 
         static readonly int AmbientId = Shader.PropertyToID("_LTAmbient");

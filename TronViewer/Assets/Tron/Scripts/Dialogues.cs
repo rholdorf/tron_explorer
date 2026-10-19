@@ -26,7 +26,7 @@ namespace Tron
 
     // A voice the viewer plays: the speaker (a command-manager id), the line's id and file, how long it lasts;
     // Local: unpanned at full volume (the player's own lines, the IO camera target's, and every line while a scene camera is on), else
-    // 3D from the speaker, outer radius Radius and inner InnerRadiusPercent of it.
+    // 3D from the speaker, outer radius Radius and inner AmbientSound.InnerRadiusPercent of it.
     public struct DialogueVoice
     {
         public int Speaker, Id;
@@ -48,7 +48,6 @@ namespace Tron
     {
         public const int BaseSoundId = 1000;               // SMGR_BASE_SOUND_ID: lower ids name no file (00000)
         public const float CinematicRadius = 10000;        // DialogueCinematicSndRadius
-        public const float InnerRadiusPercent = 0.25f;     // SMGR_DEFAULT_INNERRADIUSPERCENT
         public const float PlayerRadius = 512;             // CPlayerObj's sound radius
         public const string PlayerClass = "Player", AIClass = "CAIHuman", SpeakerClass = "Speaker";
 
