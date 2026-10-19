@@ -165,12 +165,6 @@ namespace Tron
         float clientTime, boxEnd;
         bool wasBox;
 
-        // A skip has been sent to the cameras (after their cleanups ran). The game skips nothing else directly
-        // (CPlayerObj's skip sends SKIP to the cameras only; TurnOffAlternativeCamera touches no sound or
-        // subtitle): a scene unwinds through its cameras' cleanup commands, which turn its dialogues OFF (the
-        // voice cut, their CleanUpCommand run) themselves or through the triggers they fire. Nothing listens.
-        public event Action Skipped;
-
         // now: the server clock (ActiveTime).
         public SceneCameras(Func<float> now) => this.now = now;
 
@@ -221,16 +215,21 @@ namespace Tron
             LetterboxAlpha = on ? 1 - left / LetterboxFadeIn : left / LetterboxFadeOut;
         }
 
-        // The skip key (Space) during a scene: SKIP to every camera that is on, in the server's object list
-        // order, which is the reverse of level order (the engine adds each new object at the list's head,
-        // servermgr.cpp; GetNextObject walks from the head). A camera's cleanup can turn on a camera earlier in
-        // level order, already passed, which stays on: the intro's cam1 skipped starts the titles' tcam.
+        // The skip key (Space) during a scene: SKIP to every camera that is on when the walk reaches it, in the
+        // server's object list order, which is the reverse of level order (the engine adds each new object at the
+        // list's head, servermgr.cpp; GetNextObject walks from the head; object.lto 0x10079af0), the cleanups run
+        // inline. A camera's cleanup can turn on a camera later in level order, earlier in the walk and already
+        // passed, which stays on: the intro's cam1 (object 447) skipped starts the titles' tcam (953). One it turns
+        // on that is earlier in level order is still ahead in the walk and is skipped too: m07-02's cam1 (916)
+        // turns on M07-02ANodeCam (584) through its dialogue, and the Alan scene is lost, as it likely is in the
+        // game. The game skips nothing else directly (CPlayerObj's skip sends SKIP to the cameras only;
+        // TurnOffAlternativeCamera touches no sound or subtitle): a scene unwinds through its cameras' cleanup
+        // commands, which turn its dialogues OFF themselves or through the triggers they fire.
         public void Skip()
         {
             if (Live == null) return;
             for (int i = cameras.Count - 1; i >= 0; i--)
                 if (cameras[i].On) cameras[i].Skip();
-            Skipped?.Invoke();
         }
 
         // The viewer's vertical FOV for the game's (FovX, FovY): the game sets both angles on the screen as they
