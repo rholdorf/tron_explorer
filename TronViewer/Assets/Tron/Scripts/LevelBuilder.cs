@@ -120,7 +120,8 @@ namespace Tron
             BuildScaleSprites();   // LevelBuilder.ScaleSprite.cs
             BuildSceneCameras();   // LevelBuilder.SceneCameras.cs
             BuildDialogues();   // LevelBuilder.Dialogues.cs
-            BuildScreenShakes(exportRoot);   // LevelBuilder.ScreenShake.cs
+            BuildScreenShakes();   // LevelBuilder.ScreenShake.cs
+            BuildIOCam(exportRoot);   // LevelBuilder.IOCam.cs
             BuildKeyframers();
             JoinObjectMessages();
             BuildSpinners();
