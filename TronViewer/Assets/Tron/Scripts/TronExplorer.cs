@@ -13,7 +13,7 @@ namespace Tron
     // Entry point: level menu, loading, sky/world cameras, fog, HUD.
     public class TronExplorer : MonoBehaviour
     {
-        public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader, effectShader;
+        public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader, effectShader, hudTextShader;
         // Light grid interpolation order for models (ModelLighting's ltjsGridOrder), applied on level load.
         // Also "-gridorder ltjs" on the command line.
         public bool ltjsGridOrder;
@@ -60,6 +60,7 @@ namespace Tron
             if (!worldShader) worldShader = Shader.Find("Tron/World");
             if (!modelShader) modelShader = Shader.Find("Tron/Model");
             if (!effectShader) effectShader = Shader.Find("Tron/Effect");
+            if (!hudTextShader) hudTextShader = Shader.Find("Hidden/Tron/HudText");
             uiAdjust = PlayerPrefs.GetFloat(UiScalePref, 1f);
             ResolveRoots();
             DtxLoader.Root = extractedRoot;
@@ -88,6 +89,28 @@ namespace Tron
                 StartCoroutine(Benchmark(secs));
             var shots = GetArg("-shots");
             if (shots != null && level != null) StartCoroutine(Shots(shots, GetArg("-out") ?? "."));
+            var frames = GetArg("-frames");
+            if (frames != null && level != null) StartCoroutine(Frames(frames, GetArg("-out") ?? "."));
+        }
+
+        // -level <name> -frames "<seconds> ..." -out <dir>: the screen as it is shown (HUD and subtitles too) at
+        // each time after the load, to <dir>/<seconds>.png; then quit. For comparing a scene with the game's.
+        System.Collections.IEnumerator Frames(string times, string outDir)
+        {
+            Application.runInBackground = true;
+            showHelp = false;
+            Directory.CreateDirectory(outDir);
+            float start = Time.time;
+            foreach (var at in times.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                                    .Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).OrderBy(v => v))
+            {
+                while (Time.time - start < at) yield return null;
+                yield return new WaitForEndOfFrame();
+                ScreenCapture.CaptureScreenshot(Path.Combine(Path.GetFullPath(outDir), $"{at:0.0}.png"));
+            }
+            yield return null;
+            Debug.Log($"FRAMES {level.Data.name} to {outDir}");
+            Application.Quit();
         }
 
         // -level <name> -shots <panel.json> -out <dir>: reference-panel captures (mus-y-sinak's
@@ -218,7 +241,7 @@ namespace Tron
                 for (int i = 0; i < j.ids.Length; i++) gameStrings[j.ids[i]] = j.texts[i];
             }
             else Debug.LogWarning($"{path} not found: mission texts and transmissions show nothing; run tools/export_level.py");
-            hudFont = HudFont.Load(exportRoot);
+            hudFont = HudFont.Load(exportRoot, hudTextShader);
             var subPath = Path.Combine(exportRoot ?? "", "hud", "subtitles.json");
             if (exportRoot != null && File.Exists(subPath)) subtitleLayout = JsonUtility.FromJson<SubtitleLayoutJson>(File.ReadAllText(subPath));
             else Debug.LogWarning($"{subPath} not found: dialogues show no subtitles; run tools/export_level.py");

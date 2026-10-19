@@ -39,8 +39,8 @@ namespace Tron
             material = new Material(shader) { mainTexture = atlas, hideFlags = HideFlags.DontSave };
         }
 
-        // The font in <export>/hud, or null (logged) without it.
-        public static HudFont Load(string exportRoot)
+        // The font in <export>/hud, drawn with shader (Tron/HudText), or null (logged) without it.
+        public static HudFont Load(string exportRoot, Shader shader)
         {
             try
             {
@@ -50,7 +50,6 @@ namespace Tron
                 atlas.LoadImage(File.ReadAllBytes(Path.Combine(dir, "font.png")));
                 atlas.filterMode = FilterMode.Trilinear;
                 atlas.wrapMode = TextureWrapMode.Clamp;
-                var shader = Shader.Find("UI/Default") ?? Shader.Find("Sprites/Default");
                 return new HudFont(meta, atlas, shader);
             }
             catch (Exception e)
