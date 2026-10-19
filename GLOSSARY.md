@@ -57,6 +57,10 @@ _Avoid_: mount point, bone (a socket rides on a node but isn't one)
 A named, keyframed set of node transforms stored in a model or borrowed from a child model; a character's **idle** is the animation it plays when standing.
 _Avoid_: clip (that is the viewer's container for it), anim pack
 
+**Animation key**:
+A text string stored at a time in an animation, which fires each time the playing animation crosses that time: those at time 0 when it starts, on a loop the rest of the lap and then from the top, none while it blends in. A character runs the ones it understands in the next command frame: `CMD <command>` as a level command with the character as sender, `ATTACH <position> <name>` / `DETACH <position>`, and `ON` / `OFF <object>`. This is how a cutscene's animation hands a character a disc or starts the next step on cue.
+_Avoid_: anim event, model string (the engine's name for it)
+
 **Spawner template**:
 A level object with `Template` set: kept only as a pattern for spawners and never created in the level itself.
 _Avoid_: prefab, archetype
