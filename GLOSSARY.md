@@ -146,6 +146,18 @@ _Avoid_: conversation, transmission (a one-line HUD message), subtitle (only the
 A placed `Camera` the view switches to while it is on: it goes to named camera points and changes its field of view on command.
 _Avoid_: camera alone (the player has one too), camera point (a place a scene camera goes to)
 
+**Letterbox**:
+The black bars over the top and bottom of the screen while a cinematic (`Type 1`) scene camera is the view, fading in and out.
+_Avoid_: widescreen, bars
+
+**Skip**:
+The skip key (Space) during a scene: every scene camera that is on and can be skipped runs its cleanup command and turns off, and the cleanup ends the rest of the scene.
+_Avoid_: cancel, abort (`ABORT` is a command verb)
+
+**Free flight**:
+The explorer's key (V) during a scene: the view leaves the scene camera and flies from where it looked while the scene runs on, until the key again or the scene's end gives the view back.
+_Avoid_: noclip (the player's own flying), free camera
+
 **Event counter**:
 An `EventCounter`: a count that `inc` and `dec` messages step, running the command set for each value it reaches; Tron's `reset` puts it back to its starting value.
 _Avoid_: counter variable (the command language's variables are something else)

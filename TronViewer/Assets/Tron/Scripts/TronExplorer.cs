@@ -93,7 +93,7 @@ namespace Tron
         [Serializable] class PanelJson { public ShotJson[] shots; }
         [Serializable] class ShotJson { public string name; public Vector3 eye; public float yaw, pitch, fov = 40; public bool posed; }
         public const int ShotWidth = 1706, ShotHeight = 772;
-        bool capturing;
+        bool capturing, benchAt;
 
         System.Collections.IEnumerator Shots(string panelPath, string outDir)
         {
@@ -155,6 +155,7 @@ namespace Tron
             Application.targetFrameRate = -1;
             showHelp = false;
             var at = GetArg("-benchat")?.Split(' ').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            benchAt = at != null && at.Length == 5;   // measured from there even while a scene plays
             for (float t = 0; t < 1; t += Time.unscaledDeltaTime) // warm-up
             {
                 if (at != null && at.Length == 5)
@@ -537,11 +538,14 @@ namespace Tron
             bool playing = !menuOpen && level != null;
             Cursor.lockState = playing ? CursorLockMode.Locked : CursorLockMode.None;
             Cursor.visible = !playing;
-            if (player) player.InputEnabled = playing;
-            if (skyCam && mainCam) skyCam.transform.rotation = mainCam.transform.rotation;
-            if (skyCam && mainCam && level != null && level.HasSky)
-                skyCam.transform.position = level.SkyViewPos(mainCam.transform.position / LT.Scale) * LT.Scale;
-            if (skyCam && mainCam) skyCam.fieldOfView = mainCam.fieldOfView;
+            // A scene camera's view holds the player: no input (free flight gives it back).
+            var scene = level?.SceneCameraView;
+            if (scene)
+            {
+                scene.Playing = playing;
+                scene.Suspended = capturing || benchAt;
+            }
+            if (player) player.InputEnabled = playing && !(scene && scene.ShowingScene);
             if (level != null)
             {
                 renderVars.Update(Time.deltaTime);
@@ -552,7 +556,19 @@ namespace Tron
             }
         }
 
-        void LateUpdate() => UpdateGlow();
+        // The sky camera follows the main camera once everything moved it this frame (the player, a scene camera,
+        // the camera jitter), then the glow camera.
+        void LateUpdate()
+        {
+            if (skyCam && mainCam)
+            {
+                skyCam.transform.rotation = mainCam.transform.rotation;
+                if (level != null && level.HasSky)
+                    skyCam.transform.position = level.SkyViewPos(mainCam.transform.position / LT.Scale) * LT.Scale;
+                skyCam.fieldOfView = mainCam.fieldOfView;
+            }
+            UpdateGlow();
+        }
 
         // ---- UI scaling -------------------------------------------------------------------
         // IMGUI draws in physical pixels, so on a Retina/HiDPI display everything is half size.
@@ -615,6 +631,19 @@ namespace Tron
             GUI.matrix = Matrix4x4.identity;
             if (Event.current.type == EventType.Repaint && glowCam && glowCam.enabled && !menuOpen)
                 Graphics.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), blurB, compositeMat);
+            // A Type 1 scene camera's letterbox (SceneCameras): black bars over the top and bottom of the screen,
+            // fading; not in free flight.
+            var scene = level?.SceneCameraView;
+            if (Event.current.type == EventType.Repaint && scene && !scene.FreeFlight && !scene.Suspended &&
+                scene.Cameras.LetterboxAlpha > 0)
+            {
+                var prev = GUI.color;
+                GUI.color = new Color(0, 0, 0, scene.Cameras.LetterboxAlpha);
+                float bar = (int)(Screen.height * SceneCameras.LetterboxBorder);
+                GUI.DrawTexture(new Rect(0, 0, Screen.width, bar), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(0, Screen.height - bar, Screen.width, bar), Texture2D.whiteTexture);
+                GUI.color = prev;
+            }
             // The screen fade's black overlay, over the scene and its glow, under the viewer's HUD and menu.
             if (Event.current.type == EventType.Repaint && level != null && fade.Alpha > 0)
             {
@@ -659,15 +688,17 @@ namespace Tron
             }
 
             var p = player ? player.transform.position / LT.Scale : Vector3.zero;
-            string hud = $"{level?.Data.name}   {fps:0} fps   pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") +
-                (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "");
+            string sceneTag = scene && scene.ShowingScene ? $"   [CENA {scene.LiveName}: Espaço pula, V voo livre]"
+                            : scene && scene.FreeFlight ? $"   [VOO LIVRE, cena {scene.LiveName}: V volta]" : "";
+            string hud = $"{level?.Data.name}   {fps:0} fps   pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") +
+                (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "") + sceneTag;
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
             GUI.Label(new Rect(8, 8, Mathf.Min(hs.x, w - 16), hs.y), hudContent, hudStyle);
             if (showHelp)
             {
                 var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · E usar · " +
-                                          "G glow · M som · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
+                                          "Cena: Espaço pula, V voo livre · G glow · M som · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }
@@ -697,8 +728,10 @@ namespace Tron
                 bottom -= hudFont.BlockHeight(lines.Count, HudCharHeight);
                 hudFont.Draw(lines, 320, bottom, HudCharHeight, e.Alpha, centred: true, shadowAlpha: 0xBF / 255f);
             }
+            // While a scene camera is the view only the text items draw (kHUDRenderText): no use prompt.
             var t = use ? use.Target : null;
-            if (t != null && !menuOpen)
+            var scene = level.SceneCameraView;
+            if (t != null && !menuOpen && !(scene && scene.ShowingScene))
             {
                 var text = string.IsNullOrEmpty(t.Prompt) ? "[E]" : $"[E] {t.Prompt}";
                 var color = t.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
