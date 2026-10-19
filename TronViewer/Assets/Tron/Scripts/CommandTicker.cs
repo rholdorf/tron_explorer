@@ -10,11 +10,13 @@ namespace Tron
     {
         public CommandMgr Commands;
         public Characters Characters;   // the characters' first updates, after the command table
+        public Dialogues Dialogues;     // the dialogues' updates and the subtitle's clock, after them
 
         void Update()
         {
             Commands?.Update();
             Characters?.Update();
+            Dialogues?.Update(Time.deltaTime);
         }
     }
 }
