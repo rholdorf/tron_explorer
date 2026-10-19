@@ -158,7 +158,7 @@ namespace Tron
                 tracking.Add(body);
             }
             FxInstance icon = null;
-            var anchor = new ActorAnchor(a);
+            var anchor = new TalkIconAnchor(a);
             a.TalkIcon = on =>
             {
                 Effects?.ShutDown(icon);
@@ -172,15 +172,15 @@ namespace Tron
             });
         }
 
-        // cshell.dll 0x10169720: the client's talk icon, started on the character (tools/export_level.py ships it).
+        // cshell.dll 0x10169720: the client's talk icon, started over the character (tools/export_level.py ships it).
         const string TalkIconGroup = "AI_TALKICON";
 
-        // An actor as what an effect follows.
-        sealed class ActorAnchor : IFxObject
+        // An actor's talk icon place (Actor.TalkIconPos) as what the effect follows.
+        sealed class TalkIconAnchor : IFxObject
         {
             readonly Actor actor;
-            public ActorAnchor(Actor actor) { this.actor = actor; }
-            public LTVec Pos => actor.Pos;
+            public TalkIconAnchor(Actor actor) { this.actor = actor; }
+            public LTVec Pos => actor.TalkIconPos;
             public LTQuat Rot => actor.Rot;
 
             public bool Attachment(string name, bool socket, out LTVec pos, out LTQuat rot)

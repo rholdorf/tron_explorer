@@ -15,6 +15,7 @@ Driver lines (tab-separated):
   frame <dt>                                 a frame: the characters' first updates, the actors' updates
                                             (frame time dt), then their animations advance dt
   pose <name>                                prints "pose <x> <y> <z> <yaw degrees>"
+  icon <name>                                prints "icon <x> <y> <z>": where its talk icon is
 The animations print "play <character> <clip> <loop>" and "restart <character> <loop>"; the actor's hooks
 print "attachments <character> <shown>", "attach <character> <position> <name>", "detach <character>
 <position>", "track <character> <on>", "talkicon <character> <on>"; its GameBase stand-in prints "base <character> <words>".
@@ -184,6 +185,9 @@ static class Program
                     Console.WriteLine("pose\t" + V(act.Pos) + "\t" + yaw.ToString("0.#", CultureInfo.InvariantCulture));
                     break;
                 }
+                case "icon":
+                    Console.WriteLine("icon\t" + V(byName[a[1]].TalkIconPos));
+                    break;
                 case "report":
                     foreach (var u in mgr.Unhandled) Console.WriteLine("count\t" + u.Verb + "\t" + u.Class + "\t" + u.Word + "\t" + u.Count);
                     break;
@@ -391,6 +395,14 @@ def test_the_three_talk_icons_are_one_icon_on_while_any_last_said_so(driver):
     out = driver([JET, *START, ("run", "msg jet (sayicon 1 12026); msg jet (listenicon true); msg jet (askicon 0); "
                                        "msg jet (askicon 0); msg jet (listenicon yes)")])
     assert out == [*STARTED, ("talkicon", "jet", "1"), ("talkicon", "jet", "0"), ("talkicon", "jet", "1")]
+
+
+def test_the_talk_icon_stands_ten_units_above_the_box_and_follows(driver):
+    # cshell.dll 0x10169720: the object's dims, y + 10.0f (0x101e9364), as AI_TALKICON's create offset (its key
+    # has Offset 0,0,0 and follows): origin + (0, dims.y + 10, 0). JET's dims.y is 30.
+    out = driver([JET, ("point", "spot", "100,5,-20", 90, 0), *START, ("icon", "jet"),
+                  ("run", "msg jet (teleport spot)"), ("frame", 0.1), ("icon", "jet")])
+    assert out == [*STARTED, ("icon", "0", "40", "0"), ("frame", "3"), ("icon", "100", "45", "-20")]
 
 
 # A once animation with string keys: a CMD key at 0.5 s and one at 0.5 s holding two statements.

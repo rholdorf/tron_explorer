@@ -105,6 +105,10 @@ namespace Tron
         // its talk icon (AI_TALKICON) shows / goes.
         public Action<bool> TalkIcon;
         public bool TalkIconOn { get; private set; }
+        // Where the talk icon stands, following it: cshell.dll 0x10169720 creates AI_TALKICON at the object's
+        // dims with 10.0f (0x101e9364) added to y, over its origin: on top of its box.
+        public const float TalkIconHeight = 10;
+        public LTVec TalkIconPos => new LTVec(Pos.x, Pos.y + dims.y + TalkIconHeight, Pos.z);
 
         readonly List<Step> script = new List<Step>();
         int scriptStep;
