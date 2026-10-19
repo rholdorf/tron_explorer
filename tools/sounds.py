@@ -14,6 +14,7 @@ import subprocess
 import butes
 
 WAVE_FORMAT_PCM = 1
+WAVE_FORMAT_MPEGLAYER3 = 0x55
 
 
 def wav_codec(path):
@@ -32,11 +33,40 @@ def wav_codec(path):
             f.seek(n + (n & 1), 1)
 
 
+def wav_duration(path):
+    """How long a RIFF WAVE file plays, in seconds: the fact chunk's sample count over the rate when it has
+    one (compressed files), else the data size over the block size."""
+    fmt = fact = data = None
+    with open(path, "rb") as f:
+        f.seek(12)
+        while True:
+            head = f.read(8)
+            if len(head) < 8:
+                break
+            cid, n = head[:4], struct.unpack("<I", head[4:])[0]
+            if cid == b"fmt ":
+                fmt = struct.unpack("<HHIIH", f.read(14))
+                f.seek(n - 14 + (n & 1), 1)
+            elif cid == b"fact":
+                fact = struct.unpack("<I", f.read(4))[0]
+                f.seek(n - 4 + (n & 1), 1)
+            else:
+                if cid == b"data":
+                    data = n
+                f.seek(n + (n & 1), 1)
+    if fmt is None:
+        raise ValueError(f"{path}: no fmt chunk")
+    _, _, rate, _, block = fmt
+    if fact is not None and fmt[0] != WAVE_FORMAT_PCM:
+        return fact / rate
+    return (data or 0) / block / rate
+
+
 def export_file(extracted, rel, out_root):
     """Writes one sound file to <out_root>/sounds/<rel> as 16-bit PCM WAV and returns its path, or None if
     the game data doesn't have it. PCM files are copied as they are (their cue/LIST chunks are kept for
-    loop regions); MP3-in-WAV files are decoded with macOS's afconvert, so the viewer only reads PCM.
-    Skips a file already exported from the same source."""
+    loop regions); others are converted with macOS's afconvert (MP3-in-WAV files from their bare MP3
+    stream), so the viewer only reads PCM. Skips a file already exported from the same source."""
     src = os.path.join(extracted, rel)
     if not os.path.isfile(src):
         return None
@@ -44,13 +74,38 @@ def export_file(extracted, rel, out_root):
     if os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
         return dst
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    if wav_codec(src) == WAVE_FORMAT_PCM:
+    codec = wav_codec(src)
+    tmp = dst + ".tmp"
+    if codec == WAVE_FORMAT_PCM:
         shutil.copyfile(src, dst)
-    else:
-        tmp = dst + ".tmp"
+    elif codec != WAVE_FORMAT_MPEGLAYER3:
         subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16", src, tmp], check=True, capture_output=True)
         os.replace(tmp, dst)
+    else:
+        # afconvert decodes the bare MP3 stream: it refuses some RIFF files of a few frames (144 voices)
+        stream = dst + ".tmp.mp3"
+        with open(stream, "wb") as f:
+            f.write(_data_chunk(src))
+        try:
+            subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16", stream, tmp], check=True, capture_output=True)
+        finally:
+            os.remove(stream)
+        os.replace(tmp, dst)
     return dst
+
+
+def _data_chunk(path):
+    """The bytes of a RIFF WAVE file's data chunk."""
+    with open(path, "rb") as f:
+        f.seek(12)
+        while True:
+            head = f.read(8)
+            if len(head) < 8:
+                raise ValueError(f"{path}: no data chunk")
+            cid, n = head[:4], struct.unpack("<I", head[4:])[0]
+            if cid == b"data":
+                return f.read(n)
+            f.seek(n + (n & 1), 1)
 
 
 # ActiveWorldModel's state sounds (ReadProps), and a door's names for them (Door::ReadProps, which
