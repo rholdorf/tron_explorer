@@ -165,9 +165,10 @@ namespace Tron
         float clientTime, boxEnd;
         bool wasBox;
 
-        // A skip has been sent to the cameras (after their cleanups ran). The game skips nothing else directly:
-        // a scene unwinds through its cameras' cleanup commands. The place for what a skip does to the rest of a
-        // scene (dialogue, #75).
+        // A skip has been sent to the cameras (after their cleanups ran). The game skips nothing else directly
+        // (CPlayerObj's skip sends SKIP to the cameras only; TurnOffAlternativeCamera touches no sound or
+        // subtitle): a scene unwinds through its cameras' cleanup commands, which turn its dialogues OFF (the
+        // voice cut, their CleanUpCommand run) themselves or through the triggers they fire. Nothing listens.
         public event Action Skipped;
 
         // now: the server clock (ActiveTime).
