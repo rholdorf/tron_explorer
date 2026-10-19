@@ -104,6 +104,7 @@ namespace Tron
             BuildSoundButeFX();
             BuildSpecialFX(exportRoot);   // LevelBuilder.SpecialFX.cs
             BuildScaleSprites();   // LevelBuilder.ScaleSprite.cs
+            BuildSceneCameras();   // LevelBuilder.SceneCameras.cs
             BuildKeyframers();
             JoinObjectMessages();
             BuildSpinners();
