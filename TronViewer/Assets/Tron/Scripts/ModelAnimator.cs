@@ -9,7 +9,8 @@ namespace Tron
     // Loops the characters' clips (tools/animation.py, exported by tools/export_models.py) on their bone
     // Transforms. All characters start their clip when the level loads, as the game's AIs do when they
     // spawn together, so each clip is sampled once per frame for every character playing it; a transform
-    // job then writes the keyed nodes' local poses. Constant channels are set once, in Play.
+    // job then writes the keyed nodes' local poses. Constant channels are set once, in Play. A character
+    // spawned later starts its clip when it plays it: its own clip entry, from that time.
     public class ModelAnimator : MonoBehaviour
     {
         class Clip
@@ -18,9 +19,10 @@ namespace Tron
             public ModelAnimJson anim;
             public int[] keyed;      // nodes with a keyed channel
             public int poseBase;     // their first slot in the pose arrays
+            public float start;      // when it started (Time.time)
         }
 
-        readonly Dictionary<(LoadedModel, int), Clip> clips = new Dictionary<(LoadedModel, int), Clip>();
+        readonly Dictionary<(LoadedModel, int, float), Clip> clips = new Dictionary<(LoadedModel, int, float), Clip>();
         readonly List<Clip> clipList = new List<Clip>();
         readonly List<Transform> targets = new List<Transform>();
         readonly List<int> targetSlots = new List<int>();
@@ -30,7 +32,6 @@ namespace Tron
         NativeArray<Quaternion> rotations;
         NativeArray<int> slots;
         JobHandle job;
-        float startTime;
         bool running;
 
         // Poses `bones` (one per model node) at frame 0 of the model's clip `name` and, if the clip moves,
@@ -44,15 +45,16 @@ namespace Tron
             for (int n = 0; n < bones.Length; n++)
                 bones[n].SetLocalPositionAndRotation(Position(d, anim, n, 0, 0), Rotation(d, anim, n, 0, 0));
             if (anim.length <= 0) return true;
-            if (!clips.TryGetValue((model, index), out var clip))
+            float start = running ? Time.time : float.NaN;   // NaN: from Begin
+            if (!clips.TryGetValue((model, index, start), out var clip))
             {
                 var keyed = new List<int>();
                 for (int n = 0; n < bones.Length; n++)
                     if (anim.channels[n * 4 + 1] > 1 || anim.channels[n * 4 + 3] > 1) keyed.Add(n);
                 if (keyed.Count == 0) return true;
-                clip = new Clip { model = model, anim = anim, keyed = keyed.ToArray(), poseBase = poseCount };
+                clip = new Clip { model = model, anim = anim, keyed = keyed.ToArray(), poseBase = poseCount, start = start };
                 poseCount += clip.keyed.Length;
-                clips[(model, index)] = clip;
+                clips[(model, index, start)] = clip;
                 clipList.Add(clip);
             }
             for (int i = 0; i < clip.keyed.Length; i++)
@@ -60,33 +62,47 @@ namespace Tron
                 targets.Add(bones[clip.keyed[i]]);
                 targetSlots.Add(clip.poseBase + i);
             }
+            if (running) Rebuild();
             return true;
         }
 
-        // Called once every character is registered.
+        // Called once every character of the level is registered; later ones are added as they play.
         public void Begin()
         {
+            foreach (var c in clipList) c.start = Time.time;
+            running = true;
+            Rebuild();
+        }
+
+        // The job's arrays over every registered target.
+        void Rebuild()
+        {
+            job.Complete();
+            Dispose();
             if (targets.Count == 0) return;
             transforms = new TransformAccessArray(targets.ToArray());
             positions = new NativeArray<Vector3>(poseCount, Allocator.Persistent);
             rotations = new NativeArray<Quaternion>(poseCount, Allocator.Persistent);
             slots = new NativeArray<int>(targetSlots.ToArray(), Allocator.Persistent);
-            targets.Clear();
-            targetSlots.Clear();
-            startTime = Time.time;
-            running = true;
+        }
+
+        void Dispose()
+        {
+            if (transforms.isCreated) transforms.Dispose();
+            if (positions.IsCreated) positions.Dispose();
+            if (rotations.IsCreated) rotations.Dispose();
+            if (slots.IsCreated) slots.Dispose();
         }
 
         void Update()
         {
-            if (!running) return;
+            if (!running || !transforms.isCreated) return;
             job.Complete();   // normally done in LateUpdate
-            float t = Time.time - startTime;
             foreach (var c in clipList)
             {
                 var d = c.model.animData;
                 var a = c.anim;
-                Key(d, a, t % a.length, out int k, out float f);
+                Key(d, a, (Time.time - c.start) % a.length, out int k, out float f);
                 for (int i = 0; i < c.keyed.Length; i++)
                 {
                     positions[c.poseBase + i] = Position(d, a, c.keyed[i], k, f);
@@ -102,10 +118,7 @@ namespace Tron
         void OnDestroy()
         {
             job.Complete();
-            if (transforms.isCreated) transforms.Dispose();
-            if (positions.IsCreated) positions.Dispose();
-            if (rotations.IsCreated) rotations.Dispose();
-            if (slots.IsCreated) slots.Dispose();
+            Dispose();
         }
 
         // t (seconds, already wrapped: AnimTracker loops with t %= lastKeyTime) lies between key k and k + 1

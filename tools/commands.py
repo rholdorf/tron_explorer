@@ -203,14 +203,27 @@ def spawn_names(w):
     level sends `spawn <name>` or `spawnfrom <object> <name>` to a Spawner, directly or through Groups,
     whether or not it ever runs (docs/research/no-object-targets.md). Templates never exist, so they
     don't receive messages."""
-    live = collections.defaultdict(list)
     templates = {}
     for o in w.objects:
-        name = o["props"].get("Name", "").lower()
         if o["props"].get("Template"):
-            templates.setdefault(name, o["class"])
-        else:
-            live[name].append(o)
+            templates.setdefault(o["props"].get("Name", "").lower(), o["class"])
+    found = {}
+    for s, m in spawn_messages(w):
+        verb = m[0].lower() if m else ""
+        name = m[1] if verb == "spawn" and len(m) >= 2 else m[2] if verb == "spawnfrom" and len(m) >= 3 else ""
+        if name:
+            found.setdefault(name.lower(), {"name": name,
+                                            "cls": templates.get(s["props"].get("Target", "").lower(), "")})
+    return sorted(found.values(), key=lambda s: s["name"].lower())
+
+
+def spawn_messages(w):
+    """(spawner object, statement words) for each statement a command of the level sends to a Spawner,
+    directly or through Groups (each member gets it), whether or not it ever runs."""
+    live = collections.defaultdict(list)
+    for o in w.objects:
+        if not o["props"].get("Template"):
+            live[o["props"].get("Name", "").lower()].append(o)
 
     def spawners(name, seen):
         if name in seen:
@@ -224,16 +237,11 @@ def spawn_names(w):
                         for s in spawners(o["props"][f"Object{i}"].lower(), seen | {name})]
         return out
 
-    found = {}
     for _, prop, text in level_commands(w):
         for words in executed(prop, text):
             if words[0].upper() != "MSG":
                 continue
             to = spawners(target_name(words[1]).lower(), frozenset())
             for m in statements(words[2]) if to else []:
-                verb = m[0].lower() if m else ""
-                name = m[1] if verb == "spawn" and len(m) >= 2 else m[2] if verb == "spawnfrom" and len(m) >= 3 else ""
-                for s in to if name else []:
-                    found.setdefault(name.lower(), {"name": name,
-                                                    "cls": templates.get(s["props"].get("Target", "").lower(), "")})
-    return sorted(found.values(), key=lambda s: s["name"].lower())
+                for s in to:
+                    yield s, m

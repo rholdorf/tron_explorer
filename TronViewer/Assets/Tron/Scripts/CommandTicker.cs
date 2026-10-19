@@ -9,7 +9,12 @@ namespace Tron
     public class CommandTicker : MonoBehaviour
     {
         public CommandMgr Commands;
+        public Characters Characters;   // the characters' first updates, after the command table
 
-        void Update() => Commands?.Update();
+        void Update()
+        {
+            Commands?.Update();
+            Characters?.Update();
+        }
     }
 }

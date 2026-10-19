@@ -19,6 +19,7 @@ the texture-pass triangles get the matching lightmap uv (matched by vertex posit
 viewer draws both in one pass. Light groups (switchable lights) are added with their initial color.
 All positions are raw LithTech units/space (left-handed, Y up — same handedness as Unity).
 """
+import collections
 import json
 import os
 import struct
@@ -42,7 +43,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 23
+FORMAT_VERSION = 24
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -361,7 +362,8 @@ def bute_sounds(names, soundbutes):
              "outer": float(soundbutes.get(n, "outerradius", 0.0))} for n in names if soundbutes.is_soundbute(n)]
 
 
-def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor_caster=None, idle=None):
+def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor_caster=None, idle=None,
+                    templates=()):
     """Objects that show an .ltb the exporter can find (see export_models.Resolver), and the render
     styles their pieces use. Characters are skinned (bones = the model's nodes) and are followed by
     their attachments: parent = the character's entry, socket = the parent model socket they sit at.
@@ -373,7 +375,11 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
     Every instance carries its lighting inputs (modellight.py): dims (its model's, times its scale),
     the model's visRadius and sunAmount = sun_amount(object, dims) (0 without one), at pos. Attachments
     and the ArchiveBin frame use their own model's dims at their object's (the character's, the bin's)
-    position: the exporter doesn't pose sockets, so the parent object's position stands in for theirs."""
+    position: the exporter doesn't pose sockets, so the parent object's position stands in for theirs.
+
+    templates: indices of CAIHuman templates a Spawner copies (spawn_sites). They and their attachments
+    are listed with template = 1, at the template's own position, unlit: the viewer builds them only when
+    spawned, at a spawn site (place_sites)."""
     models, render_styles, style_index = [], [], {}
 
     def add(i, r, scale, skinned, parent=-1, socket="", pos=None):
@@ -390,15 +396,18 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
         m = styles.model(r[0])
         dims = [d * s for d, s in zip(export_models.model_dims(m), scale)]
         o = objects[i]
+        template = i in templates
         if pos is None:
             pos = list(o["pos"])
-            if floor_caster is not None and moves_to_floor(o, resolver):
+            if floor_caster is not None and not template and moves_to_floor(o, resolver):
                 pos = floor.move_to_floor(pos, dims[1], floor_caster)
         models.append({"obj": i, "file": r[0], "skins": r[1], "styles": r[2], "scale": scale,
                        "pieces": pieces, "skinned": int(skinned), "parent": parent, "socket": socket,
                        "pos": [float(x) for x in pos], "anim": "",
                        "dims": dims, "visRadius": m.vis_radius,
-                       "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount else 0.0})
+                       "sunAmount": sun_amount(dict(o, pos=pos), dims) if sun_amount and not template else 0.0})
+        if template:
+            models[-1]["template"] = 1
         if parent < 0 and o["cls"] in STATE_CLIPS:
             models[-1].update(skinned=1, clips=STATE_CLIPS[o["cls"]], looks=[
                 {"name": name, "pieces": styles.instance_pieces(r[0], sk, rs, render_styles, style_index)}
@@ -418,7 +427,7 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
 
     by_name, turrets = {}, []
     for i, o in enumerate(objects):
-        r = resolver.resolve(o)
+        r = resolver.resolve(o, spawned=i in templates)
         if not r:
             continue
         scale = next((q["v"] for q in o["props"] if q["k"] == "Scale" and q["t"] == "v"), [1, 1, 1])
@@ -428,7 +437,8 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
         character = o["cls"] == "CAIHuman"
         if not add(i, r, scale, character):
             continue
-        by_name.setdefault(o["name"].lower(), len(models) - 1)
+        if i not in templates:
+            by_name.setdefault(o["name"].lower(), len(models) - 1)
         placed = models[-1]["pos"]
         # ArchiveBin's setup (object.lto 0x1000f360, called from 0x1000d23e) creates a second object from
         # the hard-coded template "ArchiveBin_Frame" and attaches it to the bin's "Frame" socket, which
@@ -472,6 +482,60 @@ def character_anim(styles, extracted, rel, name):
             return a.name
         MISSING_ANIMS[(rel, name)] = MISSING_ANIMS.get((rel, name), 0) + 1
     return m.anims[0].name if m.anims else ""
+
+
+def spawn_sites(w):
+    """Where the level's Spawners can create characters (ltjs spawner.cpp): [{"spawner", "at", "template"}]
+    as object indices. A live Spawner whose Target names a CAIHuman template (FindTemplate: the last
+    template with that name, AddTemplate overwriting) spawns it at its own position and rotation (`spawn`),
+    or at those of the object a `spawnfrom <object>` names when exactly one object has that name (else at
+    its own again). Other Targets create nothing a cutscene shows (light cycles, effects) or nothing at all
+    (not a template)."""
+    templates, named = {}, collections.defaultdict(list)
+    for i, o in enumerate(w.objects):
+        name = str(o["props"].get("Name", "")).lower()
+        if o["props"].get("Template"):
+            templates[name] = i
+        else:
+            named[name].append(i)
+    sites, spawners = [], {}
+    for i, o in enumerate(w.objects):
+        if o["class"] != "Spawner" or o["props"].get("Template"):
+            continue
+        t = templates.get(str(o["props"].get("Target", "")).lower())
+        if t is None or w.objects[t]["class"] != "CAIHuman":
+            continue
+        spawners[id(o)] = (i, t)
+        sites.append({"spawner": i, "at": i, "template": t})
+    for s, m in commands.spawn_messages(w):
+        if id(s) not in spawners or len(m) < 2 or m[0].lower() != "spawnfrom":
+            continue
+        at = named.get(m[1].lower(), [])
+        i, t = spawners[id(s)]
+        site = {"spawner": i, "at": at[0] if len(at) == 1 else i, "template": t}
+        if site not in sites:
+            sites.append(site)
+    return sites
+
+
+def place_sites(sites, objects, models, floor_caster, sun_amount):
+    """Each spawn site with where its character stands: the template's root model ("model", -1 when it
+    draws none), "pos" (the place's position after the character's MoveToFloor with its model's dims, as
+    CCharacter does when created), "rot" (the place's) and its "sunAmount" there."""
+    root = {m["obj"]: k for k, m in enumerate(models) if m.get("template") and m["parent"] < 0}
+    out = []
+    for s in sites:
+        at, template = objects[s["at"]], objects[s["template"]]
+        k = root.get(s["template"], -1)
+        pos, sun = [float(x) for x in at["pos"]], 0.0
+        if k >= 0:
+            dims = models[k]["dims"]
+            if floor_caster is not None and moves_to_floor(template, None):
+                pos = [float(x) for x in floor.move_to_floor(pos, dims[1], floor_caster)]
+            if sun_amount:
+                sun = float(sun_amount(dict(template, pos=pos, rot=at["rot"]), dims))
+        out.append(dict(s, model=k, pos=pos, rot=[float(x) for x in at["rot"]], sunAmount=sun))
+    return out
 
 
 def fx_models(groups, styles, extracted, render_styles):
@@ -567,9 +631,12 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
         return sky.sun_amount(o["pos"], sun["dir"], modellight.euler_right(o["rot"]), float(np.linalg.norm(dims)))
 
     # Characters and props that ask for it stand on the floor (floor.py); characters loop their idle.
-    models, render_styles = model_instances(objects, resolver, styles, extracted, sun_amount,
-                                            floor.FloorCaster.from_world(w),
-                                            idle or animation.IdleSelector(extracted, resolver))
+    # Spawned characters: their templates as template models, built where a Spawner creates them.
+    caster = floor.FloorCaster.from_world(w)
+    sites = spawn_sites(w)
+    models, render_styles = model_instances(objects, resolver, styles, extracted, sun_amount, caster,
+                                            idle or animation.IdleSelector(extracted, resolver),
+                                            templates={s["template"] for s in sites})
 
     soundbutes = sounds.soundbutes(extracted)
     fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted))
@@ -592,6 +659,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
         "keyframers": keyframer.keyframers(w.objects, w.blind),
         "activateTypes": activate.level_types(w.objects, extracted),
         "spawns": commands.spawn_names(w),
+        "spawnSites": place_sites(sites, objects, models, caster, sun_amount),
         "fxGroups": fx,
         "fxMissing": fx_missing,
         "objects": objects,
