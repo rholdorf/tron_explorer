@@ -20,14 +20,10 @@ namespace Tron
         // its root's model and node Transforms (none when its template draws nothing), by command-manager id.
         public readonly Dictionary<int, SpawnedCharacter> SpawnedCharacters = new Dictionary<int, SpawnedCharacter>();
 
-        public sealed class SpawnedCharacter
+        public sealed class SpawnedCharacter : CharacterBody
         {
             public int Site;                 // its index in Data.spawnSites
             public ObjectJson Template;      // its props are the character's
-            public readonly List<GameObject> Models = new List<GameObject>();
-            public LoadedModel Model;
-            public Transform[] Bones;
-            public CharacterAnimation Animation;   // also CharacterAnims[id]; null when it draws no character
         }
 
         // Right after JoinCommands: a character's first-update queue must be its first message handler.
@@ -67,19 +63,25 @@ namespace Tron
                 var pos = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
                 var rot = Quaternion.Euler(s.rot[0] * Mathf.Rad2Deg, s.rot[1] * Mathf.Rad2Deg, s.rot[2] * Mathf.Rad2Deg);
                 var name = Commands.Name(id);
+                int lit = litModels.Count;
                 var go = BuildInstance(s.model, name, pos, rot, s.sunAmount, default, out var built, out var anim);
                 if (go)
                 {
                     if (anim != null) CharacterAnims[id] = c.Animation = anim;
-                    c.Models.Add(go);
-                    (c.Model, c.Bones) = built;
+                    c.Begin(go, Data.models[s.model], built, s.sunAmount);
                     for (int n = 0; n < Data.models.Length; n++)
-                        if (Data.models[n].parent == s.model) BuildInstance(n, name, pos, rot, s.sunAmount, built, out _, out _);
+                        if (Data.models[n].parent == s.model)
+                        {
+                            var att = BuildInstance(n, name, pos, rot, s.sunAmount, built, out _, out _);
+                            if (att) c.AddAttachment(Data.models[n].socket, att);
+                        }
+                    c.Lit.AddRange(litModels.GetRange(lit, litModels.Count - lit));
                 }
             }
             var t = c.Template;
             var start = StartFlags.Visible | If(t.Bool("Solid", true), StartFlags.Solid) | If(t.Bool("Rayhit", true), StartFlags.RayHit);
-            JoinFlags(id, start, f => Show(c.Models, f), () => Deactivate(c.Models));
+            if (c.Root) JoinActor(id, c, start);
+            else JoinFlags(id, start, f => Show(c.Models, f), () => Deactivate(c.Models));
         }
     }
 }

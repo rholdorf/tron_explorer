@@ -93,6 +93,7 @@ namespace Tron
         {
             foreach (var a in ActiveWorldModels) a.ConnectPlayer(id, player);
             foreach (var s in StateModels) s.ConnectPlayer(id);
+            ConnectActors(id, player);   // LevelBuilder.Actors.cs
         }
     }
 }

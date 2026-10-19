@@ -113,6 +113,7 @@ namespace Tron
             bin = null;
             BuildModels(exportRoot);
             BuildSpawners();   // LevelBuilder.Spawners.cs
+            JoinActors();      // LevelBuilder.Actors.cs
             BuildSoundFX();
             BuildSoundButeFX();
             BuildSpecialFX(exportRoot);   // LevelBuilder.SpecialFX.cs
@@ -272,9 +273,23 @@ namespace Tron
                 if (inst.template != 0) continue;
                 var obj = Data.objects[inst.obj];
                 var pos = inst.pos != null && inst.pos.Length >= 3 ? new Vector3(inst.pos[0], inst.pos[1], inst.pos[2]) : obj.Position;
+                int lit = litModels.Count;
                 var go = BuildInstance(n, obj.name, pos, obj.Rotation, inst.sunAmount,
                                        inst.parent >= 0 ? built[inst.parent] : default, out built[n], out var character);
                 if (character != null) CharacterAnims[inst.obj] = character;
+                // A placed character's body (LevelBuilder.Actors.cs): its model, its attachments by socket.
+                CharacterBody body = null;
+                if (go && obj.cls == "CAIHuman")
+                {
+                    if (inst.parent < 0 && built[n].bones != null)
+                    {
+                        body = PlacedCharacters[inst.obj] = new CharacterBody { Animation = character };
+                        body.Begin(go, inst, built[n], inst.sunAmount);
+                    }
+                    else if (inst.parent >= 0 && PlacedCharacters.TryGetValue(inst.obj, out body))
+                        body.AddAttachment(inst.socket, go);
+                    body?.Lit.AddRange(litModels.GetRange(lit, litModels.Count - lit));
+                }
                 if (go == null || inst.parent >= 0) continue;
                 if (!modelObjects.TryGetValue(inst.obj, out var shown)) modelObjects[inst.obj] = shown = new List<GameObject>();
                 shown.Add(go);
@@ -289,9 +304,19 @@ namespace Tron
                                  (LoadedModel model, Transform[] bones) parent, out (LoadedModel model, Transform[] bones) built,
                                  out CharacterAnimation character)
         {
+            var inst = Data.models[n];
+            return BuildInstance(inst, Data.objects[inst.obj], inst.parent >= 0 ? inst.socket : null, name, pos, rot, sunAmount,
+                                 parent, out built, out character);
+        }
+
+        // inst for object obj: an attachment on parent's socket `socket` when that isn't null, else a root
+        // instance at pos / rot.
+        GameObject BuildInstance(ModelInstanceJson inst, ObjectJson obj, string socket, string name, Vector3 pos, Quaternion rot,
+                                 float sunAmount, (LoadedModel model, Transform[] bones) parent,
+                                 out (LoadedModel model, Transform[] bones) built, out CharacterAnimation character)
+        {
             built = default;
             character = null;
-            var inst = Data.models[n];
             var model = ModelLibrary.Load(modelExportRoot, inst.file, loadedModels, owned);
             if (model == null) return null;
             if (inst.pieces == null || inst.pieces.Length != model.data.pieces.Length)
@@ -299,11 +324,11 @@ namespace Tron
                 Debug.LogWarning($"Model {inst.file}: {inst.pieces?.Length ?? 0} piece styles for {model.data.pieces.Length} pieces");
                 return null;
             }
-            var obj = Data.objects[inst.obj];
+            bool attached = socket != null;
             var go = new GameObject($"{name} [{obj.cls}: {inst.file}]");
-            if (inst.parent >= 0)
+            if (attached)
             {
-                if (!AttachToSocket(go.transform, inst, parent)) { UnityEngine.Object.Destroy(go); return null; }
+                if (!AttachToSocket(go.transform, inst.file, socket, parent)) { UnityEngine.Object.Destroy(go); return null; }
             }
             else
             {
@@ -316,9 +341,9 @@ namespace Tron
             Renderer r;
             if (inst.skinned != 0)
             {
-                var bones = BuildBones(go.transform, model, inst.parent >= 0);
+                var bones = BuildBones(go.transform, model, attached);
                 built = (model, bones);
-                if (inst.parent < 0 && obj.cls == "CAIHuman")
+                if (!attached && obj.cls == "CAIHuman")
                 {
                     var anims = inst.anims != null && inst.anims.Length > 0 ? inst.anims : new[] { new AnimRefJson { name = inst.anim, @from = "" } };   // older exports
                     character = modelAnimator.Add(model, bones, anims);
@@ -341,7 +366,7 @@ namespace Tron
                 r = go.AddComponent<MeshRenderer>();
             }
             r.sharedMaterials = mats;
-            if (inst.parent < 0 && inst.looks != null && inst.looks.Length > 0 && built.bones != null)
+            if (!attached && inst.looks != null && inst.looks.Length > 0 && built.bones != null)
                 AddStateModel(go, inst, obj, model, built.bones, r);
             r.shadowCastingMode = ShadowCastingMode.Off;
             r.receiveShadows = false;
@@ -435,13 +460,13 @@ namespace Tron
 
         // CLTCommonShared::GetAttachmentTransform: the attachment sits at the parent's socket (node x socket
         // rotation/position, zero offset) and takes the socket's scale (r_ProcessAttachment).
-        static bool AttachToSocket(Transform t, ModelInstanceJson inst, (LoadedModel model, Transform[] bones) parent)
+        static bool AttachToSocket(Transform t, string file, string socketName, (LoadedModel model, Transform[] bones) parent)
         {
             if (parent.model == null || parent.bones == null) return false;
-            var socket = Array.Find(parent.model.data.sockets, s => string.Equals(s.name, inst.socket, StringComparison.OrdinalIgnoreCase));
+            var socket = Array.Find(parent.model.data.sockets, s => string.Equals(s.name, socketName, StringComparison.OrdinalIgnoreCase));
             if (socket == null)
             {
-                Debug.LogWarning($"Attachment {inst.file}: no socket {inst.socket} on {parent.model.data.file}");
+                Debug.LogWarning($"Attachment {file}: no socket {socketName} on {parent.model.data.file}");
                 return false;
             }
             t.SetParent(parent.bones[socket.node], false);

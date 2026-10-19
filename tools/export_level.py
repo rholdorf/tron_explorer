@@ -376,7 +376,8 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
     childModels (characters): its ChildModel_N files (animation.child_model_files). anims (characters):
     every animation it can play by name, {name, from} (animation.playable: its idle, the `named_anims`
     the level's commands name and DXBLoop where its model has them, from = ""; then every animation of
-    its childModels, from = the file).
+    its childModels, from = the file). lookAt (characters): the nodes it turns to look at something
+    (Resolver.look_at_nodes).
 
     Every instance carries its lighting inputs (modellight.py): dims (its model's, times its scale),
     the model's visRadius and sunAmount = sun_amount(object, dims) (0 without one), at pos. Attachments
@@ -463,6 +464,7 @@ def model_instances(objects, resolver, styles, extracted, sun_amount=None, floor
         parent = len(models) - 1
         models[parent]["anim"] = character_anim(styles, extracted, r[0], idle.idle(o, i) if idle else None)
         models[parent].update(character_anims(styles, extracted, o, r[0], [models[parent]["anim"], *named_anims]))
+        models[parent]["lookAt"] = resolver.look_at_nodes(o)
         attach(i, parent, resolver.attachments(o), True, styles.model(r[0]).sockets)
     parents = {name: (m, {s.name.lower() for s in styles.model(models[m]["file"]).sockets})
                for name, m in by_name.items()}
@@ -572,6 +574,67 @@ def character_anims(styles, extracted, obj, rel, names):
     return {"childModels": [f for f, _ in files], "anims": [{"name": n, "from": f} for n, f in plays]}
 
 
+def attach_names(w):
+    """The attachments the level's commands hang on characters (`msg <character> (attach <position> <name>)`,
+    character.cpp ATTACH), sorted, one per name (any case). A character is a placed CAIHuman or a spawn name
+    of a CAIHuman template."""
+    characters = {o["props"].get("Name", "").lower() for o in w.objects
+                  if o["class"] == "CAIHuman" and not o["props"].get("Template")}
+    characters |= {s["name"].lower() for s in commands.spawn_names(w) if s["cls"] == "CAIHuman"}
+    names = {}
+    for _cls, prop, text in commands.level_commands(w):
+        for words in commands.executed(prop, text):
+            if words[0].upper() != "MSG" or commands.target_name(words[1]).lower() not in characters:
+                continue
+            for st in commands.statements(words[2]):
+                if len(st) >= 3 and st[0].upper() == "ATTACH":
+                    names.setdefault(st[2].lower(), st[2])
+    return [names[k] for k in sorted(names)]
+
+
+def key_attach_names(models, styles, extracted):
+    """The attachments characters' animations hang on them by string key (CCharacter::HandleModelString:
+    `ATTACH <position> <name>`): the keys of every animation each character can play by name (its anims),
+    sorted, one per name (any case)."""
+    names = {}
+    for m in models:
+        if not m.get("anims"):
+            continue
+        own = styles.model(m["file"])
+        mine = list(own.anims) + [a for c in animation.load_children(extracted, m["file"], own, styles.model)
+                                  for a in c.anims]
+        for ref in m["anims"]:
+            pool = styles.model(ref["from"]).anims if ref["from"] else mine
+            anim = next((a for a in pool if a.name.lower() == ref["name"].lower()), None)
+            for _t, text in getattr(anim, "commands", []):
+                for st in commands.statements(text):
+                    if len(st) == 3 and st[0].upper() == "ATTACH":
+                        names.setdefault(st[2].lower(), st[2])
+    return [names[k] for k in sorted(names)]
+
+
+def attachables(names, resolver, styles, extracted, render_styles):
+    """What each attach name draws (Resolver.attachable), as a model instance the viewer builds on the
+    character's socket when the message comes: {name, file, skins, styles, pieces, skinned 1, dims, visRadius}.
+    Names that draw nothing are left out. Its pieces' styles join render_styles."""
+    index = {c["name"]: i for i, c in enumerate(render_styles)}
+    out = []
+    for name in names:
+        r = resolver.attachable(name)
+        if not r or not os.path.isfile(os.path.join(extracted, r[0])):
+            continue
+        try:
+            m = styles.model(r[0])
+        except Exception as e:  # noqa: BLE001 - the engine can't create it either
+            print(f"attachable {name} {r[0]}: {e}")
+            continue
+        out.append({"name": name, "file": r[0], "skins": r[1], "styles": r[2],
+                    "pieces": styles.instance_pieces(r[0], r[1], r[2], render_styles, index),
+                    "skinned": 1, "parent": -1, "socket": "", "scale": [1, 1, 1],
+                    "dims": export_models.model_dims(m), "visRadius": m.vis_radius})
+    return out
+
+
 def fx_models(groups, styles, extracted, render_styles):
     """Each LTBModel key's look (CLTBModelFX::Init: Model, Skin0..4, RenderStyle0..3): its pieces' styles
     (added to the level's style table) and textures as for placed models, the clip it plays (AniName, or
@@ -606,10 +669,32 @@ def fx_models(groups, styles, extracted, render_styles):
             k["visRadius"] = float(m.vis_radius)
 
 
-def fx_groups(objects, library):
+TALK_ICONS = {"LISTENICON", "SAYICON", "ASKICON"}
+TALK_ICON_GROUP = "AI_TALKICON"   # cshell.dll 0x10169720: every talk icon is this group on the character
+
+
+def talk_icon_groups(w):
+    """[TALK_ICON_GROUP] when a command of the level (or a character's own Initial) turns a talk icon on
+    (`listenicon` / `sayicon` / `askicon` with a true value, IsTrueChar), else []."""
+    def on(words):
+        return len(words) >= 2 and words[0].upper() in TALK_ICONS and words[1][:1] in "tTyY1" and words[1] != ""
+
+    for cls, prop, text in commands.level_commands(w):
+        if cls == "CAIHuman" and prop in commands.AI_MIXED:
+            if any(on(st) for part in commands.mixed_parts(text) for st in commands.statements(part)):
+                return [TALK_ICON_GROUP]
+        for words in commands.executed(prop, text):
+            if words[0].upper() == "MSG" and any(on(st) for st in commands.statements(words[2])):
+                return [TALK_ICON_GROUP]
+    return []
+
+
+def fx_groups(objects, library, extra=()):
     """The effect groups a level's SpecialFX objects reach (with the groups their CreateFX and splats
-    start) in the viewer's form (clientfx.export_group), and the names that find no group."""
+    start), and the `extra` names its objects start themselves, in the viewer's form
+    (clientfx.export_group), and the names that find no group."""
     names = [p["s"] for o in objects if o["cls"] == "SpecialFX" for p in o["props"] if p["k"] == "FxName"]
+    names += list(extra)
     groups, missing = library.reached(names)
     return [clientfx.export_group(g) for g in groups], [n for n in missing if n.strip().lower() != "<none>"]
 
@@ -673,8 +758,10 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
                                             templates={s["template"] for s in sites},
                                             named_anims=scripted_anims(w))
 
+    names = {n.lower(): n for n in key_attach_names(models, styles, extracted) + attach_names(w)}
+    attached = attachables([names[k] for k in sorted(names)], resolver, styles, extracted, render_styles)
     soundbutes = sounds.soundbutes(extracted)
-    fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted))
+    fx, fx_missing = fx_groups(objects, fx_library or clientfx.Library(extracted), talk_icon_groups(w))
     fx_models(fx, styles, extracted, render_styles)
     meta = {
         "version": FORMAT_VERSION,
@@ -701,6 +788,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
         "fxMissing": fx_missing,
         "objects": objects,
         "models": models,
+        "attachables": attached,
         "buteSounds": bute_sounds(bute_sound_keys(styles, models), soundbutes),
         "renderStyles": render_styles,
         "lightGrid": {"origin": list(w.light_grid.base), "cell": list(w.light_grid.cell),
@@ -757,6 +845,8 @@ def main():
                     model_files[clientfx.prop(k, "Model")].add(k["anim"])
         for name in meta["fxMissing"]:
             fx_missing.setdefault(name, []).append(rel)
+        for a in meta["attachables"]:
+            model_files.setdefault(a["file"], set())
         for m in meta["models"]:
             anims = model_files.setdefault(m["file"], set())
             if m["anim"]:

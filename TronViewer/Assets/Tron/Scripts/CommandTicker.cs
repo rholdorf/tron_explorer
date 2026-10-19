@@ -10,12 +10,15 @@ namespace Tron
     {
         public CommandMgr Commands;
         public Characters Characters;   // the characters' first updates, after the command table
+        public Actors Actors;           // then the characters' AI updates (Actors.cs)
         public Dialogues Dialogues;     // the dialogues' updates and the subtitle's clock, after them
 
         void Update()
         {
             Commands?.Update();
             Characters?.Update();
+            Actors?.Update(Commands?.FrameTime ?? Time.deltaTime);
+            Actors?.RunKeys();   // the string keys their animations crossed (CMD keys run commands)
             Dialogues?.Update(Time.deltaTime);
         }
     }

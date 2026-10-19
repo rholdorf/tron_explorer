@@ -18,6 +18,18 @@ _Avoid_: static model, decoration
 A `CAIHuman` placed in a level or spawned from a spawner template, built from its model template: model, skins, render styles and default attachments. Its `Initial` runs on its first update, and the messages it gets before then wait for its second.
 _Avoid_: NPC, enemy, AI (AI is behavior, not the character)
 
+**Goal script**:
+The steps a `goalscript` message gives a character, replacing any before it and started on its next update. The viewer runs its `animate` steps: the named animation plays looping or once, and once it ends the character goes back to its idle and the next step starts. A later `animate` while one runs takes it over and keeps its loop setting unless it gives one. `goto` steps (walking) are only counted.
+_Avoid_: AI script, animation command
+
+**Head tracking**:
+A character turning its head and eyes toward the player's head over its animation (`tracklookat`), each node within its largest angles and speed, until `tracknone` or an animation from a goal script starts; it then turns back to the animation at the same speed.
+_Avoid_: look-at, IK
+
+**Talk icon**:
+The icon a character shows while a `listenicon`, `sayicon` or `askicon` message has turned it on; the three look the same and differ only in how the player may talk to the character.
+_Avoid_: speech bubble, dialogue icon
+
 **Model template**:
 The named entry in the model attribute file that says which model, skins, render styles and attachments a character uses.
 _Avoid_: model bute, character definition

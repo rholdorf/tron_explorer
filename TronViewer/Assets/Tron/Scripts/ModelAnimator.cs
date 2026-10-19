@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
@@ -10,7 +11,7 @@ namespace Tron
     // A character's animations: the ones it can play by name (its model's, its .ltb children's and its
     // ChildModel_N files', tools/animation.py playable) and where it is in them (AnimTrack: looping or once,
     // the blend into a clip that starts). ModelAnimator poses its bones every frame.
-    public sealed class CharacterAnimation
+    public sealed class CharacterAnimation : IActorAnimation
     {
         internal readonly LoadedModel model;
         internal readonly Transform[] bones;
@@ -18,6 +19,10 @@ namespace Tron
         internal readonly AnimTrack track;
         readonly Dictionary<string, int> byName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         readonly Action settle;   // completes the pose job before the bones are written here
+        readonly List<string[]> keyTexts = new List<string[]>();   // per track clip, its string keys in time order
+
+        // Each string key its animation crosses (the clip's cmds: "cmd msg ...", FOOTSTEP_KEY...), as it does.
+        public Action<string> OnKey;
         internal int slotBase;
 
         internal CharacterAnimation(LoadedModel model, Transform[] bones, AnimRefJson[] refs, Action settle)
@@ -36,7 +41,9 @@ namespace Tron
                 Array.Copy(model.animData, a.times, times, 0, a.keys);
                 byName[r.name] = anims.Count;
                 anims.Add(a);
-                infos.Add(new AnimTrack.ClipInfo { Times = times, Interp = a.interp });
+                var cmds = (a.cmds ?? Array.Empty<AnimCmdJson>()).OrderBy(c => c.t).ToArray();
+                keyTexts.Add(Array.ConvertAll(cmds, c => c.s ?? ""));
+                infos.Add(new AnimTrack.ClipInfo { Times = times, Interp = a.interp, Keys = Array.ConvertAll(cmds, c => c.t) });
             }
             this.anims = anims.ToArray();
             track = new AnimTrack(infos);
@@ -52,6 +59,7 @@ namespace Tron
         {
             if (!Has(name)) return false;
             track.Play(byName[name], loop);
+            FlushKeys();
             if (!track.Blending)
             {
                 // A cut shows the clip's first key at once (the level's bounds are taken from it).
@@ -62,6 +70,21 @@ namespace Tron
                     bones[n].SetLocalPositionAndRotation(ModelAnimator.Position(d, a, n, 0, 0), ModelAnimator.Rotation(d, a, n, 0, 0));
             }
             return true;
+        }
+
+        // The animation playing starts over at its time 0, looping or once, without a blend (a missing animation
+        // in a goal script: SetModelLooping, ResetModelAnimation).
+        public void Restart(bool loop)
+        {
+            track.Restart(loop);
+            FlushKeys();
+        }
+
+        internal void FlushKeys()
+        {
+            if (track.Fired.Count == 0) return;
+            foreach (var (clip, key) in track.Fired) OnKey?.Invoke(keyTexts[clip][key]);
+            track.Fired.Clear();
         }
 
         // The animation playing (its name as the model has it), "" for none.
@@ -151,13 +174,21 @@ namespace Tron
             foreach (var c in characters)
             {
                 c.track.Advance(dt);
+                c.FlushKeys();
                 c.Pose(positions, rotations);
             }
             job = new PoseJob { positions = positions, rotations = rotations }.Schedule(transforms);
         }
 
         // Before rendering: the skinned meshes read the bones.
-        void LateUpdate() => job.Complete();
+        // Then what turns bones over the animation (head tracking) has them posed.
+        public event Action Posed;
+
+        void LateUpdate()
+        {
+            job.Complete();
+            Posed?.Invoke();
+        }
 
         void Dispose()
         {

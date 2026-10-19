@@ -31,6 +31,7 @@ namespace Tron
         public string[] fxMissing;           // names that find no group
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
+        public ModelInstanceJson[] attachables; // what `attach <position> <name>` hangs on a character, by name
         public ButeSoundJson[] buteSounds;   // the soundbutes the state models' clips play (BUTE_SOUND_KEY)
         public RenderStyleJson[] renderStyles;
         public LightGridJson lightGrid;      // samples follow the lightmap atlas in level.bin
@@ -47,10 +48,14 @@ namespace Tron
     // pos: where the instance spawns (the object's position after MoveToFloor; attachments: their parent's).
     // anim: the clip a character loops (a name in its model's anims), "" for none.
     // template 1: a CAIHuman template a Spawner copies (and its attachments), built only at a spawn site.
+    // name (attachables): the attachment name an ATTACH message gives (tools/export_level.py attachables).
     // childModels (characters): its ChildModel_N files. anims (characters): every animation it can play by
     // name, in lookup order, one per name (tools/animation.py playable): the model's clip (from "") or a
     // ChildModel_N file's.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; public string[] childModels; public AnimRefJson[] anims; public int template; }
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; public string[] childModels; public AnimRefJson[] anims; public int template; public string name; public LookAtNodeJson[] lookAt; }
+    // A node a character turns to look at something (tools/export_models.py Resolver.look_at_nodes): axis and up
+    // empty for the defaults, angles in degrees.
+    [Serializable] public class LookAtNodeJson { public string name, clone; public float[] axis, up, discomfort, max; public float maxVel; }
     [Serializable] public class AnimRefJson { public string name, @from; }
     // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
     [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }

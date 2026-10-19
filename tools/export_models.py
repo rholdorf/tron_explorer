@@ -59,8 +59,8 @@ class Resolver:
 
     def __init__(self, extracted):
         a = os.path.join(extracted, "attributes")
-        self.templates = {s["name"].lower(): s for s in butes.load(os.path.join(a, "modelbutes.txt")).values()
-                          if "name" in s}
+        self.modelbutes = butes.load(os.path.join(a, "modelbutes.txt"))
+        self.templates = {s["name"].lower(): s for s in self.modelbutes.values() if "name" in s}
         self.proptypes = {s["type"].lower(): s for s in butes.load(os.path.join(a, "proptypes.txt")).values()
                           if "type" in s}
         self.attachables = {s["name"].lower(): s for s in butes.load(os.path.join(a, "attachments.txt")).values()
@@ -205,6 +205,46 @@ class Resolver:
         """The weapon a character holds at `position` (e.g. RightHand, its primary weapon), or None."""
         return next((name for pos, name, a in self.occupants(obj)
                      if a is None and pos.lower() == position.lower()), None)
+
+    def look_at_nodes(self, obj):
+        """The nodes a character turns to look at something (CTrackedNodeContext::_Init for kTrack_LookAt): its
+        model template's Skeleton, that [SkeletonN]'s LookAtTrackingNodes, that [TrackingNodesN]'s Node0..
+        in order, each {name, clone ("" for none), axis and up (None: SetNodeConstraints' defaults), discomfort
+        [x, y], max [x, y] (degrees), maxVel (degrees/s)}. [] without a group."""
+        t = self.templates.get(string(props(obj), "modeltemplate").lower())
+        if not t or "skeleton" not in t:
+            return []
+        skeleton = self.modelbutes.get(f"Skeleton{int(t['skeleton'])}", {})
+        if "lookattrackingnodes" not in skeleton:
+            return []
+        g = self.modelbutes.get(f"TrackingNodes{int(skeleton['lookattrackingnodes'])}", {})
+
+        def vec(key):
+            v = g.get(key)
+            return [float(x) for x in str(v).split(",")] if v not in (None, "") else None
+
+        out = []
+        while f"node{len(out)}name" in g:
+            k = f"node{len(out)}"
+            out.append({"name": g[k + "name"], "clone": g.get(k + "clonename", ""),
+                        "axis": vec(k + "forwardvector"), "up": vec(k + "upvector"),
+                        "discomfort": [float(g.get(k + "discomfortx", 0)), float(g.get(k + "discomforty", 0))],
+                        "max": [float(g.get(k + "maxx", 0)), float(g.get(k + "maxy", 0))],
+                        "maxVel": float(g.get(k + "maxvel", 0))})
+        return out
+
+    def attachable(self, name):
+        """(model file, skins, render styles) that CAttachments::Attach(position, name) draws, or None: a
+        weapon's hand-held model (none without an HHModel), else an attachments.txt entry's Model when it is a
+        Prop (type 0, or a type 1 class that is one)."""
+        weapon = name.split(",")[0].strip()
+        if weapon.lower() in self.weapons:
+            w = self.weapons[weapon.lower()]
+            return model_entry(w, "hhmodel", "hh") if w.get("hhmodel") else None
+        a = self.attachables.get(name.lower())
+        if not a or "model" not in a or (a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES):
+            return None
+        return model_entry(a, "model")
 
     def attachments(self, obj):
         """A character's drawn attachments as (socket, model file, skins, render styles); the position
