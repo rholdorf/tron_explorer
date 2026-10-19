@@ -10,7 +10,7 @@ namespace Tron
     // A character's animations: the ones it can play by name (its model's, its .ltb children's and its
     // ChildModel_N files', tools/animation.py playable) and where it is in them (AnimTrack: looping or once,
     // the blend into a clip that starts). ModelAnimator poses its bones every frame.
-    public sealed class CharacterAnimation
+    public sealed class CharacterAnimation : IActorAnimation
     {
         internal readonly LoadedModel model;
         internal readonly Transform[] bones;
@@ -63,6 +63,10 @@ namespace Tron
             }
             return true;
         }
+
+        // The animation playing starts over at its time 0, looping or once, without a blend (a missing animation
+        // in a goal script: SetModelLooping, ResetModelAnimation).
+        public void Restart(bool loop) => track.Restart(loop);
 
         // The animation playing (its name as the model has it), "" for none.
         public string Current => track.Clip >= 0 ? anims[track.Clip].name : "";

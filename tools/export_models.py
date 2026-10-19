@@ -206,6 +206,19 @@ class Resolver:
         return next((name for pos, name, a in self.occupants(obj)
                      if a is None and pos.lower() == position.lower()), None)
 
+    def attachable(self, name):
+        """(model file, skins, render styles) that CAttachments::Attach(position, name) draws, or None: a
+        weapon's hand-held model (none without an HHModel), else an attachments.txt entry's Model when it is a
+        Prop (type 0, or a type 1 class that is one)."""
+        weapon = name.split(",")[0].strip()
+        if weapon.lower() in self.weapons:
+            w = self.weapons[weapon.lower()]
+            return model_entry(w, "hhmodel", "hh") if w.get("hhmodel") else None
+        a = self.attachables.get(name.lower())
+        if not a or "model" not in a or (a.get("type") == 1 and a.get("class") not in MODEL_ATTACHMENT_CLASSES):
+            return None
+        return model_entry(a, "model")
+
     def attachments(self, obj):
         """A character's drawn attachments as (socket, model file, skins, render styles); the position
         name is the parent model's socket. A weapon draws its hand-held model (CreateWeaponAttachment:

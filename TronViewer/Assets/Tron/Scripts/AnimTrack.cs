@@ -65,6 +65,15 @@ namespace Tron
             blendElapsed = transition ? 0 : -1;
         }
 
+        // The clip playing starts over without a transition (SetModelLooping, then ResetModelAnimation: time 0).
+        public void Restart(bool loop)
+        {
+            if (Clip < 0) return;
+            Looping = loop;
+            Time = 0;
+            blendElapsed = -1;
+        }
+
         public void Advance(float dt)
         {
             if (Clip < 0) return;
