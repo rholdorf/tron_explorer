@@ -334,7 +334,7 @@ class Anim:
         self.compression = 0
         self.interp_ms = 0
         self.times = None
-        self.commands = []                   # (time ms, string) of the keys that carry one (model string keys)
+        self.commands = []                   # (time ms, string) of the keys that carry one (string keys)
         self.node_offset = 0                 # byte offset of the node channels in the model file
 
 
@@ -392,7 +392,7 @@ def read_anims(r, n_nodes):
         times = []
         for _ in range(n_keys):
             times.append(r.u32())
-            cmd = r.str()              # model string key (FOOTSTEP_KEY, FIRE, RS 0 ..., BUTE_SOUND_KEY ...)
+            cmd = r.str()              # animation key (FOOTSTEP_KEY, FIRE, RS 0 ..., BUTE_SOUND_KEY ...)
             if cmd.strip():
                 a.commands.append((times[-1], cmd))
         a.times = np.array(times, np.float64)

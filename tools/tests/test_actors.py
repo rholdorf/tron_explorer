@@ -15,6 +15,7 @@ Driver lines (tab-separated):
   frame <dt>                                 a frame: the characters' first updates, the actors' updates
                                             (frame time dt), then their animations advance dt
   pose <name>                                prints "pose <x> <y> <z> <yaw degrees>"
+  icon <name>                                prints "icon <x> <y> <z>": where its talk icon is
 The animations print "play <character> <clip> <loop>" and "restart <character> <loop>"; the actor's hooks
 print "attachments <character> <shown>", "attach <character> <position> <name>", "detach <character>
 <position>", "track <character> <on>", "talkicon <character> <on>"; its GameBase stand-in prints "base <character> <words>".
@@ -45,7 +46,7 @@ sealed class FakeAnimation : IActorAnimation
         {
             var p = c.Split(':');
             names.Add(p[0]);
-            // string keys: "t=text|t=text", '~' standing for ';' in the text
+            // animation keys: "t=text|t=text", '~' standing for ';' in the text
             var keys = p.Length > 3 ? p[3].Split('|') : new string[0];
             texts.Add(Array.ConvertAll(keys, k => k.Substring(k.IndexOf('=') + 1).Replace('~', ';')));
             infos.Add(new AnimTrack.ClipInfo { Times = Array.ConvertAll(p[1].Split(','), F), Interp = F(p[2]),
@@ -121,7 +122,7 @@ static class Program
                     anim.Play(a[2], true);
                     anims.Add(anim);
                     var actor = actors.Add(id, anim, a[2], new LTVec(0, 0, 0), Yaw(0), new LTVec(10, float.Parse(a[4], CultureInfo.InvariantCulture), 10));
-                    anim.OnKey = actor.ModelKey;
+                    anim.OnKey = actor.AnimationKey;
                     actor.PositionOf =o => byName.TryGetValue(mgr.Name(o), out var other) && mgr.Class(o) == "CAIHuman" ? other.Pos : positions.TryGetValue(o, out var p) ? p : (LTVec?)null;
                     actor.TeleportPointOf = o => points.TryGetValue(o, out var tp) ? tp : ((LTVec, LTQuat, bool)?)null;
                     actor.CastDown = (from, to) => floor.HasValue && floor.Value <= from.y && floor.Value >= to.y ? floor : null;
@@ -184,6 +185,9 @@ static class Program
                     Console.WriteLine("pose\t" + V(act.Pos) + "\t" + yaw.ToString("0.#", CultureInfo.InvariantCulture));
                     break;
                 }
+                case "icon":
+                    Console.WriteLine("icon\t" + V(byName[a[1]].TalkIconPos));
+                    break;
                 case "report":
                     foreach (var u in mgr.Unhandled) Console.WriteLine("count\t" + u.Verb + "\t" + u.Class + "\t" + u.Word + "\t" + u.Count);
                     break;
@@ -393,11 +397,19 @@ def test_the_three_talk_icons_are_one_icon_on_while_any_last_said_so(driver):
     assert out == [*STARTED, ("talkicon", "jet", "1"), ("talkicon", "jet", "0"), ("talkicon", "jet", "1")]
 
 
-# A once animation with string keys: a CMD key at 0.5 s and one at 0.5 s holding two statements.
+def test_the_talk_icon_stands_ten_units_above_the_box_and_follows(driver):
+    # cshell.dll 0x10169720: the object's dims, y + 10.0f (0x101e9364), as AI_TALKICON's create offset (its key
+    # has Offset 0,0,0 and follows): origin + (0, dims.y + 10, 0). JET's dims.y is 30.
+    out = driver([JET, ("point", "spot", "100,5,-20", 90, 0), *START, ("icon", "jet"),
+                  ("run", "msg jet (teleport spot)"), ("frame", 0.1), ("icon", "jet")])
+    assert out == [*STARTED, ("icon", "0", "40", "0"), ("frame", "3"), ("icon", "100", "45", "-20")]
+
+
+# A once animation with animation keys: a CMD key at 0.5 s and one at 0.5 s holding two statements.
 KEYED = ("character", "jet", "Idle", "Idle:0,2:0;Examine:0,1:0:0.5=cmd msg door (on)|1=cmd msg door off~FOOTSTEP_KEY 1", 30)
 
 
-def test_a_cmd_string_key_runs_its_command_from_the_character_in_the_next_command_frame(driver):
+def test_a_cmd_animation_key_runs_its_command_from_the_character_in_the_next_command_frame(driver):
     # CCharacter::HandleModelString: `CMD <command>` runs IsValidCmd + Process with the character as sender and
     # active target; other keys (FOOTSTEP_KEY) do nothing here. Frame 3 plays Examine; its time crosses 0.5 s
     # as the animations advance after frame 4's update, and the command runs in frame 5's command frame.
@@ -415,7 +427,7 @@ def test_a_removed_characters_keys_run_nothing(driver):
     assert ("msg", "door", "jet", "on") not in out
 
 
-def test_attach_detach_on_and_off_string_keys(driver):
+def test_attach_detach_on_and_off_animation_keys(driver):
     # HandleModelString: ATTACH with exactly a position and a name, DETACH with exactly a position (m01_jet's
     # `DETACH LeftLowerArm Jet_Disc` has one word too many: nothing), ON / OFF <object> send it ON / OFF.
     keyed = ("character", "jet", "Idle",

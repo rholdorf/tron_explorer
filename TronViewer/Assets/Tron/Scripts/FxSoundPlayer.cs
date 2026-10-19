@@ -50,11 +50,7 @@ namespace Tron
             }
             var a = v.Sound;
             a.gameObject.SetActive(true);
-            a.Inner = inner;
-            a.Outer = outer;
-            a.Volume = volume;
-            a.Local = local;
-            a.Source.spatialBlend = local ? 0 : 1;
+            a.Set(inner, outer, volume, local);
             a.Source.priority = AmbientVolume.UnityPriority(priority);
             v.Move(pos);
             a.Play(clip, loop, pitch);

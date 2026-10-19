@@ -120,7 +120,8 @@ namespace Tron
             BuildScaleSprites();   // LevelBuilder.ScaleSprite.cs
             BuildSceneCameras();   // LevelBuilder.SceneCameras.cs
             BuildDialogues();   // LevelBuilder.Dialogues.cs
-            BuildScreenShakes(exportRoot);   // LevelBuilder.ScreenShake.cs
+            BuildScreenShakes();   // LevelBuilder.ScreenShake.cs
+            BuildIOCam(exportRoot);   // LevelBuilder.IOCam.cs
             BuildKeyframers();
             JoinObjectMessages();
             BuildSpinners();
@@ -289,7 +290,7 @@ namespace Tron
                     }
                     else if (inst.parent >= 0 && PlacedCharacters.TryGetValue(inst.obj, out body))
                         body.AddAttachment(inst.socket, go);
-                    body?.Lit.AddRange(litModels.GetRange(lit, litModels.Count - lit));
+                    body?.Lit.AddRange(LitSince(lit));
                 }
                 if (go == null || inst.parent >= 0) continue;
                 if (!modelObjects.TryGetValue(inst.obj, out var shown)) modelObjects[inst.obj] = shown = new List<GameObject>();
@@ -378,16 +379,25 @@ namespace Tron
             // Every instance has its own (attachments: their model's dims at the parent object's position);
             // DynamicLights lights it again while a dynamic light reaches it.
             var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
-            var ambient = lighting.Compute(pos, dims, inst.visRadius, sunAmount, lightDirs, lightColors);
+            Light(r, pos, dims, inst.visRadius, sunAmount);
+            litModels.Add(new DynamicLights.Model { R = r, Pos = pos, Dims = dims, VisRadius = inst.visRadius, SunAmount = sunAmount });
+            return go;
+        }
+
+        // A model's D3D lighting at pos (ModelLighting) into its renderer's property block.
+        void Light(Renderer r, Vector3 pos, Vector3 dims, float visRadius, float sunAmount)
+        {
+            var ambient = lighting.Compute(pos, dims, visRadius, sunAmount, lightDirs, lightColors);
             ModelLighting.ToUnit(lightColors);
             modelProps.Clear();
             modelProps.SetVector(AmbientId, ambient / 255f);
             modelProps.SetVectorArray(LightDirId, lightDirs);
             modelProps.SetVectorArray(LightColorId, lightColors);
             r.SetPropertyBlock(modelProps);
-            litModels.Add(new DynamicLights.Model { R = r, Pos = pos, Dims = dims, VisRadius = inst.visRadius, SunAmount = sunAmount });
-            return go;
         }
+
+        // The models lit since litModels held `count` (the ones a character's build just added).
+        List<DynamicLights.Model> LitSince(int count) => litModels.GetRange(count, litModels.Count - count);
 
 
         // The state models (BinaryBit, SecRezzer: StateModels.cs) on their drawn model.
@@ -412,8 +422,6 @@ namespace Tron
                 }
                 looks[look.name] = mats;
             }
-            var sounds = new Dictionary<string, ButeSoundJson>(StringComparer.OrdinalIgnoreCase);
-            foreach (var b in Data.buteSounds ?? Array.Empty<ButeSoundJson>()) sounds[b.name] = b;
             var sm = go.AddComponent<StateModel>();
             IStateModel state = obj.cls == "BinaryBit"
                 ? new BinaryBit(sm, obj.Num("EnergyRequired"), obj.Bool("StartOnInSocket", true), obj.Bool("Locked"),
@@ -423,8 +431,21 @@ namespace Tron
             var type = Array.Find(Data.activateTypes ?? Array.Empty<ActivateTypeJson>(),
                                   t => string.Equals(t.name, typeName, StringComparison.OrdinalIgnoreCase));
             var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.one;
-            sm.Init(state, model, bones, r, looks, sounds, Commands, inst.obj, obj.cls, type?.on, type?.off, dims);
+            sm.Init(state, model, bones, r, looks, ButeSounds, Commands, inst.obj, obj.cls, type?.on, type?.off, dims);
             StateModels.Add(sm);
+        }
+
+        // The level's soundbutes by name, any case (level.json buteSounds: the ones animation keys and ScreenShakes play).
+        Dictionary<string, ButeSoundJson> buteSounds;
+        Dictionary<string, ButeSoundJson> ButeSounds
+        {
+            get
+            {
+                if (buteSounds != null) return buteSounds;
+                buteSounds = new Dictionary<string, ButeSoundJson>(StringComparer.OrdinalIgnoreCase);
+                foreach (var b in Data.buteSounds ?? Array.Empty<ButeSoundJson>()) buteSounds[b.name] = b;
+                return buteSounds;
+            }
         }
 
         static readonly int AmbientId = Shader.PropertyToID("_LTAmbient");

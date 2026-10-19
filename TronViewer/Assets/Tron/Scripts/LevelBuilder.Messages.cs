@@ -49,6 +49,10 @@ namespace Tron
 
         static StartFlags If(bool on, StartFlags flag) => on ? flag : StartFlags.None;
 
+        // A drawn model object's (a prop, a placed or spawned character: its template's props) start flags.
+        static StartFlags ModelStart(ObjectJson o) =>
+            StartFlags.Visible | If(o.Bool("Solid", true), StartFlags.Solid) | If(o.Bool("Rayhit", true), StartFlags.RayHit);
+
         // Gives object `id` its GameBase handler. show: applies the flags to what draws it (also at once);
         // remove: what REMOVE does to it.
         GameBaseFlags JoinFlags(int id, StartFlags start, Action<GameBaseFlags> show, Action remove)
@@ -115,9 +119,7 @@ namespace Tron
                 if (withFlags.ContainsKey(kv.Key)) continue;
                 var obj = Data.objects[kv.Key];
                 var gos = kv.Value;
-                var start = StartFlags.Visible | If(obj.Bool("Solid", true), StartFlags.Solid) |
-                            If(obj.Bool("Rayhit", true), StartFlags.RayHit);
-                JoinFlags(kv.Key, start, f => Show(gos, f), () => Deactivate(gos));
+                JoinFlags(kv.Key, ModelStart(obj), f => Show(gos, f), () => Deactivate(gos));
             }
         }
 
@@ -206,7 +208,7 @@ namespace Tron
                         }
                         else if (pointObjects.TryGetValue(i, out var sfx)) gos = new[] { sfx };
                         else gos = Array.Empty<Transform>();
-                        motion.AddTarget(new LTVec(pos.x, pos.y, pos.z), LTQuat.FromEuler(obj.rot[0], obj.rot[1], obj.rot[2]));
+                        motion.AddTarget(new LTVec(pos.x, pos.y, pos.z), obj.LTRotation);
                         shown.Add(gos);
                     }
                 }

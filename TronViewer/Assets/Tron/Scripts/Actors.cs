@@ -105,6 +105,10 @@ namespace Tron
         // its talk icon (AI_TALKICON) shows / goes.
         public Action<bool> TalkIcon;
         public bool TalkIconOn { get; private set; }
+        // Where the talk icon stands, following it: cshell.dll 0x10169720 creates AI_TALKICON at the object's
+        // dims with 10.0f (0x101e9364) added to y, over its origin: on top of its box.
+        public const float TalkIconHeight = 10;
+        public LTVec TalkIconPos => new LTVec(Pos.x, Pos.y + dims.y + TalkIconHeight, Pos.z);
 
         readonly List<Step> script = new List<Step>();
         int scriptStep;
@@ -138,8 +142,8 @@ namespace Tron
 
         readonly List<string> keys = new List<string>();
 
-        // A string key its animation crossed (MID_MODELSTRINGKEY), run in the next command frame (RunKeys).
-        public void ModelKey(string text)
+        // An animation key its animation crossed (MID_MODELSTRINGKEY), run in the next command frame (RunKeys).
+        public void AnimationKey(string text)
         {
             if (!Removed) keys.Add(text);
         }
@@ -227,6 +231,7 @@ namespace Tron
             }
             if (m.Is("TRACKLOOKAT")) { SetTracking(true); return true; }
             if (m.Is("TRACKNONE")) { SetTracking(false); return true; }
+            // ARMOR_ON / ARMOR_OFF (Tron's power armor) are left unhandled, counted in the level's report: what they show is unconfirmed.
             return false;
         }
 
@@ -408,12 +413,7 @@ namespace Tron
             Track?.Invoke(on);
         }
 
-        // FindNamedObject: the one object with the name (none or several: -1).
-        int FindNamed(string name)
-        {
-            var ids = commands.Named(name);
-            return ids.Count == 1 ? ids[0] : -1;
-        }
+        int FindNamed(string name) => commands.FindNamed(name);
 
         static float Dot(LTVec a, LTVec b) => a.x * b.x + a.y * b.y + a.z * b.z;
 
@@ -463,7 +463,7 @@ namespace Tron
             foreach (var a in all) a.Update(frameTime);
         }
 
-        // The string keys the animations crossed since the last command frame, after the actors' updates.
+        // The animation keys the animations crossed since the last command frame, after the actors' updates.
         public void RunKeys()
         {
             for (int i = 0; i < all.Count; i++) all[i].RunKeys();

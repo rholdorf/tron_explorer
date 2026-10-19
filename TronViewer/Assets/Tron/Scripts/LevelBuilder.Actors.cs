@@ -71,6 +71,7 @@ namespace Tron
                 int parent = Model.data.nodes[bone].parent;
                 var local = parent >= 0 ? Model.BindMatrix(parent).inverse * Model.BindMatrix(bone) : Model.BindMatrix(bone);
                 Tracked.Add((t, bone, LevelBuilder.ToFrame(local)));
+                Animation?.AlwaysPose(bone);   // turned after the pose job: posed every frame
             }
         }
 
@@ -121,12 +122,7 @@ namespace Tron
         {
             Actors = new Actors(Commands);
             Root.GetComponent<CommandTicker>().Actors = Actors;
-            foreach (var kv in PlacedCharacters)
-            {
-                var o = Data.objects[kv.Key];
-                var start = StartFlags.Visible | If(o.Bool("Solid", true), StartFlags.Solid) | If(o.Bool("Rayhit", true), StartFlags.RayHit);
-                JoinActor(kv.Key, kv.Value, start);
-            }
+            foreach (var kv in PlacedCharacters) JoinActor(kv.Key, kv.Value, ModelStart(Data.objects[kv.Key]));
         }
 
         void JoinActor(int id, CharacterBody body, StartFlags start)
@@ -134,8 +130,8 @@ namespace Tron
             var root = body.Root.transform;
             var a = body.Actor = Actors.Add(id, body.Animation, body.Idle, AsLT(root.localPosition), AsLT(root.localRotation),
                                             AsLT(body.Dims));
-            if (body.Animation != null) body.Animation.OnKey = a.ModelKey;   // its CMD keys, in the next command frame
-            a.PositionOf = PositionOf;
+            if (body.Animation != null) body.Animation.OnKey = a.AnimationKey;   // its CMD keys, in the next command frame
+            a.PositionOf = id => PoseOf(id)?.Pos;
             a.TeleportPointOf = TeleportPointOf;
             a.CastDown = (from, to) => IntersectWorld(from, to, out var hit, out _) ? hit.y : (float?)null;
             var placedAt = root.localPosition;
@@ -158,7 +154,7 @@ namespace Tron
                 tracking.Add(body);
             }
             FxInstance icon = null;
-            var anchor = new ActorAnchor(a);
+            var anchor = new TalkIconAnchor(a);
             a.TalkIcon = on =>
             {
                 Effects?.ShutDown(icon);
@@ -172,15 +168,15 @@ namespace Tron
             });
         }
 
-        // cshell.dll 0x10169720: the client's talk icon, started on the character (tools/export_level.py ships it).
+        // cshell.dll 0x10169720: the client's talk icon, started over the character (tools/export_level.py ships it).
         const string TalkIconGroup = "AI_TALKICON";
 
-        // An actor as what an effect follows.
-        sealed class ActorAnchor : IFxObject
+        // An actor's talk icon place (Actor.TalkIconPos) as what the effect follows.
+        sealed class TalkIconAnchor : IFxObject
         {
             readonly Actor actor;
-            public ActorAnchor(Actor actor) { this.actor = actor; }
-            public LTVec Pos => actor.Pos;
+            public TalkIconAnchor(Actor actor) { this.actor = actor; }
+            public LTVec Pos => actor.TalkIconPos;
             public LTQuat Rot => actor.Rot;
 
             public bool Attachment(string name, bool socket, out LTVec pos, out LTQuat rot)
@@ -228,7 +224,7 @@ namespace Tron
                                    (body.Model, body.Bones), out _, out _);
             if (!go) return;
             body.AddAttachment(position, go);
-            body.Lit.AddRange(litModels.GetRange(lit, litModels.Count - lit));
+            body.Lit.AddRange(LitSince(lit));
             if (body.Actor != null && body.Actor.AttachmentsHidden)
                 foreach (var r in go.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
         }
@@ -246,26 +242,23 @@ namespace Tron
         void Relight(DynamicLights.Model m, Vector3 pos)
         {
             m.Pos = pos;
-            if (!m.R) return;
-            var ambient = lighting.Compute(pos, m.Dims, m.VisRadius, m.SunAmount, lightDirs, lightColors);
-            ModelLighting.ToUnit(lightColors);
-            modelProps.Clear();
-            modelProps.SetVector(AmbientId, ambient / 255f);
-            modelProps.SetVectorArray(LightDirId, lightDirs);
-            modelProps.SetVectorArray(LightColorId, lightColors);
-            m.R.SetPropertyBlock(modelProps);
+            if (m.R) Light(m.R, pos, m.Dims, m.VisRadius, m.SunAmount);
         }
 
-        // An object's position (LT units) for FACEOBJECT: the player's, a character's where it stands, else the
-        // level object's.
-        LTVec? PositionOf(int id)
+        // Where an object is now and how it turns (LT units, the level's space), for FACEOBJECT and the IO camera:
+        // the player's body, a character where it stands, a point a keyframer moves where it is, else where the
+        // level placed it; null for no object.
+        CameraPose? PoseOf(int id)
         {
             if (id == playerId && player)
-                return AsLT(Root.transform.InverseTransformPoint(player.transform.position));
+                return new CameraPose(WorldToLT(player.transform.position),
+                                      AsLT(Quaternion.Inverse(Root.transform.rotation) * player.transform.rotation));
             var actor = Body(id)?.Actor;
-            if (actor != null) return actor.Pos;
-            if (id >= 0 && id < Data.objects.Length) return AsLT(Data.objects[id].Position);
-            return null;
+            if (actor != null) return new CameraPose(actor.Pos, actor.Rot);
+            if (id < 0 || id >= Data.objects.Length) return null;
+            if (pointObjects.TryGetValue(id, out var t) && t) return new CameraPose(AsLT(t.localPosition), AsLT(t.localRotation));
+            var o = Data.objects[id];
+            return new CameraPose(o.LTPosition, o.LTRotation);
         }
 
         // A TeleportPoint's position, rotation and MoveToFloor (default on); null for any other object.
@@ -274,7 +267,7 @@ namespace Tron
             if (id < 0 || id >= Data.objects.Length) return null;
             var o = Data.objects[id];
             if (o.cls != "TeleportPoint") return null;
-            return (AsLT(o.Position), AsLT(o.Rotation), o.Bool("MoveToFloor", true));
+            return (o.LTPosition, o.LTRotation, o.Bool("MoveToFloor", true));
         }
 
         // The characters with a LookAt group, and where the player's head is on the player (its eye).
@@ -289,14 +282,22 @@ namespace Tron
             if (!player) return;
             float dt = Time.deltaTime;
             var level = Root.transform;
-            var toLevel = level.worldToLocalMatrix;
-            var eye = level.InverseTransformPoint(player.transform.TransformPoint(playerEye));
-            var target = new LTVec(eye.x, eye.y, eye.z);
+            Matrix4x4 toLevel = default;
+            LTVec target = default;
+            bool placed = false;   // the level's matrix and the target, read once a node turns
             foreach (var body in tracking)
             {
                 if (!body.Root || !body.Root.activeInHierarchy) continue;
                 foreach (var (node, index, fromParent) in body.Tracked)
                 {
+                    if (!node.Turning) continue;   // off: Update leaves it, so no matrix is read
+                    if (!placed)
+                    {
+                        toLevel = level.worldToLocalMatrix;
+                        var eye = level.InverseTransformPoint(player.transform.TransformPoint(playerEye));
+                        target = new LTVec(eye.x, eye.y, eye.z);
+                        placed = true;
+                    }
                     var bone = body.Bones[index];
                     var frame = ToFrame(toLevel * bone.localToWorldMatrix);
                     if (!node.Update(ToFrame(toLevel * bone.parent.localToWorldMatrix), fromParent, ref frame, target, dt)) continue;
@@ -333,5 +334,7 @@ namespace Tron
 
         static LTVec AsLT(Vector3 v) => new LTVec(v.x, v.y, v.z);
         static LTQuat AsLT(Quaternion q) => new LTQuat(q.x, q.y, q.z, q.w);
+        // A world point in the level's space (LT units).
+        LTVec WorldToLT(Vector3 world) => AsLT(Root.transform.InverseTransformPoint(world));
     }
 }

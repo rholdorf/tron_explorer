@@ -15,7 +15,7 @@ namespace Tron
     // at exactly its time and wraps past it (t %= last key time); a clip played once holds its last key
     // (time clamped 1 ms past it) and is Done past it, or at once with a single key (trk_IsStopped).
     //
-    // String keys (tools/test_anim_keys.py; the rule StateModel.FireKeys follows): a key fires when the time
+    // Animation keys (tools/test_anim_keys.py; StateModel plays a prop's clips through it too): a key fires when the time
     // crosses it, the ones at 0 when the clip starts (at Play or Restart, or when its blend-in is over: none
     // fire while blending), a loop fires the rest of its lap then from the top. Fired collects them.
     public sealed class AnimTrack
@@ -24,18 +24,18 @@ namespace Tron
         {
             public float[] Times;   // key times, seconds, from 0, never decreasing
             public float Interp;    // seconds of blend into its first key when it starts (interpMS)
-            public float[] Keys;    // its string keys' times, seconds, never decreasing (null: none)
+            public float[] Keys;    // its animation keys' times, seconds, never decreasing (null: none)
         }
 
         const float HoldPastEnd = 0.001f;   // endTime + 1 ms
 
         readonly IReadOnlyList<ClipInfo> clips;
         float blendElapsed = -1;   // < 0: not blending
-        int nextKey;               // the first string key of the clip not yet passed
+        int nextKey;               // the first animation key of the clip not yet passed
 
         public AnimTrack(IReadOnlyList<ClipInfo> clips) { this.clips = clips; }
 
-        // The string keys crossed since the caller last cleared it: (clip, index in its Keys).
+        // The animation keys crossed since the caller last cleared it: (clip, index in its Keys).
         public readonly List<(int clip, int key)> Fired = new List<(int, int)>();
 
         public int Clip { get; private set; } = -1;
@@ -118,7 +118,7 @@ namespace Tron
             FireKeys(before, Time);
         }
 
-        // The string keys at times in (from, to], and the ones at 0 when from < 0.
+        // The animation keys at times in (from, to], and the ones at 0 when from < 0.
         void FireKeys(float from, float to)
         {
             var keys = clips[Clip].Keys;
@@ -130,20 +130,28 @@ namespace Tron
             }
         }
 
-        // The key interval the time lies in (ModelAnimator.Key's rule): key k, fraction f toward k + 1.
+        // The key interval the time lies in: key k, fraction f toward k + 1.
         public void Key(out int k, out float f)
         {
             var t = clips[Clip].Times;
-            float time = Math.Min(Time, t[t.Length - 1]);
-            int lo = 0, hi = t.Length - 1;
+            KeyAt(t, 0, t.Length, Math.Min(Time, t[t.Length - 1]), out k, out f);
+        }
+
+        // t (seconds, already wrapped: AnimTracker loops with t %= lastKeyTime) lies between key k and k + 1 of the
+        // `count` key times at times[offset] at fraction f. k is the last key with time <= t, so a zero-length
+        // interval between two keys sharing a time is never used (tools/animation.py key_at).
+        public static void KeyAt(float[] times, int offset, int count, float t, out int k, out float f)
+        {
+            int lo = 0, hi = count - 1;
             while (lo < hi)
             {
                 int mid = (lo + hi + 1) >> 1;
-                if (t[mid] <= time) lo = mid; else hi = mid - 1;
+                if (times[offset + mid] <= t) lo = mid; else hi = mid - 1;
             }
             k = lo;
-            if (k + 1 >= t.Length) { f = 0; return; }
-            f = t[k + 1] > t[k] ? Math.Min(Math.Max((time - t[k]) / (t[k + 1] - t[k]), 0f), 1f) : 0f;
+            if (k + 1 >= count) { f = 0; return; }
+            float t0 = times[offset + k], t1 = times[offset + k + 1];
+            f = t1 > t0 ? Math.Min(Math.Max((t - t0) / (t1 - t0), 0f), 1f) : 0f;
         }
 
         // The tracker's current key: the first whose time is not before t (m_CurKey), the last at the end.

@@ -7,7 +7,7 @@ Driver lines (tab-separated):
   new rezzer                                             a SecRezzer
   start | end                                            Start / the playing clip ends
   msg <words> <fromPlayer 0/1>                           a message; prints "handled 0/1" when not handled
-  key <statement>                                        a model string key
+  key <statement>                                        a statement of an animation key (ConParse)
   state                                                  prints "state <Current> <CanUse> <Prompt>"
 Host output: "play <clip> <loop>", "look <name>", "run <command>", "count <word>".
 """
@@ -46,7 +46,7 @@ static class Driver
                     break;
                 case "start": model.Start(); break;
                 case "end": model.OnClipEnd(); break;
-                case "key": model.OnKey(a[1]); break;
+                case "key": model.OnKey(ConParse.First(a[1])); break;
                 case "msg":
                     if (!model.OnMessage(new Message(a[1].Split(' '), 0), a[2] == "1")) Console.WriteLine("handled\t0");
                     break;

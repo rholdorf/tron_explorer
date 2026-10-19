@@ -40,8 +40,9 @@ namespace Tron
 
         public ScreenShakes(CommandMgr commands) => this.commands = commands;
 
-        // A ScreenShake at `pos`; give it its messages with Commands.Handle(id, shake.OnMessage) before its
-        // GameBase handler.
+        // A ScreenShake at `pos`; give it its messages with Commands.Handle(id, shake.OnMessage). Its GameBase
+        // handler takes none of its words (ON, OFF), so either may come first (LevelBuilder joins the flags first,
+        // as LevelBuilder.Messages.cs does).
         public ScreenShake Add(LTVec pos, ScreenShakeProps props)
         {
             var s = new ScreenShake(this, pos, props);

@@ -94,7 +94,8 @@ namespace Tron
             foreach (var a in ActiveWorldModels) a.ConnectPlayer(id, player);
             foreach (var s in StateModels) s.ConnectPlayer(id);
             ConnectActors(id, player);   // LevelBuilder.Actors.cs
-            ConnectShakes(id, player);   // LevelBuilder.ScreenShake.cs
+            ConnectShakes(player);   // LevelBuilder.ScreenShake.cs
+            ConnectIOCam(id);   // LevelBuilder.IOCam.cs
         }
     }
 }

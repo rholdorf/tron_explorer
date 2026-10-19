@@ -1,12 +1,12 @@
-"""A character's animation string keys (TronViewer/.../AnimTrack.cs), compiled with .NET: a key fires when the
-clip's time crosses it, the rule StateModel.FireKeys follows for props: the keys at times in (before, after]
+"""A character's animation keys (TronViewer/.../AnimTrack.cs), compiled with .NET: a key fires when the
+clip's time crosses it, the rule StateModel plays props' clips by too: the keys at times in (before, after]
 each advance, the ones at 0 when the clip starts; a loop fires the rest of its lap, then from the top; none
 while the clip blends in (its time held at 0), its keys at 0 once the blend is over. The engine's tracker fires
 a character's keys as it passes them (CCharacter::HandleModelString, MID_MODELSTRINGKEY). Expected values are
 worked by hand.
 
 Scenario lines:
-  clip <interp s> <key times s, comma> <string key times s, comma>
+  clip <interp s> <key times s, comma> <animation key times s, comma>
   play <clip> <loop 0/1> / restart <loop 0/1>    -> "fired <clip>:<key>..." when any fired
   run <dt> <frames>                              -> per frame: "<time> fired ..." (fired empty when none)
 """
@@ -67,7 +67,7 @@ static class Driver
 }
 """
 
-CLIPS = ["clip 0 0,1,2 0,0.5,2",    # 0: a cut; string keys at 0, 0.5 and 2 s (its last key)
+CLIPS = ["clip 0 0,1,2 0,0.5,2",    # 0: a cut; animation keys at 0, 0.5 and 2 s (its last key)
          "clip 0.25 0,1 0,0.75",    # 1: blends in over 250 ms; keys at 0 and 0.75 s
          "clip 0 0,1 -"]            # 2: no keys
 

@@ -37,7 +37,7 @@ namespace Tron
                 var go = new GameObject(o.name);
                 go.transform.SetParent(parent.transform, false);
                 go.transform.localPosition = o.Position;
-                var rot = LTQuat.FromEuler(o.rot[0], o.rot[1], o.rot[2]);
+                var rot = o.LTRotation;
                 go.transform.localRotation = new Quaternion(rot.x, rot.y, rot.z, rot.w);
                 var c = o.Vec("Color", new Vector3(255, 255, 255));
                 var p = new ScaleSprite.Props

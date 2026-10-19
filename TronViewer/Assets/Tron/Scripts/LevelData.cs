@@ -59,8 +59,16 @@ namespace Tron
     [Serializable] public class AnimRefJson { public string name, @from; }
     // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
     [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }
-    // A soundbute a model string key plays: one of its files at random, radii in LithTech units.
-    [Serializable] public class ButeSoundJson { public string name; public string[] files; public float inner, outer; }
+    // A soundbute an animation key plays: one of its files at random, radii in LithTech units.
+    [Serializable] public class ButeSoundJson
+    {
+        public string name;
+        public string[] files;
+        public float inner, outer;
+
+        // One of its files at random (the sound manager's pick), null when it has none.
+        public string AnyFile() => files != null && files.Length > 0 ? files[UnityEngine.Random.Range(0, files.Length)] : null;
+    }
 
     // Model lighting inputs (tools/modellight.py). Colors are 0-255.
     [Serializable] public class LightGridJson { public float[] origin, cell; public int[] dims; }
@@ -284,6 +292,7 @@ namespace Tron
         public LTVec LTPosition => new LTVec(pos[0], pos[1], pos[2]);   // the same, for the plain C# cores
         // LithTech stores (pitch, yaw, roll) in radians; both engines are left-handed Y-up.
         public Quaternion Rotation => Quaternion.Euler(rot[0] * Mathf.Rad2Deg, rot[1] * Mathf.Rad2Deg, rot[2] * Mathf.Rad2Deg);
+        public LTQuat LTRotation => LTQuat.FromEuler(rot[0], rot[1], rot[2]);   // the engine's LTRotation, for the cores
     }
 
     [Serializable] public class LevelIndexJson { public string[] levels; }
@@ -294,7 +303,7 @@ namespace Tron
     // times (seconds) at `times`; channels: per node posOffset, posCount, rotOffset, rotCount (offsets in
     // floats; a count is 1 for a constant channel, else keys). Parent-relative position xyz, quaternion xyzw.
     // scales: node, offset, count per node whose vertex-animated piece the clip scales uniformly (1 float a
-    // key); cmds: its model string keys (t in seconds). interp: seconds of blend from the previous pose into
+    // key); cmds: its animation keys (t in seconds). interp: seconds of blend from the previous pose into
     // its first key when it starts (0: a cut). from: "" for the model's or its .ltb children's animation, else
     // the ChildModel_N file it comes from (the same name can come from several).
     [Serializable] public class ModelAnimJson { public string name, @from; public float length, interp; public int keys, times; public int[] channels, scales; public AnimCmdJson[] cmds; }

@@ -78,7 +78,7 @@ class Clip:
         self.pos = pos   # per node: (1 or n, 3)
         self.rot = rot   # per node: (1 or n, 4) quaternion x y z w
         self.scales = scales or {}         # node -> (1 or n,) uniform scale of its vertex-animated piece
-        self.commands = list(commands)     # (time ms, model string key)
+        self.commands = list(commands)     # (time ms, animation key)
 
     @property
     def length(self):

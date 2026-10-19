@@ -61,7 +61,7 @@ namespace Tron
 
         static Quaternion Rot(ObjectJson o)
         {
-            var r = LTQuat.FromEuler(o.rot[0], o.rot[1], o.rot[2]);
+            var r = o.LTRotation;
             return new Quaternion(r.x, r.y, r.z, r.w);
         }
 
@@ -71,7 +71,7 @@ namespace Tron
             int i = FirstNamed(name);
             if (i < 0 || !string.Equals(Data.objects[i].cls, "CameraPoint", StringComparison.OrdinalIgnoreCase)) return null;
             var o = Data.objects[i];
-            return new CameraPose(o.LTPosition, LTQuat.FromEuler(o.rot[0], o.rot[1], o.rot[2]));
+            return new CameraPose(o.LTPosition, o.LTRotation);
         }
     }
 }

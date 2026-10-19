@@ -1,43 +1,30 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using UnityEngine;
 
 namespace Tron
 {
-    // The level's ScreenShake objects (ScreenShakes) and iocam (IOCam). Each ScreenShake (not a template) joins with
+    // The level's ScreenShake objects (ScreenShakes). Each ScreenShake (not a template) joins with
     // its GameBase handler (REMOVE: no more pulses) and ON / OFF; they update each frame after the command table (CommandTicker). A pulse
     // plays ShakeSound at the object (a soundbute one of its files, from level.json buteSounds; 3D, outer radius
     // SoundRadius, inner a quarter of it) and, when the player is in range, shakes the player's client: CameraShake,
-    // which CameraJitter adds to the view with the camera jitter effects', scene camera or not. iocam is the
-    // player's IOCAM message, joined once the player is (ConnectPlayer); IOCamView draws the inset and its frame,
-    // and the target's lines play in the player's head (Dialogues.IsIOCamTarget).
+    // which CameraJitter adds to the view with the camera jitter effects', scene camera or not.
     public partial class LevelBuilder
     {
         public ScreenShakes ScreenShakes;
         public readonly CameraShake CameraShake = new CameraShake();
-        public IOCam IOCam;
-        public IOCamView IOCamView;
-
-        // After BuildSpecialFX (the sound player, CameraJitter) and BuildDialogues.
-        void BuildScreenShakes(string exportRoot)
+        // After BuildSpecialFX (the sound player, CameraJitter).
+        void BuildScreenShakes()
         {
             ScreenShakes = new ScreenShakes(Commands) { ShakeScreen = CameraShake.Add };
             Root.GetComponent<CommandTicker>().ScreenShakes = ScreenShakes;
             var jitter = Root.GetComponent<CameraJitter>();
             if (!jitter) jitter = Root.AddComponent<CameraJitter>();
             jitter.Shake = CameraShake;
-            var buteSounds = new Dictionary<string, ButeSoundJson>(StringComparer.OrdinalIgnoreCase);
-            foreach (var b in Data.buteSounds ?? Array.Empty<ButeSoundJson>()) buteSounds[b.name] = b;
             var player = Root.GetComponent<FxSoundPlayer>();
             if (!player) player = Root.AddComponent<FxSoundPlayer>();
-            var rng = new System.Random();
             ScreenShakes.PlaySound = (pos, sound, radius) =>
             {
-                var file = buteSounds.TryGetValue(sound.Trim(), out var b)
-                    ? (b.files != null && b.files.Length > 0 ? b.files[rng.Next(b.files.Length)] : null) : sound;
-                if (file != null) player.PlayAt(file, pos, radius * Dialogues.InnerRadiusPercent, radius);
+                var file = ButeSounds.TryGetValue(sound.Trim(), out var b) ? b.AnyFile() : sound;
+                if (file != null) player.PlayAt(file, pos, radius * AmbientSound.InnerRadiusPercent, radius);
             };
             for (int i = 0; i < Data.objects.Length; i++)
             {
@@ -54,40 +41,10 @@ namespace Tron
                 JoinFlags(i, StartFlags.None, null, () => shake.OnMessage(new Message(new[] { "OFF" }, -1)));
                 Commands.Handle(i, shake.OnMessage);
             }
-
-            IOCamLayout layout = null;
-            var path = Path.Combine(exportRoot ?? "", "hud", "iocam.json");
-            if (exportRoot != null && File.Exists(path)) layout = JsonUtility.FromJson<IOCamLayout>(File.ReadAllText(path));
-            IOCam = new IOCam(layout);
-            Dialogues.IsIOCamTarget = id => IOCam.Target == id;
-            IOCamView = Root.AddComponent<IOCamView>();
-            IOCamView.Init(IOCam);
         }
 
-        // The player joins (ConnectPlayer): what the shakes measure their area from, and its IOCAM message.
-        void ConnectShakes(int id, PlayerController p)
-        {
-            ScreenShakes.PlayerPos = () => p ? AsLT(Root.transform.InverseTransformPoint(p.transform.position)) : (LTVec?)null;
-            IOCam.Handle(Commands, id, PlaceOf, FirstAlive, Exists);
-        }
-
-        bool Exists(int id) => !withFlags.TryGetValue(id, out var f) || !f.Removed;
-
-        // FindNamedObjects' first object of the name that is still in the level, -1 if none.
-        int FirstAlive(string name) => Commands.Named(name).Where(Exists).DefaultIfEmpty(-1).First();
-
-        // The position and rotation the first object of that name has now: a character where it stands, a point a
-        // keyframer moves where it is, else where the level placed it.
-        CameraPose? PlaceOf(string name)
-        {
-            int id = FirstAlive(name);
-            if (id < 0) return null;
-            var actor = Body(id)?.Actor;
-            if (actor != null) return new CameraPose(actor.Pos, actor.Rot);
-            if (id >= Data.objects.Length) return null;
-            if (pointObjects.TryGetValue(id, out var t) && t) return new CameraPose(AsLT(t.localPosition), AsLT(t.localRotation));
-            var o = Data.objects[id];
-            return new CameraPose(o.LTPosition, LTQuat.FromEuler(o.rot[0], o.rot[1], o.rot[2]));
-        }
+        // The player joins (ConnectPlayer): what the shakes measure their area from.
+        void ConnectShakes(PlayerController p) =>
+            ScreenShakes.PlayerPos = () => p ? WorldToLT(p.transform.position) : (LTVec?)null;
     }
 }
