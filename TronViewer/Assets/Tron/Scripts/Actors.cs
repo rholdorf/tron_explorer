@@ -231,6 +231,7 @@ namespace Tron
             }
             if (m.Is("TRACKLOOKAT")) { SetTracking(true); return true; }
             if (m.Is("TRACKNONE")) { SetTracking(false); return true; }
+            // ARMOR_ON / ARMOR_OFF (Tron's power armor) are left unhandled, counted in the level's report: what they show is unconfirmed.
             return false;
         }
 
