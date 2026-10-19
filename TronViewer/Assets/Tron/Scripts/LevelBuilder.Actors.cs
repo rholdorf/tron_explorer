@@ -71,6 +71,7 @@ namespace Tron
                 int parent = Model.data.nodes[bone].parent;
                 var local = parent >= 0 ? Model.BindMatrix(parent).inverse * Model.BindMatrix(bone) : Model.BindMatrix(bone);
                 Tracked.Add((t, bone, LevelBuilder.ToFrame(local)));
+                Animation?.AlwaysPose(bone);   // turned after the pose job: posed every frame
             }
         }
 
@@ -289,14 +290,22 @@ namespace Tron
             if (!player) return;
             float dt = Time.deltaTime;
             var level = Root.transform;
-            var toLevel = level.worldToLocalMatrix;
-            var eye = level.InverseTransformPoint(player.transform.TransformPoint(playerEye));
-            var target = new LTVec(eye.x, eye.y, eye.z);
+            Matrix4x4 toLevel = default;
+            LTVec target = default;
+            bool placed = false;   // the level's matrix and the target, read once a node turns
             foreach (var body in tracking)
             {
                 if (!body.Root || !body.Root.activeInHierarchy) continue;
                 foreach (var (node, index, fromParent) in body.Tracked)
                 {
+                    if (!node.Turning) continue;   // off: Update leaves it, so no matrix is read
+                    if (!placed)
+                    {
+                        toLevel = level.worldToLocalMatrix;
+                        var eye = level.InverseTransformPoint(player.transform.TransformPoint(playerEye));
+                        target = new LTVec(eye.x, eye.y, eye.z);
+                        placed = true;
+                    }
                     var bone = body.Bones[index];
                     var frame = ToFrame(toLevel * bone.localToWorldMatrix);
                     if (!node.Update(ToFrame(toLevel * bone.parent.localToWorldMatrix), fromParent, ref frame, target, dt)) continue;

@@ -11,6 +11,10 @@ namespace Tron
     // A character's animations: the ones it can play by name (its model's, its .ltb children's and its
     // ChildModel_N files', tools/animation.py playable) and where it is in them (AnimTrack: looping or once,
     // the blend into a clip that starts). ModelAnimator poses its bones every frame.
+    //
+    // The job poses only the bones that can move (`moving`): the ones keyed in any of its clips or whose
+    // constant pose differs between them, and the ones head tracking turns (AlwaysPose); the others keep the
+    // pose a cut (Play) gave them. While a clip plays (not blending), only its keyed bones are sampled.
     public sealed class CharacterAnimation : IActorAnimation
     {
         internal readonly LoadedModel model;
@@ -18,18 +22,25 @@ namespace Tron
         internal readonly ModelAnimJson[] anims;   // per track clip, the model's clip
         internal readonly AnimTrack track;
         readonly Dictionary<string, int> byName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        readonly Action settle;   // completes the pose job before the bones are written here
+        readonly ModelAnimator owner;
         readonly List<string[]> keyTexts = new List<string[]>();   // per track clip, its string keys in time order
+        readonly int[][] keyed;        // per track clip, its nodes with a keyed channel
+        readonly bool[][] isKeyed;     // per track clip, per node
+        readonly bool[] always;        // per node: posed every frame (head tracking turns it after the job)
+        readonly List<int> alwaysList = new List<int>();
+        internal int[] moving;         // the nodes the job poses, in slot order
+        internal int[] slotOf;         // per node, its slot after slotBase; -1 when the job leaves it
+        bool settled;                  // its moving bones hold the playing clip's pose, so only keyed ones change
 
         // Each string key its animation crosses (the clip's cmds: "cmd msg ...", FOOTSTEP_KEY...), as it does.
         public Action<string> OnKey;
         internal int slotBase;
 
-        internal CharacterAnimation(LoadedModel model, Transform[] bones, AnimRefJson[] refs, Action settle)
+        internal CharacterAnimation(LoadedModel model, Transform[] bones, AnimRefJson[] refs, ModelAnimator owner)
         {
             this.model = model;
             this.bones = bones;
-            this.settle = settle;
+            this.owner = owner;
             var anims = new List<ModelAnimJson>();
             var infos = new List<AnimTrack.ClipInfo>();
             foreach (var r in refs ?? Array.Empty<AnimRefJson>())
@@ -37,16 +48,29 @@ namespace Tron
                 int i = model.FindAnim(r.name, r.@from);
                 if (i < 0 || byName.ContainsKey(r.name)) continue;
                 var a = model.data.anims[i];
-                var times = new float[a.keys];
-                Array.Copy(model.animData, a.times, times, 0, a.keys);
                 byName[r.name] = anims.Count;
                 anims.Add(a);
-                var cmds = (a.cmds ?? Array.Empty<AnimCmdJson>()).OrderBy(c => c.t).ToArray();
-                keyTexts.Add(Array.ConvertAll(cmds, c => c.s ?? ""));
-                infos.Add(new AnimTrack.ClipInfo { Times = times, Interp = a.interp, Keys = Array.ConvertAll(cmds, c => c.t) });
+                infos.Add(ModelAnimator.ClipInfo(model, a, a.interp, out var texts));
+                keyTexts.Add(texts);
             }
             this.anims = anims.ToArray();
             track = new AnimTrack(infos);
+            keyed = new int[this.anims.Length][];
+            isKeyed = new bool[this.anims.Length][];
+            for (int c = 0; c < this.anims.Length; c++)
+            {
+                isKeyed[c] = new bool[bones.Length];
+                var list = new List<int>();
+                for (int n = 0; n < bones.Length; n++)
+                    if (ModelAnimator.Keyed(this.anims[c], n))
+                    {
+                        isKeyed[c][n] = true;
+                        list.Add(n);
+                    }
+                keyed[c] = list.ToArray();
+            }
+            always = new bool[bones.Length];
+            Layout();
         }
 
         // Whether `name` (any case) is one of its animations.
@@ -60,10 +84,11 @@ namespace Tron
             if (!Has(name)) return false;
             track.Play(byName[name], loop);
             FlushKeys();
+            settled = false;
             if (!track.Blending)
             {
                 // A cut shows the clip's first key at once (the level's bounds are taken from it).
-                settle();
+                owner.Settle();
                 var d = model.animData;
                 var a = anims[track.Clip];
                 for (int n = 0; n < bones.Length; n++)
@@ -78,6 +103,42 @@ namespace Tron
         {
             track.Restart(loop);
             FlushKeys();
+        }
+
+        // Node n is posed every frame, keyed or not: head tracking turns it over the animation after the job.
+        internal void AlwaysPose(int n)
+        {
+            if (n < 0 || n >= always.Length || always[n]) return;
+            always[n] = true;
+            alwaysList.Add(n);
+            Layout();
+            owner.Relayout();
+        }
+
+        // The moving nodes: keyed in a clip, a constant pose that differs between its clips, or always posed.
+        void Layout()
+        {
+            var d = model.animData;
+            var list = new List<int>();
+            slotOf = new int[bones.Length];
+            for (int n = 0; n < bones.Length; n++)
+            {
+                bool moves = always[n];
+                for (int c = 0; c < anims.Length && !moves; c++)
+                    moves = isKeyed[c][n] || !SamePose(d, anims[c], anims[0], n);
+                slotOf[n] = moves ? list.Count : -1;
+                if (moves) list.Add(n);
+            }
+            moving = list.ToArray();
+            settled = false;
+        }
+
+        // Node n's first key is the same in both clips, exactly (Unity's == is approximate).
+        static bool SamePose(float[] d, ModelAnimJson a, ModelAnimJson b, int n)
+        {
+            Vector3 p = ModelAnimator.Position(d, a, n, 0, 0), q = ModelAnimator.Position(d, b, n, 0, 0);
+            Quaternion r = ModelAnimator.Rotation(d, a, n, 0, 0), s = ModelAnimator.Rotation(d, b, n, 0, 0);
+            return p.x == q.x && p.y == q.y && p.z == q.z && r.x == s.x && r.y == s.y && r.z == s.z && r.w == s.w;
         }
 
         internal void FlushKeys()
@@ -95,9 +156,13 @@ namespace Tron
         // Seconds into the playing animation (0 while blending in).
         public float Time => track.Time;
 
-        // Every bone's local pose now into the arrays at slotBase.
-        internal void Pose(NativeArray<Vector3> positions, NativeArray<Quaternion> rotations)
+        // Its moving bones' local poses now into the arrays at slotBase, and per slot where the job takes its
+        // pose from (-1: the bone is left as it is). A character playing the same clip at the same key and
+        // fraction as one posed earlier this frame (`shared`) takes that one's keyed poses.
+        internal void Pose(NativeArray<Vector3> positions, NativeArray<Quaternion> rotations, NativeArray<int> slots,
+                           Dictionary<(ModelAnimJson, int, float), CharacterAnimation> shared)
         {
+            for (int i = 0; i < moving.Length; i++) slots[slotBase + i] = -1;
             if (track.Clip < 0) return;
             var d = model.animData;
             var a = anims[track.Clip];
@@ -105,34 +170,62 @@ namespace Tron
             {
                 var from = anims[track.FromClip];
                 float w = track.Weight;
-                for (int n = 0; n < bones.Length; n++)
+                for (int i = 0; i < moving.Length; i++)
                 {
-                    positions[slotBase + n] = Vector3.LerpUnclamped(ModelAnimator.Position(d, from, n, track.FromKey, 0),
+                    int n = moving[i], s = slotBase + i;
+                    positions[s] = Vector3.LerpUnclamped(ModelAnimator.Position(d, from, n, track.FromKey, 0),
                         ModelAnimator.Position(d, a, n, 0, 0), w);
-                    rotations[slotBase + n] = Quaternion.Slerp(ModelAnimator.Rotation(d, from, n, track.FromKey, 0),
+                    rotations[s] = Quaternion.Slerp(ModelAnimator.Rotation(d, from, n, track.FromKey, 0),
                         ModelAnimator.Rotation(d, a, n, 0, 0), w);
+                    slots[s] = s;
                 }
+                settled = false;
                 return;
             }
             track.Key(out int k, out float f);
-            for (int n = 0; n < bones.Length; n++)
+            if (!settled)
             {
-                positions[slotBase + n] = ModelAnimator.Position(d, a, n, k, f);
-                rotations[slotBase + n] = ModelAnimator.Rotation(d, a, n, k, f);
+                // After a blend, a cut or a new layout: every moving bone once, then only the keyed ones.
+                foreach (int n in moving) Sample(d, a, n, k, f, positions, rotations, slots);
+                settled = true;
+                return;
             }
+            if (shared.TryGetValue((a, k, f), out var other))
+                foreach (int n in keyed[track.Clip]) slots[slotBase + slotOf[n]] = other.slotBase + other.slotOf[n];
+            else
+            {
+                shared[(a, k, f)] = this;
+                foreach (int n in keyed[track.Clip]) Sample(d, a, n, k, f, positions, rotations, slots);
+            }
+            var clipKeyed = isKeyed[track.Clip];
+            foreach (int n in alwaysList)
+                if (!clipKeyed[n]) Sample(d, a, n, k, f, positions, rotations, slots);
+        }
+
+        void Sample(float[] d, ModelAnimJson a, int n, int k, float f, NativeArray<Vector3> positions,
+                    NativeArray<Quaternion> rotations, NativeArray<int> slots)
+        {
+            int s = slotBase + slotOf[n];
+            positions[s] = ModelAnimator.Position(d, a, n, k, f);
+            rotations[s] = ModelAnimator.Rotation(d, a, n, k, f);
+            slots[s] = s;
         }
     }
 
     // Plays the characters' animations (tools/animation.py clips, exported by tools/export_models.py) on their
-    // bone Transforms: each frame every character's track advances and its bones' local poses are sampled,
-    // then a transform job writes them. All characters start their idle when the level loads, as the game's
-    // AIs do when they spawn together.
+    // bone Transforms: each frame every character's track advances and its moving bones' local poses are
+    // sampled (once per clip, key and fraction for characters at the same place in the same clip), then a
+    // transform job writes them. All characters start their idle when the level loads, as the game's AIs do
+    // when they spawn together.
     public class ModelAnimator : MonoBehaviour
     {
         readonly List<CharacterAnimation> characters = new List<CharacterAnimation>();
+        readonly Dictionary<(ModelAnimJson, int, float), CharacterAnimation> shared =
+            new Dictionary<(ModelAnimJson, int, float), CharacterAnimation>();
         TransformAccessArray transforms;
         NativeArray<Vector3> positions;
         NativeArray<Quaternion> rotations;
+        NativeArray<int> slots;
         JobHandle job;
         bool running, dirty;
 
@@ -140,7 +233,7 @@ namespace Tron
         // its level entry; null: none). Its bones keep their bind pose until it plays something.
         public CharacterAnimation Add(LoadedModel model, Transform[] bones, AnimRefJson[] anims)
         {
-            var c = new CharacterAnimation(model, bones, anims, () => job.Complete());
+            var c = new CharacterAnimation(model, bones, anims, this);
             characters.Add(c);
             dirty = true;
             return c;
@@ -148,6 +241,12 @@ namespace Tron
 
         // Called once every character of the level is registered; later ones join on the next frame.
         public void Begin() => running = true;
+
+        // Completes the pose job before bones are written outside it.
+        internal void Settle() => job.Complete();
+
+        // A character's moving bones changed: the job's transforms are rebuilt on the next frame.
+        internal void Relayout() => dirty = true;
 
         void Rebuild()
         {
@@ -157,11 +256,12 @@ namespace Tron
             foreach (var c in characters)
             {
                 c.slotBase = targets.Count;
-                targets.AddRange(c.bones);
+                foreach (int n in c.moving) targets.Add(c.bones[n]);
             }
             transforms = new TransformAccessArray(targets.ToArray());
             positions = new NativeArray<Vector3>(targets.Count, Allocator.Persistent);
             rotations = new NativeArray<Quaternion>(targets.Count, Allocator.Persistent);
+            slots = new NativeArray<int>(targets.Count, Allocator.Persistent);
             dirty = false;
         }
 
@@ -171,13 +271,14 @@ namespace Tron
             job.Complete();   // normally done in LateUpdate
             if (dirty) Rebuild();
             float dt = Time.deltaTime;
+            shared.Clear();
             foreach (var c in characters)
             {
                 c.track.Advance(dt);
                 c.FlushKeys();
-                c.Pose(positions, rotations);
+                c.Pose(positions, rotations, slots, shared);
             }
-            job = new PoseJob { positions = positions, rotations = rotations }.Schedule(transforms);
+            job = new PoseJob { positions = positions, rotations = rotations, slots = slots }.Schedule(transforms);
         }
 
         // Before rendering: the skinned meshes read the bones.
@@ -195,6 +296,7 @@ namespace Tron
             if (transforms.isCreated) transforms.Dispose();
             if (positions.IsCreated) positions.Dispose();
             if (rotations.IsCreated) rotations.Dispose();
+            if (slots.IsCreated) slots.Dispose();
         }
 
         void OnDestroy()
@@ -237,6 +339,20 @@ namespace Tron
             return Quaternion.Slerp(new Quaternion(d[p], d[p + 1], d[p + 2], d[p + 3]), new Quaternion(d[q], d[q + 1], d[q + 2], d[q + 3]), f);
         }
 
+        // Whether node n has a keyed position or rotation in the clip (more than one key).
+        internal static bool Keyed(ModelAnimJson a, int n) => a.channels[n * 4 + 1] > 1 || a.channels[n * 4 + 3] > 1;
+
+        // A clip as AnimTrack plays it, blending in over `interp` seconds, its string keys in time order (their
+        // texts in `texts`).
+        internal static AnimTrack.ClipInfo ClipInfo(LoadedModel model, ModelAnimJson a, float interp, out string[] texts)
+        {
+            var times = new float[a.keys];
+            Array.Copy(model.animData, a.times, times, 0, a.keys);
+            var cmds = (a.cmds ?? Array.Empty<AnimCmdJson>()).OrderBy(c => c.t).ToArray();
+            texts = Array.ConvertAll(cmds, c => c.s ?? "");
+            return new AnimTrack.ClipInfo { Times = times, Interp = interp, Keys = Array.ConvertAll(cmds, c => c.t) };
+        }
+
         // A scale channel (scales: offset, count): linear between keys, a constant when count is 1.
         internal static float Scale(float[] d, int offset, int count, int k, float f) =>
             count <= 1 ? d[offset] : Mathf.LerpUnclamped(d[offset + k], d[offset + Mathf.Min(k + 1, count - 1)], f);
@@ -245,11 +361,14 @@ namespace Tron
         {
             [ReadOnly] public NativeArray<Vector3> positions;
             [ReadOnly] public NativeArray<Quaternion> rotations;
+            [ReadOnly] public NativeArray<int> slots;   // where transform i's pose is; -1: left as it is
 
             public void Execute(int i, TransformAccess t)
             {
-                t.localPosition = positions[i];
-                t.localRotation = rotations[i];
+                int s = slots[i];
+                if (s < 0) return;
+                t.localPosition = positions[s];
+                t.localRotation = rotations[s];
             }
         }
     }

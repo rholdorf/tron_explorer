@@ -41,6 +41,8 @@ namespace Tron
         public TrackedNode Mimic;   // a cloned node copies this one's orientation
 
         public bool Enabled { get; private set; }
+        // Whether Update turns it: on, and its Mimic (if any) on.
+        public bool Turning => Enabled && (Mimic == null || Mimic.Enabled);
         public bool InDiscomfort { get; private set; }
         public bool AtMaxThreshold { get; private set; }
         public bool LookingAtTarget { get; private set; }
@@ -119,8 +121,7 @@ namespace Tron
         // looked at; dt, the time since the last update. False, node untouched, while it is off.
         public bool Update(LTFrame parent, LTFrame fromParent, ref LTFrame node, LTVec target, float dt)
         {
-            if (!Enabled) return false;
-            if (Mimic != null && !Mimic.Enabled) return false;
+            if (!Turning) return false;
             var binding = parent * fromParent;
             binding.T = node.T;
             if (Mimic != null)
