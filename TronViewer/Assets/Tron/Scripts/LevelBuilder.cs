@@ -289,7 +289,7 @@ namespace Tron
                     }
                     else if (inst.parent >= 0 && PlacedCharacters.TryGetValue(inst.obj, out body))
                         body.AddAttachment(inst.socket, go);
-                    body?.Lit.AddRange(litModels.GetRange(lit, litModels.Count - lit));
+                    body?.Lit.AddRange(LitSince(lit));
                 }
                 if (go == null || inst.parent >= 0) continue;
                 if (!modelObjects.TryGetValue(inst.obj, out var shown)) modelObjects[inst.obj] = shown = new List<GameObject>();
@@ -378,16 +378,25 @@ namespace Tron
             // Every instance has its own (attachments: their model's dims at the parent object's position);
             // DynamicLights lights it again while a dynamic light reaches it.
             var dims = inst.dims != null && inst.dims.Length >= 3 ? new Vector3(inst.dims[0], inst.dims[1], inst.dims[2]) : Vector3.zero;
-            var ambient = lighting.Compute(pos, dims, inst.visRadius, sunAmount, lightDirs, lightColors);
+            Light(r, pos, dims, inst.visRadius, sunAmount);
+            litModels.Add(new DynamicLights.Model { R = r, Pos = pos, Dims = dims, VisRadius = inst.visRadius, SunAmount = sunAmount });
+            return go;
+        }
+
+        // A model's D3D lighting at pos (ModelLighting) into its renderer's property block.
+        void Light(Renderer r, Vector3 pos, Vector3 dims, float visRadius, float sunAmount)
+        {
+            var ambient = lighting.Compute(pos, dims, visRadius, sunAmount, lightDirs, lightColors);
             ModelLighting.ToUnit(lightColors);
             modelProps.Clear();
             modelProps.SetVector(AmbientId, ambient / 255f);
             modelProps.SetVectorArray(LightDirId, lightDirs);
             modelProps.SetVectorArray(LightColorId, lightColors);
             r.SetPropertyBlock(modelProps);
-            litModels.Add(new DynamicLights.Model { R = r, Pos = pos, Dims = dims, VisRadius = inst.visRadius, SunAmount = sunAmount });
-            return go;
         }
+
+        // The models lit since litModels held `count` (the ones a character's build just added).
+        List<DynamicLights.Model> LitSince(int count) => litModels.GetRange(count, litModels.Count - count);
 
 
         // The state models (BinaryBit, SecRezzer: StateModels.cs) on their drawn model.

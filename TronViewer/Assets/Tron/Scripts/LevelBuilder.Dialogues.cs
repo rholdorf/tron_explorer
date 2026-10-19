@@ -75,7 +75,8 @@ namespace Tron
         // unpositioned).
         Transform SpeakerTransform(int id)
         {
-            if (SpawnedCharacters.TryGetValue(id, out var sc) && sc.Models.Count > 0 && sc.Models[0]) return sc.Models[0].transform;
+            var body = Body(id);
+            if (body != null && body.Root) return body.Root.transform;
             if (modelObjects.TryGetValue(id, out var gos) && gos.Count > 0 && gos[0]) return gos[0].transform;
             if (speakerPlaces.TryGetValue(id, out var t)) return t;
             if (id < 0 || id >= Data.objects.Length) return Root.transform;

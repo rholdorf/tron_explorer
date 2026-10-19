@@ -75,11 +75,10 @@ namespace Tron
                             var att = BuildInstance(n, name, pos, rot, s.sunAmount, built, out _, out _);
                             if (att) c.AddAttachment(Data.models[n].socket, att);
                         }
-                    c.Lit.AddRange(litModels.GetRange(lit, litModels.Count - lit));
+                    c.Lit.AddRange(LitSince(lit));
                 }
             }
-            var t = c.Template;
-            var start = StartFlags.Visible | If(t.Bool("Solid", true), StartFlags.Solid) | If(t.Bool("Rayhit", true), StartFlags.RayHit);
+            var start = ModelStart(c.Template);
             if (c.Root) JoinActor(id, c, start);
             else JoinFlags(id, start, f => Show(c.Models, f), () => Deactivate(c.Models));
         }

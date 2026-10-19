@@ -122,12 +122,7 @@ namespace Tron
         {
             Actors = new Actors(Commands);
             Root.GetComponent<CommandTicker>().Actors = Actors;
-            foreach (var kv in PlacedCharacters)
-            {
-                var o = Data.objects[kv.Key];
-                var start = StartFlags.Visible | If(o.Bool("Solid", true), StartFlags.Solid) | If(o.Bool("Rayhit", true), StartFlags.RayHit);
-                JoinActor(kv.Key, kv.Value, start);
-            }
+            foreach (var kv in PlacedCharacters) JoinActor(kv.Key, kv.Value, ModelStart(Data.objects[kv.Key]));
         }
 
         void JoinActor(int id, CharacterBody body, StartFlags start)
@@ -229,7 +224,7 @@ namespace Tron
                                    (body.Model, body.Bones), out _, out _);
             if (!go) return;
             body.AddAttachment(position, go);
-            body.Lit.AddRange(litModels.GetRange(lit, litModels.Count - lit));
+            body.Lit.AddRange(LitSince(lit));
             if (body.Actor != null && body.Actor.AttachmentsHidden)
                 foreach (var r in go.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
         }
@@ -247,14 +242,7 @@ namespace Tron
         void Relight(DynamicLights.Model m, Vector3 pos)
         {
             m.Pos = pos;
-            if (!m.R) return;
-            var ambient = lighting.Compute(pos, m.Dims, m.VisRadius, m.SunAmount, lightDirs, lightColors);
-            ModelLighting.ToUnit(lightColors);
-            modelProps.Clear();
-            modelProps.SetVector(AmbientId, ambient / 255f);
-            modelProps.SetVectorArray(LightDirId, lightDirs);
-            modelProps.SetVectorArray(LightColorId, lightColors);
-            m.R.SetPropertyBlock(modelProps);
+            if (m.R) Light(m.R, pos, m.Dims, m.VisRadius, m.SunAmount);
         }
 
         // An object's position (LT units) for FACEOBJECT: the player's, a character's where it stands, else the
