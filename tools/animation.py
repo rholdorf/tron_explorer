@@ -33,9 +33,47 @@ def find_anim(m, children, name):
     return None, None
 
 
+CHILD_MODEL_PROPS = ("childmodel_1", "childmodel_2", "childmodel_3")
+
+
+def child_model_files(extracted, obj):
+    """A character's ChildModel_1..3 files (CAI::ReadProp: ObjectCreateStruct.m_Filenames[1..3]), in order,
+    the ones that exist. The engine adds them to the object's models: their animations play on it by name."""
+    p = {q["k"].lower(): q for q in obj["props"]}
+    out = []
+    for k in CHILD_MODEL_PROPS:
+        q = p.get(k)
+        rel = norm(q["s"]) if q and q["t"] == "s" and q["s"].strip() else ""
+        if rel and rel not in out and os.path.isfile(os.path.join(extracted, rel)):
+            out.append(rel)
+    return out
+
+
+def playable(m, children, files, names):
+    """The animations a character can play by name, [(name, source)] in lookup order, one per name
+    (case-insensitive, first match): `names` found in the model or its .ltb `children` (source ""), then
+    every animation of its ChildModel_N `files` [(file, model)] that those don't shadow (source = the file).
+    The model before its child models (Model::FindAnim), the ChildModel_N files after them, in order."""
+    out, seen = [], set()
+    for name in names:
+        _owner, a = find_anim(m, children, name)
+        if a is not None and a.name.lower() not in seen:
+            seen.add(a.name.lower())
+            out.append((a.name, ""))
+    for rel, cm in files:
+        for a in cm.anims:
+            key = a.name.lower()
+            if key in seen or find_anim(m, children, a.name)[1] is not None:
+                continue
+            seen.add(key)
+            out.append((a.name, rel))
+    return out
+
+
 class Clip:
-    def __init__(self, name, times, pos, rot, scales=None, commands=()):
+    def __init__(self, name, times, pos, rot, scales=None, commands=(), interp_ms=0):
         self.name = name
+        self.interp_ms = interp_ms   # the blend into the clip's first frame (ModelAnim::m_InterpolationMS)
         self.times = np.asarray(times, np.float64)   # ms, from 0, never decreasing (duplicates kept)
         self.pos = pos   # per node: (1 or n, 3)
         self.rot = rot   # per node: (1 or n, 4) quaternion x y z w
@@ -48,10 +86,14 @@ class Clip:
         return float(self.times[-1])
 
 
-def clip(m, children, name):
-    """The clip of animation `name` played on model m. A child's animation drives m's node i with the
+def clip(m, children, name, owner=None):
+    """The clip of animation `name` played on model m: found in m or its `children`, or, given `owner`
+    (a ChildModel_N file's model), that model's. A child's animation drives m's node i with the
     child's channel i (TransformMaker: GetAnimNode(iNode)); nodes are never matched by name."""
-    owner, anim = find_anim(m, children, name)
+    if owner is None:
+        owner, anim = find_anim(m, children, name)
+    else:
+        anim = ltb.find_anim(owner.anims, name)
     if anim is None:
         raise KeyError(f"{name}: no such animation in {m.path} or its children")
     if len(owner.nodes) != len(m.nodes):
@@ -70,7 +112,7 @@ def clip(m, children, name):
         q = q / np.linalg.norm(q, axis=1, keepdims=True)   # i16 keys are unit only to ~1e-3
         pos.append(_collapse(p))
         rot.append(_collapse(q))
-    return Clip(anim.name, anim.times, pos, rot, vertex_scales(m, vertex), anim.commands)
+    return Clip(anim.name, anim.times, pos, rot, vertex_scales(m, vertex), anim.commands, anim.interp_ms)
 
 
 def vertex_scales(m, vertex):

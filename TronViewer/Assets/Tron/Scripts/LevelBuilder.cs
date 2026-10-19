@@ -48,6 +48,20 @@ namespace Tron
         public readonly Dictionary<string, GameObject> WorldModelObjects = new Dictionary<string, GameObject>();
         // Object index -> the model instances drawn for it that aren't attachments (a bin and its frame).
         readonly Dictionary<int, List<GameObject>> modelObjects = new Dictionary<int, List<GameObject>>();
+        // Command-manager id (a placed character's: its object index; a spawned one's: the id its spawn joined
+        // as) -> a character's animations: Play(name, loop) plays any of them by name (its model's, its .ltb
+        // children's, its ChildModel_N files'), blending in over the clip's interp time. CharacterAnim(name)
+        // finds one by its object name.
+        public readonly Dictionary<int, CharacterAnimation> CharacterAnims = new Dictionary<int, CharacterAnimation>();
+
+        // The animations of the character named `name` (any case; the first drawn one with that name), null if none.
+        public CharacterAnimation CharacterAnim(string name)
+        {
+            if (Commands == null) return null;
+            foreach (var id in Commands.Named(name))
+                if (CharacterAnims.TryGetValue(id, out var c)) return c;
+            return null;
+        }
         // World model name -> the level object that owns it (the one BuildWorldModels placed it by).
         readonly Dictionary<string, ObjectJson> worldModelOwners = new Dictionary<string, ObjectJson>(StringComparer.OrdinalIgnoreCase);
         public readonly List<string> MissingTextures = new List<string>();
@@ -227,7 +241,7 @@ namespace Tron
 
         // Model instances (see tools/export_models.py), at their spawn position (after MoveToFloor). Props:
         // a MeshRenderer at the bind pose. Characters: a SkinnedMeshRenderer over one Transform per model
-        // node, looping their clip (ModelAnimator). Attachments hang from their parent's socket node (a
+        // node, looping their idle; CharacterAnims plays any of their animations by name (ModelAnimator). Attachments hang from their parent's socket node (a
         // prop's nodes stay at the bind pose); a character's are posed at their own animation 0, frame 0
         // (attachment models keep their geometry where it sits on the body and move it to the socket with
         // that pose), and follow it as the character moves.
@@ -258,7 +272,8 @@ namespace Tron
                 var obj = Data.objects[inst.obj];
                 var pos = inst.pos != null && inst.pos.Length >= 3 ? new Vector3(inst.pos[0], inst.pos[1], inst.pos[2]) : obj.Position;
                 var go = BuildInstance(n, obj.name, pos, obj.Rotation, inst.sunAmount,
-                                       inst.parent >= 0 ? built[inst.parent] : default, out built[n]);
+                                       inst.parent >= 0 ? built[inst.parent] : default, out built[n], out var character);
+                if (character != null) CharacterAnims[inst.obj] = character;
                 if (go == null || inst.parent >= 0) continue;
                 if (!modelObjects.TryGetValue(inst.obj, out var shown)) modelObjects[inst.obj] = shown = new List<GameObject>();
                 shown.Add(go);
@@ -270,9 +285,11 @@ namespace Tron
         // attachment on `parent`'s socket; lit at pos with sunAmount. built: its model and node Transforms
         // when it has them (characters, props with sockets). Null when it can't be drawn.
         GameObject BuildInstance(int n, string name, Vector3 pos, Quaternion rot, float sunAmount,
-                                 (LoadedModel model, Transform[] bones) parent, out (LoadedModel model, Transform[] bones) built)
+                                 (LoadedModel model, Transform[] bones) parent, out (LoadedModel model, Transform[] bones) built,
+                                 out CharacterAnimation character)
         {
             built = default;
+            character = null;
             var inst = Data.models[n];
             var model = ModelLibrary.Load(modelExportRoot, inst.file, loadedModels, owned);
             if (model == null) return null;
@@ -300,8 +317,13 @@ namespace Tron
             {
                 var bones = BuildBones(go.transform, model, inst.parent >= 0);
                 built = (model, bones);
-                if (inst.parent < 0 && !string.IsNullOrEmpty(inst.anim) && !modelAnimator.Play(model, inst.anim, bones))
-                    Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
+                if (inst.parent < 0 && obj.cls == "CAIHuman")
+                {
+                    var anims = inst.anims != null && inst.anims.Length > 0 ? inst.anims : new[] { new AnimRefJson { name = inst.anim, @from = "" } };   // older exports
+                    character = modelAnimator.Add(model, bones, anims);
+                    if (!string.IsNullOrEmpty(inst.anim) && !character.Play(inst.anim, true))
+                        Debug.LogWarning($"Model {inst.file}: no clip {inst.anim}");
+                }
                 var smr = go.AddComponent<SkinnedMeshRenderer>();
                 smr.sharedMesh = mesh;
                 smr.bones = bones;

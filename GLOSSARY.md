@@ -34,7 +34,7 @@ The model an archive bin shows for each item it holds, attached at one of the bi
 _Avoid_: item (that is what the berry stands for), cube
 
 **Child model**:
-A model whose animations another model borrows (for example, a character's base animation set).
+A model whose animations another model borrows: the ones its `.ltb` lists (for example, a character's base animation set), and a character's own `ChildModel_1..3` files (its cutscene animations). A character plays an animation by name from its model first, then those, the first that has the name; the switch blends in over the animation's blend time, or cuts when it has none.
 _Avoid_: animation file, anim pack
 
 **Socket**:

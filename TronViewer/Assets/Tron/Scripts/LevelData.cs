@@ -45,7 +45,11 @@ namespace Tron
     // pos: where the instance spawns (the object's position after MoveToFloor; attachments: their parent's).
     // anim: the clip a character loops (a name in its model's anims), "" for none.
     // template 1: a CAIHuman template a Spawner copies (and its attachments), built only at a spawn site.
-    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; public int template; }
+    // childModels (characters): its ChildModel_N files. anims (characters): every animation it can play by
+    // name, in lookup order, one per name (tools/animation.py playable): the model's clip (from "") or a
+    // ChildModel_N file's.
+    [Serializable] public class ModelInstanceJson { public int obj; public string file; public string[] skins, styles; public float[] scale; public PieceStyleJson[] pieces; public int skinned, parent; public string socket; public float[] pos; public string anim; public float[] dims; public float visRadius, sunAmount; public string[] clips; public LookJson[] looks; public string[] childModels; public AnimRefJson[] anims; public int template; }
+    [Serializable] public class AnimRefJson { public string name, @from; }
     // A state model's look (BinaryBit idle / yes / no, SecRezzer idle / off / on / spawn): its pieces then.
     [Serializable] public class LookJson { public string name; public PieceStyleJson[] pieces; }
     // A soundbute a model string key plays: one of its files at random, radii in LithTech units.
@@ -275,8 +279,10 @@ namespace Tron
     // times (seconds) at `times`; channels: per node posOffset, posCount, rotOffset, rotCount (offsets in
     // floats; a count is 1 for a constant channel, else keys). Parent-relative position xyz, quaternion xyzw.
     // scales: node, offset, count per node whose vertex-animated piece the clip scales uniformly (1 float a
-    // key); cmds: its model string keys (t in seconds).
-    [Serializable] public class ModelAnimJson { public string name; public float length; public int keys, times; public int[] channels, scales; public AnimCmdJson[] cmds; }
+    // key); cmds: its model string keys (t in seconds). interp: seconds of blend from the previous pose into
+    // its first key when it starts (0: a cut). from: "" for the model's or its .ltb children's animation, else
+    // the ChildModel_N file it comes from (the same name can come from several).
+    [Serializable] public class ModelAnimJson { public string name, @from; public float length, interp; public int keys, times; public int[] channels, scales; public AnimCmdJson[] cmds; }
     [Serializable] public class AnimCmdJson { public float t; public string s; }
     [Serializable] public class ModelPieceJson
     {

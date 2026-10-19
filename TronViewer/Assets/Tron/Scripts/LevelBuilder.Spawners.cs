@@ -27,6 +27,7 @@ namespace Tron
             public readonly List<GameObject> Models = new List<GameObject>();
             public LoadedModel Model;
             public Transform[] Bones;
+            public CharacterAnimation Animation;   // also CharacterAnims[id]; null when it draws no character
         }
 
         // Right after JoinCommands: a character's first-update queue must be its first message handler.
@@ -66,13 +67,14 @@ namespace Tron
                 var pos = new Vector3(s.pos[0], s.pos[1], s.pos[2]);
                 var rot = Quaternion.Euler(s.rot[0] * Mathf.Rad2Deg, s.rot[1] * Mathf.Rad2Deg, s.rot[2] * Mathf.Rad2Deg);
                 var name = Commands.Name(id);
-                var go = BuildInstance(s.model, name, pos, rot, s.sunAmount, default, out var built);
+                var go = BuildInstance(s.model, name, pos, rot, s.sunAmount, default, out var built, out var anim);
                 if (go)
                 {
+                    if (anim != null) CharacterAnims[id] = c.Animation = anim;
                     c.Models.Add(go);
                     (c.Model, c.Bones) = built;
                     for (int n = 0; n < Data.models.Length; n++)
-                        if (Data.models[n].parent == s.model) BuildInstance(n, name, pos, rot, s.sunAmount, built, out _);
+                        if (Data.models[n].parent == s.model) BuildInstance(n, name, pos, rot, s.sunAmount, built, out _, out _);
                 }
             }
             var t = c.Template;
