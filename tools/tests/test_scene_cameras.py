@@ -215,7 +215,14 @@ def test_off_while_off_still_runs_the_cleanup(run):
 def test_skip_turns_off_every_camera_that_is_on(run):
     out = run("log\tend", "cam\ta\tcleanup=msg end a", "cam\tb\tcleanup=msg end b", "cam\tc\tcleanup=msg end c",
               "run\tmsg a on", "run\tmsg b on", "tick\t0.1", "skip", "tick\t0.1", "state")
-    assert out == ["end a", "removed a", "end b", "removed b", "skipped", "live - fov 90 78 view 73.74 box 1 held 0"]
+    assert out == ["end b", "removed b", "end a", "removed a", "skipped", "live - fov 90 78 view 73.74 box 1 held 0"]
+
+
+def test_skip_leaves_on_a_later_camera_an_earlier_cleanup_turned_on(run):
+    # The server's object list is newest first, so the skip passes the later cameras before the earlier ones:
+    # the intro's cam1, skipped, starts the titles' tcam through its cleanup, and tcam plays.
+    out = run("cam	cam1	cleanup=msg tcam on", "cam	tcam", "run	msg cam1 on", "tick	0.1", "skip", "tick	0.1", "state")
+    assert out == ["removed cam1", "skipped", "live tcam fov 90 78 view 73.74 box 0.2 held 1"]
 
 
 def test_can_skip_0_ignores_the_skip(run):

@@ -220,12 +220,15 @@ namespace Tron
             LetterboxAlpha = on ? 1 - left / LetterboxFadeIn : left / LetterboxFadeOut;
         }
 
-        // The skip key (Space) during a scene: SKIP to every camera that is on, in level order.
+        // The skip key (Space) during a scene: SKIP to every camera that is on, in the server's object list
+        // order, which is the reverse of level order (the engine adds each new object at the list's head,
+        // servermgr.cpp; GetNextObject walks from the head). A camera's cleanup can turn on a camera earlier in
+        // level order, already passed, which stays on: the intro's cam1 skipped starts the titles' tcam.
         public void Skip()
         {
             if (Live == null) return;
-            foreach (var c in cameras.ToArray())
-                if (c.On) c.Skip();
+            for (int i = cameras.Count - 1; i >= 0; i--)
+                if (cameras[i].On) cameras[i].Skip();
             Skipped?.Invoke();
         }
 
