@@ -32,7 +32,7 @@ namespace Tron
         public ObjectJson[] objects;
         public ModelInstanceJson[] models;
         public ModelInstanceJson[] attachables; // what `attach <position> <name>` hangs on a character, by name
-        public ButeSoundJson[] buteSounds;   // the soundbutes the state models' clips play (BUTE_SOUND_KEY)
+        public ButeSoundJson[] buteSounds;   // the soundbutes the state models' clips (BUTE_SOUND_KEY) and the ScreenShakes play
         public RenderStyleJson[] renderStyles;
         public LightGridJson lightGrid;      // samples follow the lightmap atlas in level.bin
         public StaticLightJson[] lights;

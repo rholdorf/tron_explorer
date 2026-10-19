@@ -25,7 +25,7 @@ namespace Tron
     }
 
     // A voice the viewer plays: the speaker (a command-manager id), the line's id and file, how long it lasts;
-    // Local: unpanned at full volume (the player's own lines, and every line while a scene camera is on), else
+    // Local: unpanned at full volume (the player's own lines, the IO camera target's, and every line while a scene camera is on), else
     // 3D from the speaker, outer radius Radius and inner InnerRadiusPercent of it.
     public struct DialogueVoice
     {
@@ -69,6 +69,9 @@ namespace Tron
         // Where a speaker is (its subtitle's range), and the listener (LT units).
         public Func<int, LTVec> SpeakerPos;
         public Func<LTVec> ListenerPos;
+        // The speaker is the IO camera's target (IOCam.Target): Tron plays its lines CLIENTLOCAL (cshell.dll
+        // 0x1016bb20), scene camera or not, so it is heard and subtitled wherever it stands.
+        public Func<int, bool> IsIOCamTarget;
 
         // speakerInfo(id): a character's voice radius and IsCinematicAI; sceneLive: a scene camera is the view
         // (PlayerMgr "using external camera"); gameString(id): the string with that id, null if none.
@@ -133,8 +136,9 @@ namespace Tron
             bool player = string.Equals(cls, PlayerClass, StringComparison.OrdinalIgnoreCase);
             var (radius, cinematic) = speakerInfo(speaker);
             bool scene = sceneLive();
-            if (scene && !player && !(cinematic && string.Equals(cls, AIClass, StringComparison.OrdinalIgnoreCase))) return;
-            bool local = player || scene;
+            bool io = !player && IsIOCamTarget != null && IsIOCamTarget(speaker);
+            if (scene && !player && !io && !(cinematic && string.Equals(cls, AIClass, StringComparison.OrdinalIgnoreCase))) return;
+            bool local = player || scene || io;
             if (scene) radius = CinematicRadius;
             else if (player) radius = PlayerRadius;
             var talk = new Talk { End = Now + line.Duration };

@@ -178,6 +178,10 @@ _Avoid_: caption, transmission, mission text
 A placed `Camera` the view switches to while it is on: it goes to named camera points and changes its field of view on command.
 _Avoid_: camera alone (the player has one too), camera point (a place a scene camera goes to)
 
+**IO camera**:
+The picture-in-picture view of an IO node scene (`msg player (iocam on <point> <actor>)`): a second camera, fixed where the point was when it turned on, draws the world into a small rectangle above the screen's centre, framed by the IONode HUD, while the actor exists. The actor stands in a hidden studio room and its lines play in the player's head. `iocam off` takes it away.
+_Avoid_: IO node (the placed node the scene is about), scene camera (the main view, which goes on meanwhile), inset alone
+
 **Letterbox**:
 The black bars over the top and bottom of the screen while a cinematic (`Type 1`) scene camera is the view, fading in and out.
 _Avoid_: widescreen, bars
@@ -299,6 +303,10 @@ _Avoid_: particle system (a different type), effect sprite (one sprite that move
 **Camera jitter**:
 A `CamJitter` key's shake: every update it moves the camera a random amount up to its scale on each axis, full within its inner radius of the effect and fading to nothing at its outer radius. The player camera puts the camera back each frame, so it only shakes the view (m10-04's stumble, Ma3a's bouncing sphere, the lasers in m10-03cin).
 _Avoid_: screen shake, camera shake (the game's own word for its other shakes)
+
+**Screen shake**:
+A `ScreenShake` object's jolt: each ON sends the player's view a pulse of its amount (and more pulses a second or so apart while its count lasts), which dies away in half its amount in seconds, the view's position shaking randomly by up to three times what is left on each axis. Pulses add up, and they shake a scene camera's view too (m10-04's collapsing bunks, the cinematic `cinshake`s).
+_Avoid_: camera jitter (an effect's shake), earthquake
 
 **Dynamic light**:
 A `DynaLight` key's light: a point light where its effect is, coloured by its keys (flickering, with Flicker), its radius its scale. In Tron it lights models and lit sprites but never the world (the game leaves dynamic world lighting off). A model gets it like the other lights in its four-light list, so where the level already lights a model fully (Alan by the digitizer in the intro) it adds nothing to see.

@@ -13,6 +13,7 @@ Driver lines (tab-separated):
   str <id> <text>        a game string
   at <name> <x y z>      an object's place (LT units); the listener is "listener"
   scene <0/1>            a scene camera is live or not
+  iocam <name or ->      the IO camera's target (iocam)
   run <command>          a level command, run now
   tick <dt>              a frame: the server clock, the command table, then the dialogues and the subtitles
   sub                    "sub <id or -> <text>|<visible 0/1> <cinematic layout 0/1>"
@@ -45,12 +46,14 @@ static class Driver
         var places = new Dictionary<string, LTVec>(StringComparer.OrdinalIgnoreCase);
         var strings = new Dictionary<int, string>();
         bool scene = false;
+        int ioTarget = -1;
         var subtitles = new Subtitles();
         var dialogues = new Dialogues(cmds, subtitles,
             id => info.TryGetValue(id, out var i) ? i : (1000f, false),
             () => scene, id => strings.TryGetValue(id, out var t) ? t : null);
         dialogues.SpeakerPos = id => places.TryGetValue(cmds.Name(id), out var p) ? p : new LTVec(0, 0, 0);
         dialogues.ListenerPos = () => places.TryGetValue("listener", out var p) ? p : new LTVec(0, 0, 0);
+        dialogues.IsIOCamTarget = id => id == ioTarget;
         dialogues.PlayVoice = v => Console.WriteLine($"voice {N(cmds.Time)} {cmds.Name(v.Speaker)} {v.Id} {(v.Local ? "2d" : "3d " + N(v.Radius))}");
         dialogues.KillVoice = id => Console.WriteLine($"kill {N(cmds.Time)} {cmds.Name(id)}");
         DialogueProps last = null;
@@ -104,6 +107,7 @@ static class Driver
                 case "str": strings[int.Parse(a[1])] = a[2]; break;
                 case "at": { var v = a[2].Split(' ').Select(F).ToArray(); places[a[1]] = new LTVec(v[0], v[1], v[2]); break; }
                 case "scene": scene = a[1] == "1"; break;
+                case "iocam": ioTarget = a[1] == "-" ? -1 : cmds.Named(a[1])[0]; break;
                 case "run": cmds.Run(a[1]); break;
                 case "tick":
                     cmds.BeginFrame(F(a[1]));
@@ -290,3 +294,12 @@ def test_a_longer_subtitle_scrolls_up_after_three_line_times_until_its_last_line
     out = run("show\t1\tx\t6", "top\t5\t80", *(["tick\t0.125"] * 28), "top\t5\t80",
               *(["tick\t0.125"] * 8), "top\t5\t80", *(["tick\t0.125"] * 8), "top\t5\t80")
     assert out == ["top 380", "top 372", "top 356", "top 348"]
+
+
+def test_the_io_cameras_target_speaks_in_the_players_head_even_under_a_scene_camera(run):
+    # Tron's PlayLipSyncSound (cshell.dll 0x1016bb20): the IO-cam target's lines are CLIENTLOCAL; its subtitle is
+    # unpositioned, so it shows wherever the actor stands.
+    for scene in ("0", "1"):
+        out = run("obj\tma3aActor\tCAIHuman\t1500", "at\tma3aActor\t0 0 90000", "str\t10001\tHello", f"scene\t{scene}",
+                  "iocam\tma3aActor", "dlg\td1", "line\t10001\tma3aActor\t0\t1", "run\tmsg d1 on", *tick(2), "sub")
+        assert out == ["voice 0.125 ma3aActor 10001 2d", f"sub 10001 Hello|1 {scene}"]
