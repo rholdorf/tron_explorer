@@ -48,6 +48,11 @@ namespace Tron
         HudFont hudFont;
         AudioSource typeSound;
         [Serializable] class StringsJson { public int[] ids; public string[] texts; }
+        // The dialogue subtitles (Subtitles, drawn here): on by default (Tron's Default.prf Subtitles 1), U toggles
+        // them; their layout from hud/subtitles.json (layout.txt [Subtitle]).
+        bool subtitlesOn = true;
+        [Serializable] class SubtitleLayoutJson { public int font, fontSize = 16, numLines = 3; public float[] color; public int[] playPos, cinematicPos; public int playWidth = 256, cinematicWidth = 256; }
+        SubtitleLayoutJson subtitleLayout;
         float fps;
 
         void Start()
@@ -214,6 +219,9 @@ namespace Tron
             }
             else Debug.LogWarning($"{path} not found: mission texts and transmissions show nothing; run tools/export_level.py");
             hudFont = HudFont.Load(exportRoot);
+            var subPath = Path.Combine(exportRoot ?? "", "hud", "subtitles.json");
+            if (exportRoot != null && File.Exists(subPath)) subtitleLayout = JsonUtility.FromJson<SubtitleLayoutJson>(File.ReadAllText(subPath));
+            else Debug.LogWarning($"{subPath} not found: dialogues show no subtitles; run tools/export_level.py");
             typeSound = gameObject.AddComponent<AudioSource>();
             typeSound.loop = true;
             typeSound.spatialBlend = 0;
@@ -388,7 +396,8 @@ namespace Tron
             DtxLoader.ClearCache();
             if (testSound) Destroy(testSound.gameObject);
             SoundLoader.ClearCache();
-            level = new LevelBuilder { EffectShader = effectShader };
+            level = new LevelBuilder { EffectShader = effectShader, GameString = id => gameStrings.TryGetValue(id, out var t) ? t : null };
+            level.Subtitles.Enabled = subtitlesOn;
             try
             {
                 level.Build(Path.Combine(exportRoot, "levels", match), worldShader, modelShader, exportRoot, ltjsGridOrder);
@@ -530,6 +539,11 @@ namespace Tron
                 if (kb.f1Key.wasPressedThisFrame) showHelp = !showHelp;
                 if (kb.gKey.wasPressedThisFrame) glowEnabled = !glowEnabled;
                 if (kb.mKey.wasPressedThisFrame) { muted = !muted; AudioListener.volume = muted ? 0 : 1; }
+                if (kb.uKey.wasPressedThisFrame && !menuOpen)
+                {
+                    subtitlesOn = !subtitlesOn;
+                    if (level != null) level.Subtitles.Enabled = subtitlesOn;
+                }
                 UpdateUiScaleInput(kb);
                 if (kb.rKey.wasPressedThisFrame && level != null && !menuOpen) Spawn();
                 if (kb.tKey.wasPressedThisFrame && level != null && !menuOpen) Spawn(spawnIndex + 1);
@@ -690,7 +704,7 @@ namespace Tron
             var p = player ? player.transform.position / LT.Scale : Vector3.zero;
             string sceneTag = scene && scene.ShowingScene ? $"   [CENA {scene.LiveName}: Espaço pula, V voo livre]"
                             : scene && scene.FreeFlight ? $"   [VOO LIVRE, cena {scene.LiveName}: V volta]" : "";
-            string hud = $"{level?.Data.name}   {fps:0} fps   pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") +
+            string hud = $"{level?.Data.name}   {fps:0} fps   pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
                 (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "") + sceneTag;
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
@@ -698,7 +712,7 @@ namespace Tron
             if (showHelp)
             {
                 var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · E usar · " +
-                                          "Cena: Espaço pula, V voo livre · G glow · M som · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
+                                          "Cena: Espaço pula, V voo livre · G glow · M som · U legendas · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }
@@ -712,6 +726,33 @@ namespace Tron
         // - the use prompt (CTargetMgr): the target's ActivateType text for its state, centred at (320, 300),
         //   yellow, grey while locked; a target whose type has no text for the state shows just the key.
         const float HudCharHeight = 14;
+
+        // The dialogue subtitle (CHUDSubtitles): font 0 at FontSize in TextColor, a black shadow one unit down-right,
+        // wrapped at the box's width; the box at FullScreenPos in play or Pos when it started under a scene camera,
+        // NumLines tall. Text that fits is centred and sits on the box's bottom; longer text starts at the box's
+        // left and top and scrolls up (Subtitles.TextTop), showing only the lines inside the box.
+        void DrawSubtitle()
+        {
+            var subs = level.Subtitles;
+            var l = subtitleLayout;
+            if (l == null || !subs.Draws(level.Dialogues.ListenerPos(), level.SceneCameras?.Live != null)) return;
+            var pos = subs.Cinematic ? l.cinematicPos : l.playPos;
+            float width = subs.Cinematic ? l.cinematicWidth : l.playWidth, size = l.fontSize;
+            int rgb = l.color != null && l.color.Length >= 3 ? ((int)l.color[0] << 16) | ((int)l.color[1] << 8) | (int)l.color[2] : 0xFFFFFF;
+            var lines = hudFont.Lines(ColorMarkup.Parse(subs.Text, rgb), size, width);
+            float top = subs.TextTop(lines.Count, hudFont.BlockHeight(lines.Count, size), pos[1], l.numLines, size);
+            bool overflow = lines.Count > l.numLines;
+            float widest = 0;
+            foreach (var line in lines) widest = Mathf.Max(widest, hudFont.Width(line, size));
+            float x = overflow ? pos[0] : pos[0] + (width - widest) / 2;
+            float boxBottom = pos[1] + 2 + l.numLines * size, step = hudFont.LineHeight(size);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                float y = top + i * step;
+                if (overflow && (y < pos[1] - step / 2 || y + size > boxBottom + step / 2)) continue;
+                hudFont.Draw(new System.Collections.Generic.List<System.Collections.Generic.List<HudChar>> { lines[i] }, x, y, size, 1);
+            }
+        }
 
         void DrawHudText()
         {
@@ -737,6 +778,7 @@ namespace Tron
                 var color = t.Locked ? new Color(128 / 255f, 128 / 255f, 128 / 255f) : new Color(1, 1, 0);
                 hudFont.DrawText(text, 320, 300 - HudCharHeight / 2, HudCharHeight, color, true);
             }
+            DrawSubtitle();
             hudFont.End();
         }
     }

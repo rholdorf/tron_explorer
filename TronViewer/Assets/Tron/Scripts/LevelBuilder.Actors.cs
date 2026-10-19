@@ -132,8 +132,8 @@ namespace Tron
         void JoinActor(int id, CharacterBody body, StartFlags start)
         {
             var root = body.Root.transform;
-            var a = body.Actor = Actors.Add(id, body.Animation, body.Idle, ToLT(root.localPosition), ToLT(root.localRotation),
-                                            ToLT(body.Dims));
+            var a = body.Actor = Actors.Add(id, body.Animation, body.Idle, AsLT(root.localPosition), AsLT(root.localRotation),
+                                            AsLT(body.Dims));
             a.PositionOf = PositionOf;
             a.TeleportPointOf = TeleportPointOf;
             a.CastDown = (from, to) => IntersectWorld(from, to, out var hit, out _) ? hit.y : (float?)null;
@@ -260,10 +260,10 @@ namespace Tron
         LTVec? PositionOf(int id)
         {
             if (id == playerId && player)
-                return ToLT(Root.transform.InverseTransformPoint(player.transform.position));
+                return AsLT(Root.transform.InverseTransformPoint(player.transform.position));
             var actor = Body(id)?.Actor;
             if (actor != null) return actor.Pos;
-            if (id >= 0 && id < Data.objects.Length) return ToLT(Data.objects[id].Position);
+            if (id >= 0 && id < Data.objects.Length) return AsLT(Data.objects[id].Position);
             return null;
         }
 
@@ -273,7 +273,7 @@ namespace Tron
             if (id < 0 || id >= Data.objects.Length) return null;
             var o = Data.objects[id];
             if (o.cls != "TeleportPoint") return null;
-            return (ToLT(o.Position), ToLT(o.Rotation), o.Bool("MoveToFloor", true));
+            return (AsLT(o.Position), AsLT(o.Rotation), o.Bool("MoveToFloor", true));
         }
 
         // The characters with a LookAt group, and where the player's head is on the player (its eye).
@@ -330,7 +330,7 @@ namespace Tron
             playerEye = p && p.Cam ? p.Cam.transform.localPosition : Vector3.zero;
         }
 
-        static LTVec ToLT(Vector3 v) => new LTVec(v.x, v.y, v.z);
-        static LTQuat ToLT(Quaternion q) => new LTQuat(q.x, q.y, q.z, q.w);
+        static LTVec AsLT(Vector3 v) => new LTVec(v.x, v.y, v.z);
+        static LTQuat AsLT(Quaternion q) => new LTQuat(q.x, q.y, q.z, q.w);
     }
 }

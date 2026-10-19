@@ -25,6 +25,8 @@ namespace Tron
         public ActivateTypeJson[] activateTypes; // the use prompts its objects name (tools/activate.py)
         public SpawnJson[] spawns;           // the names spawners give what they create (tools/commands.py spawn_names)
         public SpawnSiteJson[] spawnSites;   // where Spawners create characters (tools/export_level.py spawn_sites)
+        public DialogueJson[] dialogues;     // its Dialogue objects, in object order (tools/dialogue.py)
+        public SpeakerJson[] speakers;       // the AIs and Speakers a line can name, templates too (tools/dialogue.py)
         public FxGroupJson[] fxGroups;       // the effect groups its SpecialFX reach (tools/clientfx.py export_group)
         public string[] fxMissing;           // names that find no group
         public ObjectJson[] objects;
@@ -193,6 +195,14 @@ namespace Tron
     // spawnfrom object's): the template's root model instance (-1: it draws nothing), where the character
     // stands there (LT units, after MoveToFloor), the place's rotation (Euler, radians) and the sky's light.
     [Serializable] public class SpawnSiteJson { public int spawner, at, template, model; public float[] pos, rot; public float sunAmount; }
+
+    // A Dialogue object (by its name, the n-th Dialogue in object order) and its lines from slot 1 to the first
+    // empty one: id, speaker name, the delay before it (s), its StartDialogueCommandN, its voice file ("" for
+    // 00000 and cut lines) and how long that plays (s, 0 without one).
+    [Serializable] public class DialogueJson { public string name, startCommand, finishedCommand, cleanUpCommand; public bool removeWhenComplete, useAIState; public DialogueLineJson[] lines; }
+    [Serializable] public class DialogueLineJson { public int id; public string speaker, command, voice; public float delay, duration; }
+    // A CAIHuman or Speaker: how far its voice carries (LT units), IsCinematicAI, and whether it's a template.
+    [Serializable] public class SpeakerJson { public string name, cls; public float radius; public bool cinematic, template; }
 
     // An effect group: phase (s) and its keys at detail High, a linked key after the key it follows.
     [Serializable] public class FxGroupJson

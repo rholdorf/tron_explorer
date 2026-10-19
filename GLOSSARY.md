@@ -162,6 +162,14 @@ _Avoid_: conversation, transmission (a one-line HUD message), subtitle (only the
 A dialogue line's sound, `voice/<id>.wav`, whose id also names the line's subtitle string; the line lasts as long as it plays. `00000` and cut lines have none and end at once.
 _Avoid_: dialogue sound, speech file
 
+**Speaker**:
+The object a dialogue line names to say it: the player, a placed or spawned character, or a placed `Speaker` (a voice with no body). A character that isn't cinematic is not heard while a scene camera is on.
+_Avoid_: actor (a character the scene moves and animates), talker
+
+**Subtitle**:
+The text of the voice being spoken, at the bottom of the screen for as long as it plays, one at a time; on unless the player turns them off.
+_Avoid_: caption, transmission, mission text
+
 **Scene camera**:
 A placed `Camera` the view switches to while it is on: it goes to named camera points and changes its field of view on command.
 _Avoid_: camera alone (the player has one too), camera point (a place a scene camera goes to)
