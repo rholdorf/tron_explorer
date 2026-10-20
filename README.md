@@ -86,9 +86,8 @@ Tab/Esc level menu · F1 help · Ctrl/Cmd +/− text size.
 ## Not yet
 
 Every object and all its properties are already exported in `level.json` (`objects[]`). Not built yet:
-SpecialFX / ClientFX (particles, sparks, glows), cameras, dialogue and cutscenes, characters that
-move (AI, spawners), switchable light groups, screen shake, music (DirectMusic), objectives, the HUD
-beyond the use prompt, inventory and the disc.
+characters that move (AI movement, `goalscript goto`), music (DirectMusic), objectives, the HUD beyond the
+use prompt, mission text, transmissions and subtitles, inventory and the disc.
 
 ## Format references
 
