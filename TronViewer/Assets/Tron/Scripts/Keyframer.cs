@@ -20,7 +20,6 @@ namespace Tron
         AmbientSound sound;
         AudioClip clip;
         int activations;
-        bool moved = true;
 
         public void Init(KeyframerMotion motion, Transform[][] shown, AmbientSound sound, AudioClip clip)
         {
@@ -39,9 +38,12 @@ namespace Tron
 
         void Update()
         {
+            // A pose can still change in the update that goes inactive (the path's end); after that, or after an
+            // OFF / PAUSE between updates, nothing moves: the objects stay where they are, or where a message put
+            // them since (a scene camera's moveto in the same command as the OFF).
+            bool wasActive = motion.Active;
             motion.Update(Time.deltaTime);
-            // A pose can still change in the update that goes inactive; after that nothing moves.
-            if (motion.Active || moved)
+            if (wasActive || motion.Active)
             {
                 for (int i = 0; i < shown.Length; i++)
                 {
@@ -57,7 +59,6 @@ namespace Tron
                     }
                 }
             }
-            moved = motion.Active;
 
             if (!sound) return;
             if (motion.Active && motion.Activations != activations)
