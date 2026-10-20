@@ -28,7 +28,8 @@ namespace Tron
         const float SpotCosFov = -0.99f;
 
 
-        readonly byte[] grid;   // dims x*y*z RGB, x fastest (level.bin after the lightmap atlas)
+        readonly byte[] grid;   // dims x*y*z RGB, x fastest (level.bin after the lightmap atlas), groups added
+        readonly byte[] baseGrid;   // the same without the light groups
         readonly Vector3 origin, cell;
         readonly int dx, dy, dz;
         readonly StaticLightJson[] lights;
@@ -42,7 +43,8 @@ namespace Tron
         {
             this.ltjsGridOrder = ltjsGridOrder;
             var g = data.lightGrid;
-            this.grid = grid;
+            baseGrid = grid;
+            this.grid = (byte[])grid.Clone();
             origin = V(g.origin);
             cell = V(g.cell);
             dx = g.dims[0]; dy = g.dims[1]; dz = g.dims[2];
@@ -51,6 +53,63 @@ namespace Tron
         }
 
         static Vector3 V(float[] v) => new Vector3(v[0], v[1], v[2]);
+
+        // The level's light groups: their grid boxes (CLightTable::AddLightGroupSamples: colour x sample on top
+        // of the grid) and the static lights in them (StaticLight::m_pLightGroupColor: colour x the group's).
+        LightGroups groups;
+        LightGroupJson[] groupBoxes;
+        byte[] groupSamples;
+        int[] lightGroup;   // per static light, its group (-1: none)
+
+        public void UseGroups(LightGroups groups, LightGroupJson[] table, byte[] samples)
+        {
+            this.groups = groups;
+            groupBoxes = table ?? Array.Empty<LightGroupJson>();
+            groupSamples = samples;
+            lightGroup = new int[lights.Length];
+            for (int i = 0; i < lights.Length; i++) lightGroup[i] = groups.Find(lights[i].group);
+            GroupsChanged();
+        }
+
+        // A group's colour changed: the grid is the base plus every lit group's samples, summed, then clamped
+        // and truncated per channel.
+        public void GroupsChanged()
+        {
+            if (groups == null) return;
+            bool any = false;
+            foreach (var g in groupBoxes) any |= g.grid != null && g.grid.ext != null && g.grid.ext[0] * g.grid.ext[1] * g.grid.ext[2] > 0;
+            if (!any) return;
+            var acc = new float[baseGrid.Length];
+            for (int i = 0; i < acc.Length; i++) acc[i] = baseGrid[i];
+            for (int gi = 0; gi < groupBoxes.Length; gi++)
+            {
+                var b = groupBoxes[gi].grid;
+                if (b == null || b.ext == null || b.ext[0] * b.ext[1] * b.ext[2] == 0) continue;
+                var c = groups[groups.Find(groupBoxes[gi].name)].Color;
+                if (c.x * 255 < 1 && c.y * 255 < 1 && c.z * 255 < 1) continue;   // SLightGroup::IsBlack
+                int ex = b.ext[0], ey = b.ext[1], ez = b.ext[2];
+                for (int z = 0; z < ez; z++)
+                for (int y = 0; y < ey; y++)
+                for (int x = 0; x < ex; x++)
+                {
+                    int gx = b.min[0] + x, gy = b.min[1] + y, gz = b.min[2] + z;
+                    if (gx < 0 || gy < 0 || gz < 0 || gx >= dx || gy >= dy || gz >= dz) continue;
+                    float v = groupSamples[b.start + (z * ey + y) * ex + x];
+                    int i = ((gz * dy + gy) * dx + gx) * 3;
+                    acc[i] += c.x * v; acc[i + 1] += c.y * v; acc[i + 2] += c.z * v;
+                }
+            }
+            for (int i = 0; i < acc.Length; i++) grid[i] = (byte)Mathf.Min(acc[i], 255);
+        }
+
+        // A static light's colour now: its own times its group's.
+        Vector3 ColorOf(int i)
+        {
+            var c = V(lights[i].color);
+            if (groups == null || lightGroup[i] < 0) return c;
+            var g = groups[lightGroup[i]].Color;
+            return new Vector3(c.x * g.x, c.y * g.y, c.z * g.z);
+        }
 
         Vector3 Node(int x, int y, int z)
         {
@@ -78,7 +137,7 @@ namespace Tron
         }
 
         // CRenderLight::GetLightSample of a static light (point or spot).
-        static Vector3 Sample(StaticLightJson lt, Vector3 pos)
+        static Vector3 Sample(StaticLightJson lt, Vector3 color, Vector3 pos)
         {
             var v = pos - V(lt.pos);
             float d2 = v.sqrMagnitude, r = lt.radius;
@@ -94,7 +153,7 @@ namespace Tron
                 if (dot <= lt.cosFov) return Vector3.zero;
                 k *= (dot - lt.cosFov) / (1 - lt.cosFov);
             }
-            return V(lt.color) * k;
+            return color * k;
         }
 
         // A light in the relevant light list: a directional light (light == null and not point: the sun or a
@@ -104,6 +163,7 @@ namespace Tron
         {
             public float score, keep;
             public StaticLightJson light;
+            public Vector3 lightColor;   // a static light's colour now (its group's live colour)
             public bool point;
             public DynamicLight dyn;
             public Vector3 dir, color;
@@ -142,7 +202,7 @@ namespace Tron
                 {
                     var last = slots[slots.Count - 1];
                     ambient += last.point ? PointSample(last.dyn, pos)
-                             : last.light == null ? last.color : Sample(last.light, pos) * last.keep;
+                             : last.light == null ? last.color : Sample(last.light, last.lightColor, pos) * last.keep;
                     slots.RemoveAt(slots.Count - 1);
                 }
                 s.keep = 1 - toAmbient;
@@ -158,17 +218,19 @@ namespace Tron
             }
             ambient += SampleGrid(pos);
             foreach (var d in Dynamic) Insert(new Slot { point = true, dyn = d, color = d.Color }, PointSample(d, pos), 0);
-            foreach (var lt in lights)
+            for (int li = 0; li < lights.Length; li++)
             {
+                var lt = lights[li];
+                var lc = ColorOf(li);
                 // FindObjectsInBox2: the light's box (pos +- radius) touches the model's (pos +- VisRadius).
                 var lp = V(lt.pos);
                 float reach = lt.radius + visRadius;
                 if (Mathf.Abs(lp.x - pos.x) > reach || Mathf.Abs(lp.y - pos.y) > reach || Mathf.Abs(lp.z - pos.z) > reach) continue;
-                if (lt.color[0] < 1 && lt.color[1] < 1 && lt.color[2] < 1) continue;   // StaticLightCB early out
+                if (lc.x < 1 && lc.y < 1 && lc.z < 1) continue;   // StaticLightCB early out
                 // Retail Lithtech.exe StaticLightCB (0x54f2cb), not in ltjs: a spot narrower than
                 // DirectionalCosFov is set up as a directional light along its direction, at full color.
-                if (lt.cosFov > DirectionalCosFov) Insert(new Slot { dir = V(lt.dir), color = V(lt.color) }, V(lt.color), lt.toAmbient);
-                else Insert(new Slot { light = lt, color = V(lt.color) }, Sample(lt, pos), lt.toAmbient);
+                if (lt.cosFov > DirectionalCosFov) Insert(new Slot { dir = V(lt.dir), color = lc }, lc, lt.toAmbient);
+                else Insert(new Slot { light = lt, lightColor = lc, color = lc }, Sample(lt, lc, pos), lt.toAmbient);
             }
 
             int n = 0;
@@ -186,7 +248,7 @@ namespace Tron
                     continue;
                 }
                 if (s.light == null) { dir = s.dir; color = s.color; }
-                else DeviceLight(s.light, s.keep, pos, dims, out dir, out color);
+                else DeviceLight(s.light, s.lightColor, s.keep, pos, dims, out dir, out color);
                 if (color.x <= 0 && color.y <= 0 && color.z <= 0) continue;
                 dirs[n] = dir.normalized;
                 colors[n] = color;
@@ -208,9 +270,9 @@ namespace Tron
         // model (CreateSampledDirLight), spots the brightest of the center and the 8 dims-box corners
         // (CreateMultiSampledDirLight). D3D-attenuation points stay point lights in the engine; no retail
         // static light uses them, so they're sampled the same way.
-        static void DeviceLight(StaticLightJson lt, float keep, Vector3 pos, Vector3 dims, out Vector3 dir, out Vector3 color)
+        static void DeviceLight(StaticLightJson lt, Vector3 lc, float keep, Vector3 pos, Vector3 dims, out Vector3 dir, out Vector3 color)
         {
-            color = Sample(lt, pos);
+            color = Sample(lt, lc, pos);
             if (lt.cosFov > SpotCosFov)
             {
                 float best = color.sqrMagnitude;
@@ -218,7 +280,7 @@ namespace Tron
                 for (int sy = -1; sy <= 1; sy += 2)
                 for (int sz = -1; sz <= 1; sz += 2)
                 {
-                    var c = Sample(lt, pos + Vector3.Scale(dims, new Vector3(sx, sy, sz)));
+                    var c = Sample(lt, lc, pos + Vector3.Scale(dims, new Vector3(sx, sy, sz)));
                     if (c.sqrMagnitude > best) { best = c.sqrMagnitude; color = c; }
                 }
             }

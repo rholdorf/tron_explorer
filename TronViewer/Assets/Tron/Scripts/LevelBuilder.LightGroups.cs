@@ -6,7 +6,8 @@ namespace Tron
 {
     // The level's light groups (LightGroups.cs) on the world: a group's vertices and lightmap texels are the base
     // lighting plus every group at its live colour (LightGroups.Add, in table order), rebuilt for what a group
-    // reaches when its colour changes. The meshes a group reaches keep their vertex bytes; the atlas keeps its
+    // reaches when its colour changes; models are lit again from the light grid and static lights
+    // (ModelLighting.UseGroups). The meshes a group reaches keep their vertex bytes; the atlas keeps its
     // base texels when a group has lightmap patches. LightGroup objects answer their messages.
     public partial class LevelBuilder
     {
@@ -45,6 +46,9 @@ namespace Tron
             int valOffset = offset + nv * 4, texOffset = valOffset + nv;
             lmTexels = new byte[pools.texels];
             Buffer.BlockCopy(bin, texOffset, lmTexels, 0, lmTexels.Length);
+            var gridSamples = new byte[pools.gridSamples];
+            Buffer.BlockCopy(bin, texOffset + lmTexels.Length, gridSamples, 0, gridSamples.Length);
+            lighting.UseGroups(LightGroups, groups, gridSamples);
 
             // Meshes by first vertex, to find the one a global vertex index is in.
             var order = new int[Data.meshes.Length];
@@ -136,11 +140,16 @@ namespace Tron
                 for (int r = 0; r < rectPatches.Length; r++) Relight(r);
                 UploadAtlas();
             }
+            lighting.GroupsChanged();
             LightGroups.Changed += OnLightGroupChanged;
         }
 
         void OnLightGroupChanged(int group)
         {
+            // Models: the grid and the static lights follow the group; every model lit so far is lit again.
+            lighting.GroupsChanged();
+            foreach (var m in litModels)
+                if (m.R) Light(m.R, m.Pos, m.Dims, m.VisRadius, m.SunAmount);
             foreach (int mesh in groupMeshes[group])
                 if (litMeshes.TryGetValue(mesh, out var lm)) Relight(lm);
             if (atlasBase != null && groupRects[group].Count > 0)
