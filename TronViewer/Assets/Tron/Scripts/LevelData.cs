@@ -37,6 +37,9 @@ namespace Tron
         public LightGridJson lightGrid;      // samples follow the lightmap atlas in level.bin
         public StaticLightJson[] lights;
         public SunJson sun;                  // black when the level has none
+        public LightGroupJson[] lightGroups; // switchable lights kept apart (tools/export_level.py Writer.light_groups)
+        public LightmapRectJson[] lightmapRects;
+        public LightGroupPoolsJson lightGroupPools; // their data follows the light grid in level.bin
     }
 
     // A level object that shows a model: object index, model file, skin and render style slots,
@@ -73,7 +76,18 @@ namespace Tron
     // Model lighting inputs (tools/modellight.py). Colors are 0-255.
     [Serializable] public class LightGridJson { public float[] origin, cell; public int[] dims; }
     // A static object light: cosFov > -0.99 is a spot along dir; att "Quartic", "Linear" or "D3D" (attCoefs).
-    [Serializable] public class StaticLightJson { public string name, cls, att; public float[] pos, dir, color, attCoefs; public float radius, cosFov, toAmbient; }
+    // group: its LightGroup ("" for none), whose live colour scales its colour.
+    [Serializable] public class StaticLightJson { public string name, cls, att, group; public float[] pos, dir, color, attCoefs; public float radius, cosFov, toAmbient; }
+    // A light group: its DAT colour (0-1), its vertices [vtxStart, +vtxCount) in the vertex pools, its lightmap
+    // patches and its light grid box (ext all 0: none).
+    [Serializable] public class LightGroupJson { public string name; public float[] color; public int vtxStart, vtxCount; public LightmapPatchJson[] patches; public LightGridBoxJson grid; }
+    // A patch of a section lightmap (lm: its lightmapRects entry; x, y, w, h in it), texels from start, row-major.
+    [Serializable] public class LightmapPatchJson { public int lm, x, y, w, h, start; }
+    // A section lightmap's place in the atlas (its first texel; the atlas pads it by one replicated texel).
+    [Serializable] public class LightmapRectJson { public int x, y, w, h; }
+    // A group's grid samples over ext nodes from node min, x fastest, from start in the grid sample pool.
+    [Serializable] public class LightGridBoxJson { public int[] min, ext; public int start; }
+    [Serializable] public class LightGroupPoolsJson { public int vertices, texels, gridSamples; }
     [Serializable] public class SunJson { public float[] dir, color; public float toAmbient; }
     [Serializable] public class PieceStyleJson { public int style; public string[] tex; }
 

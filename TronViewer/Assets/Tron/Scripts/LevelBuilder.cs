@@ -13,7 +13,7 @@ namespace Tron
     {
         public const int SkyLayer = 30;
         public const int FormatVersion = 27;
-        const int HeaderSize = 32, VertexSize = 44;
+        const int HeaderSize = 32, VertexSize = 44, ColorOffset = 24;   // rgba after pos and normal
 
         // World model classes that collide like solid brushes (WorldModel family). Kept in step with
         // tools/floor.py SOLID_CLASSES / HIDDEN_CLASSES (the exporter's MoveToFloor caster).
@@ -91,7 +91,10 @@ namespace Tron
             cidxBase = cvtxBase + ncv * 12;
             int lmW = BitConverter.ToInt32(bin, 24), lmH = BitConverter.ToInt32(bin, 28);
             LoadLightmapAtlas(lmW, lmH, cidxBase + nci * 4);
-            LoadLightGrid(cidxBase + nci * 4 + lmW * lmH * 4, ltjsGridOrder);
+            int gridOffset = cidxBase + nci * 4 + lmW * lmH * 4;
+            LoadLightGrid(gridOffset, ltjsGridOrder);
+            var gd = Data.lightGrid.dims;
+            ReadLightGroups(gridOffset + gd[0] * gd[1] * gd[2] * 3);   // LevelBuilder.LightGroups.cs
 
             Root = new GameObject("Level " + Data.name);
             Root.transform.localScale = Vector3.one * LT.Scale;
@@ -109,6 +112,7 @@ namespace Tron
             if (Data.blockerCollider >= 0) AddCollider(world.transform, Data.blockerCollider, "Blockers");
 
             BuildWorldModels();
+            JoinLightGroups();          // LevelBuilder.LightGroups.cs
             BuildActiveWorldModels();   // LevelBuilderDoors.cs
             bin = null;
             BuildModels(exportRoot);
@@ -164,6 +168,16 @@ namespace Tron
                 name = "Lightmaps", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear,
             };
             owned.Add(lightmapAtlas);
+            if (KeepsAtlas)
+            {
+                // A light group lights some of it: the base stays, the texture stays writable.
+                var px = new byte[width * height * 4];
+                Buffer.BlockCopy(bin, offset, px, 0, px.Length);
+                KeepAtlas(px, width);
+                lightmapAtlas.LoadRawTextureData(px);
+                lightmapAtlas.Apply(false, false);
+                return;
+            }
             using (var px = new NativeArray<byte>(width * height * 4, Allocator.Temp))
             {
                 NativeArray<byte>.Copy(bin, offset, px, 0, px.Length);
@@ -751,7 +765,7 @@ namespace Tron
             var go = new GameObject(mj.name);
             go.transform.SetParent(parent, false);
             go.isStatic = parent.gameObject.isStatic;
-            var mesh = BuildMesh(mj);
+            var mesh = BuildMesh(mj, meshIndex);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
             var mats = new Material[mj.subs.Length];
@@ -763,7 +777,7 @@ namespace Tron
             mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
         }
 
-        Mesh BuildMesh(MeshJson mj)
+        Mesh BuildMesh(MeshJson mj, int meshIndex)
         {
             var mesh = new Mesh { name = mj.name };
             owned.Add(mesh);
@@ -773,11 +787,21 @@ namespace Tron
                 new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4),
                 new VertexAttributeDescriptor(VertexAttribute.TexCoord0, VertexAttributeFormat.Float32, 2),
                 new VertexAttributeDescriptor(VertexAttribute.TexCoord1, VertexAttributeFormat.Float32, 2));
-            using (var vb = new NativeArray<byte>(mj.vtxCount * VertexSize, Allocator.Temp))
+            bool lit = false;
+            if (litMeshes.ContainsKey(meshIndex))
             {
-                NativeArray<byte>.Copy(bin, vtxBase + mj.vtxOffset * VertexSize, vb, 0, vb.Length);
+                // A light group lights it: it keeps its vertex bytes and stays writable (LevelBuilder.LightGroups.cs).
+                var vb = new byte[mj.vtxCount * VertexSize];
+                Buffer.BlockCopy(bin, vtxBase + mj.vtxOffset * VertexSize, vb, 0, vb.Length);
                 mesh.SetVertexBufferData(vb, 0, 0, vb.Length);
+                lit = KeepMesh(meshIndex, mesh, vb);
             }
+            else
+                using (var vb = new NativeArray<byte>(mj.vtxCount * VertexSize, Allocator.Temp))
+                {
+                    NativeArray<byte>.Copy(bin, vtxBase + mj.vtxOffset * VertexSize, vb, 0, vb.Length);
+                    mesh.SetVertexBufferData(vb, 0, 0, vb.Length);
+                }
             int idxCount = 0;
             foreach (var s in mj.subs) idxCount += s.count;
             mesh.SetIndexBufferParams(idxCount, IndexFormat.UInt32);
@@ -793,7 +817,7 @@ namespace Tron
                 mesh.SetSubMesh(i, new SubMeshDescriptor(mj.subs[i].start, mj.subs[i].count) { bounds = bounds, firstVertex = 0, vertexCount = mj.vtxCount },
                     MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices);
             mesh.bounds = bounds;
-            mesh.UploadMeshData(true);
+            mesh.UploadMeshData(!lit);
             return mesh;
         }
 
