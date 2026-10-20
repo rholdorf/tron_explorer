@@ -364,3 +364,13 @@ _Avoid_: level export (that is the viewer's `level.bin`)
 
 **Level kind**:
 Interior (at least 70% of the reachable floor has a ceiling), open (less, or past the flood cap) or minor (under 500 m²); only interior levels feed the baseline.
+
+### Presentation
+
+**Faithful mode**:
+The viewer's default presentation: the level drawn as the game draws it, which the remaster mode must leave pixel-identical.
+_Avoid_: original mode, classic mode
+
+**Remaster mode**:
+An opt-in presentation that changes only how a level is presented (sampling, resolution, texture detail, occlusion), never its content or behaviour; the game's own visual bugs stay as they are.
+_Avoid_: HD mode, enhanced mode, mod
