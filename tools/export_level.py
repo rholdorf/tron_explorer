@@ -45,7 +45,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 25
+FORMAT_VERSION = 26
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -714,6 +714,7 @@ def fx_groups(objects, library, extra=()):
 
 def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, fx_library=None):
     w = dat85.load(dat_path)
+    floor.place_world_models(w)
     wr = Writer()
 
     # Main world render blocks: one mesh per block (keeps culling granular).

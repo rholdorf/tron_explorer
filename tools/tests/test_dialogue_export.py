@@ -115,7 +115,7 @@ def test_level_json_carries_its_dialogues_and_speakers(extracted, tmp_path):
     export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
                         export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
     meta = json.loads((tmp_path / "level.json").read_text())
-    assert meta["version"] == export_level.FORMAT_VERSION == 25
+    assert meta["version"] == export_level.FORMAT_VERSION == 26
     d = {x["name"]: x for x in meta["dialogues"]}
     assert len(d) == 63
     assert [(l["id"], l["speaker"]) for l in d["12042_Dialogue"]["lines"]] == [

@@ -19,6 +19,35 @@ HIDDEN_CLASSES = {c.lower() for c in (
     "LightCycleSlowZone", "LightCycleSpeedZone", "HealthZone")}
 
 
+def world_model_owners(w):
+    """Lower-cased world model name -> the object it belongs to: the first object of that name, or the first
+    brush (solid or volume) object of that name when there is one, as LevelBuilder picks it."""
+    owners = {}
+    for o in w.objects:
+        name, c = o["props"].get("Name", ""), o["class"].lower()
+        if not name:
+            continue
+        brush = c in SOLID_CLASSES or c in HIDDEN_CLASSES
+        prev = owners.get(name.lower())
+        if prev is None or (brush and not (prev["class"].lower() in SOLID_CLASSES or prev["class"].lower() in HIDDEN_CLASSES)):
+            owners[name.lower()] = o
+    return owners
+
+
+def place_world_models(w):
+    """Moves each brush object to its world model's centre, as the engine does when it binds the two
+    (server_extradata.cpp: "Move the OBJECT to the center of the world model geometry", SetPos to the BSP's
+    m_WorldTranslation): DEdit's Pos of a world model object is not where it is in the game. Keyframers with
+    IgnoreOffsets put that point on their keys, and the object turns about it."""
+    owners = world_model_owners(w)
+    for b in w.bsps:
+        if b.flags & dat85.WIF_PHYSICSBSP:
+            continue
+        o = owners.get(b.name.lower())
+        if o is not None and (o["class"].lower() in SOLID_CLASSES or o["class"].lower() in HIDDEN_CLASSES):
+            o["props"]["Pos"] = [float(v) for v in b.translation]
+
+
 class FloorCaster:
     """Vertical casts against up-facing triangles: tris (n, 3, 3)."""
 
@@ -43,15 +72,7 @@ class FloorCaster:
     @classmethod
     def from_world(cls, w):
         """The physics BSP and the world models of solid brush objects (not sky objects)."""
-        owners = {}
-        for o in w.objects:
-            name, c = o["props"].get("Name", ""), o["class"].lower()
-            if not name:
-                continue
-            brush = c in SOLID_CLASSES or c in HIDDEN_CLASSES
-            prev = owners.get(name.lower())
-            if prev is None or (brush and not (prev[0] in SOLID_CLASSES or prev[0] in HIDDEN_CLASSES)):
-                owners[name.lower()] = (c, o["props"])
+        owners = {k: (o["class"].lower(), o["props"]) for k, o in world_model_owners(w).items()}
         sky = {str(o["props"].get("SkyObjectName", "")).lower() for o in w.objects if o["class"] == "SkyPointer"}
         bsps = []
         for b in w.bsps:

@@ -94,3 +94,21 @@ def test_prop_types_follow_their_type_move_to_floor(extracted):
     assert export_level.moves_to_floor(prop("Tank"), r)
     assert not export_level.moves_to_floor(prop("m0502Forcefield"), r)   # level says True, type says 0
     assert not export_level.moves_to_floor({"cls": "ArchiveBin", "props": []}, r)
+
+
+def test_world_model_objects_sit_at_their_world_models_centre(extracted):
+    """The engine moves a brush object to its BSP's m_WorldTranslation (server_extradata.cpp); the intro's
+    credit box tg1_01WM was placed in DEdit ~700 units from it, and its IgnoreOffsets keyframer's first key
+    is that centre (#85)."""
+    import os
+    import dat85
+    w = dat85.load(os.path.join(extracted, "worlds", "retailsingleplayer", "intro.dat"))
+    by_name = {o["props"].get("Name"): o for o in w.objects}
+    assert by_name["tg1_01WM"]["props"]["Pos"] == pytest.approx([-10405.25, -139130.06, -4214.63], abs=0.01)
+    light = next(o for o in w.objects if o["class"] == "Light")
+    light_pos = list(light["props"]["Pos"])
+    floor.place_world_models(w)
+    bsp = next(b for b in w.bsps if b.name == "tg1_01WM")
+    assert by_name["tg1_01WM"]["props"]["Pos"] == pytest.approx(list(bsp.translation))
+    assert by_name["tg1_01WM"]["props"]["Pos"] == pytest.approx([-10217.25, -138674.06, -3666.63], abs=0.01)
+    assert list(light["props"]["Pos"]) == light_pos   # not a brush: stays where DEdit put it
