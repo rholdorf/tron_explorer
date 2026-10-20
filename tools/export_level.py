@@ -9,14 +9,17 @@
     collider verts (f32x3)
     collider idx  (u32, relative to the owning collider's first vertex)
     lightmap atlas (lmWidth * lmHeight * 4 bytes RGBA32, first row = v 0)
-    light grid    (lightGrid.dims x*y*z RGB u8, x fastest then y then z; light groups added)
+    light grid    (lightGrid.dims x*y*z RGB u8, x fastest then y then z; no light groups)
+    light groups  (lightGroupPools: vertices x u32 global vertex index, vertices x u8 intensity,
+                   texels x u8 lightmap intensity, gridSamples x u8; see Writer.light_groups)
 
 Lightmapping (d3d_renderblock.cpp): a lightmapped polygon is stored twice in its render block, once
 in a "lightmap" section (shader 2: uv0 = lightmap coords, one RLE RGB lightmap per section) and once
 in a "lightmap_texture" section (shader 4: the texture pass). The game draws the lightmap and then
 multiplies the texture over it; here the lightmap texels are packed into one atlas per level and
 the texture-pass triangles get the matching lightmap uv (matched by vertex position), so the
-viewer draws both in one pass. Light groups (switchable lights) are added with their initial color.
+viewer draws both in one pass. Light groups (switchable lights) are kept apart: the vertex colours,
+lightmaps and light grid hold none, and the viewer adds each group at its live colour.
 All positions are raw LithTech units/space (left-handed, Y up — same handedness as Unity).
 """
 import collections
@@ -45,7 +48,7 @@ import sounds  # noqa: E402
 import hudtext  # noqa: E402
 import spinner  # noqa: E402
 
-FORMAT_VERSION = 26
+FORMAT_VERSION = 27
 RENDERED_SHADERS = {1, 4, 5, 8, 9}  # gouraud, lightmap_texture, skypan, dualtexture, lightmap_dualtexture
 LIGHTMAP_SHADER = 2
 LIGHTMAPPED_SHADERS = {4, 9}
@@ -113,6 +116,41 @@ def section_lightmap(s, sub_lms, light_groups):
     return img.astype(np.uint8)
 
 
+def vertex_light_group_intensities(lg, n):
+    """A light group's per-vertex intensities (RLE: value, or 0 + skip count) as n uint8s."""
+    out = np.zeros(n, np.uint8)
+    vi, i, v = lg.vertex_intensities, 0, 0
+    while v < n and i < len(vi):
+        val = vi[i]
+        i += 1
+        if val == 0:
+            v += vi[i] + 1
+            i += 1
+            continue
+        out[v] = val
+        v += 1
+    return out
+
+
+def lightmap_patch_intensities(left, top, w, h, data):
+    """A light group's sub-lightmap (RLE intensities: value, or 0xFF + run count + value for run + 1
+    texels) as an (h, w) uint8 array, as section_lightmap reads it."""
+    out = np.zeros((h, w), np.uint8)
+    i, run, run_val = 0, 0, 0
+    for y in range(h):
+        for x in range(w):
+            if run:
+                out[y, x] = run_val
+                run -= 1
+                continue
+            if data[i] == 0xFF:
+                run = data[i + 1]
+                i += 2
+            out[y, x] = run_val = data[i]
+            i += 1
+    return out
+
+
 def pack_atlas(images, pad=1):
     """Shelf-pack lightmaps (edges replicated by `pad` texels so bilinear filtering never bleeds).
     Returns (atlas RGBA, list of (x, y) of each image's first texel)."""
@@ -149,8 +187,16 @@ class Writer:
         self.lightmaps = [np.full((2, 2, 3), 128, np.uint8)]  # NEUTRAL_LIGHTMAP
         self.lm_fixups = []  # (vertex array, lmid array): local lightmap uv -> atlas uv at write time
         self.lm_atlas = None
+        self.lm_pos = None
         self.light_grid = None
+        self.grid_light_groups = []
         self.unmatched_lm_tris = 0
+        # Light groups, kept apart from the base lighting (the viewer adds them at their live colour):
+        # name -> DAT colour (first seen), per-vertex (global index, intensity) and lightmap patches
+        # (lmid, left, top, intensities (h, w)).
+        self.lg_color = {}
+        self.lg_verts = collections.defaultdict(list)
+        self.lg_patches = collections.defaultdict(list)
 
     def material(self, s):
         key = (s.textures[0].replace("\\", "/").lower(), s.textures[1].replace("\\", "/").lower(),
@@ -173,9 +219,12 @@ class Writer:
             start += n
             if s.shader != LIGHTMAP_SHADER or not s.lm_data:
                 continue
-            subs = [lg.section_lms[si] if si < len(lg.section_lms) else [] for lg in b.light_groups]
             lmid = len(self.lightmaps)
-            self.lightmaps.append(section_lightmap(s, subs, b.light_groups))
+            self.lightmaps.append(section_lightmap(s, [], []))
+            for lg in b.light_groups:
+                self.lg_color.setdefault(lg.name, tuple(lg.color))
+                for left, top, w, h, data in (lg.section_lms[si] if si < len(lg.section_lms) else []):
+                    self.lg_patches[lg.name].append((lmid, left, top, lightmap_patch_intensities(left, top, w, h, data)))
             for t in tris:
                 pts = [b.verts["pos"][i].tobytes() for i in t]
                 by_tri[tuple(sorted(pts))] = {p: (lmid, *b.verts["uv0"][i]) for p, i in zip(pts, t)}
@@ -183,21 +232,25 @@ class Writer:
 
     def add_mesh(self, name, blocks):
         """Merge render blocks into one mesh with one submesh per material."""
-        parts, lmids, by_mat = [], [], {}
+        parts, lmids, srcs, by_mat = [], [], [], {}
+        lit_blocks = []   # (block number in srcs, block) of the blocks with light groups
         base = 0
-        for b in blocks:
+        for bn, b in enumerate(blocks):
             if len(b.verts) == 0:
                 continue
+            if b.light_groups:
+                lit_blocks.append((bn, b))
             v = np.zeros(len(b.verts), OUT_VERTEX)
             v["pos"] = b.verts["pos"]
             v["normal"] = b.verts["normal"]
             v["uv"] = np.nan_to_num(b.verts["uv0"], nan=0.0, posinf=0.0, neginf=0.0)
-            c = apply_vertex_light_groups(b.verts["color"], b.light_groups)  # D3DCOLOR 0xAARRGGBB
+            c = b.verts["color"]  # D3DCOLOR 0xAARRGGBB, light groups apart
             v["rgba"][:, 0] = (c >> 16) & 0xFF
             v["rgba"][:, 1] = (c >> 8) & 0xFF
             v["rgba"][:, 2] = c & 0xFF
             v["rgba"][:, 3] = (c >> 24) & 0xFF
             block_parts, block_lmids = [v], [np.full(len(v), NO_LIGHTMAP, np.int32)]
+            block_srcs = [np.stack([np.full(len(v), bn, np.int32), np.arange(len(v), dtype=np.int32)], 1)]
             nv = len(v)
             lm_tris = None
             start = 0
@@ -225,11 +278,13 @@ class Writer:
                             nv_extra["uv2"][3 * k + j] = (u, vv)
                     block_parts.append(nv_extra)
                     block_lmids.append(ids)
+                    block_srcs.append(np.stack([np.full(len(flat), bn, np.int32), flat.astype(np.int32)], 1))
                     tris = np.arange(nv, nv + len(flat), dtype=np.uint32).reshape(-1, 3)
                     nv += len(flat)
                 by_mat.setdefault(self.material(s), []).append(tris.astype(np.uint32) + base)
             parts += block_parts
             lmids += block_lmids
+            srcs += block_srcs
             base += nv
         if not by_mat:
             return -1
@@ -245,6 +300,16 @@ class Writer:
         out, lmid, idx = np.concatenate(parts)[used], np.concatenate(lmids)[used], remap.astype(np.uint32)
         if (lmid != NO_LIGHTMAP).any():
             self.lm_fixups.append((out, lmid))
+        src = np.concatenate(srcs)[used]
+        for bn, b in lit_blocks:
+            mask = src[:, 0] == bn
+            local = np.nonzero(mask)[0]
+            for lg in b.light_groups:
+                self.lg_color.setdefault(lg.name, tuple(lg.color))
+                vals = vertex_light_group_intensities(lg, len(b.verts))[src[mask, 1]]
+                keep = vals > 0
+                if keep.any():
+                    self.lg_verts[lg.name].append(((self.nv + local[keep]).astype(np.uint32), vals[keep]))
         pos = out["pos"]
         mesh = {"name": name, "vtxOffset": self.nv, "vtxCount": int(len(out)), "idxOffset": self.ni,
                 "subs": subs, "min": pos.min(0).tolist(), "max": pos.max(0).tolist()}
@@ -260,6 +325,7 @@ class Writer:
         if not self.lm_fixups:
             return
         atlas, pos = pack_atlas(self.lightmaps)
+        self.lm_pos = pos
         height, width = atlas.shape[:2]
         org = np.array(pos, np.float32)
         size = np.array([(i.shape[1], i.shape[0]) for i in self.lightmaps], np.float32)
@@ -284,6 +350,53 @@ class Writer:
         self.nci += len(idx)
         return len(self.colliders) - 1
 
+    def light_groups(self):
+        """The light groups' table for level.json and their pools for level.bin, in the order the DAT
+        names them (render blocks, then grid groups): per group its DAT colour, its vertices
+        [vtxStart, +vtxCount) in the vertex pools, its lightmap patches (rect in the section's lightmap,
+        `lm` into lightmapRects: that lightmap's place in the atlas, texels from `start` in the texel
+        pool, row-major) and its grid box (min node, ext nodes, samples from `start`, x fastest)."""
+        names = list(self.lg_color)
+        for g in self.grid_light_groups:
+            if g.name not in self.lg_color:
+                self.lg_color[g.name] = tuple(g.color)
+                names.append(g.name)
+        grid = {g.name: g for g in self.grid_light_groups}
+        rects, rect_of = [], {}
+        vidx, vval, texels, samples = [], [], [], []
+        nv = nt = ns = 0
+        table = []
+        for name in names:
+            entry = {"name": name, "color": [float(c) for c in self.lg_color[name]], "vtxStart": nv}
+            for idx, vals in self.lg_verts.get(name, []):
+                vidx.append(idx)
+                vval.append(vals)
+                nv += len(idx)
+            entry["vtxCount"] = nv - entry["vtxStart"]
+            patches = []
+            for lmid, left, top, vals in self.lg_patches.get(name, []):
+                if lmid not in rect_of:
+                    rect_of[lmid] = len(rects)
+                    x, y = self.lm_pos[lmid]
+                    h, w = self.lightmaps[lmid].shape[:2]
+                    rects.append({"x": int(x), "y": int(y), "w": int(w), "h": int(h)})
+                patches.append({"lm": rect_of[lmid], "x": int(left), "y": int(top), "w": int(vals.shape[1]),
+                                "h": int(vals.shape[0]), "start": nt})
+                texels.append(vals.reshape(-1))
+                nt += vals.size
+            entry["patches"] = patches
+            g = grid.get(name)
+            if g is not None:
+                entry["grid"] = {"min": [int(v) for v in g.min], "ext": [int(v) for v in g.ext], "start": ns}
+                samples.append(g.samples.reshape(-1))
+                ns += g.samples.size
+            table.append(entry)
+
+        def cat(parts, dtype):
+            return np.concatenate(parts).astype(dtype) if parts else np.zeros(0, dtype)
+        self.lg_pools = [cat(vidx, np.uint32), cat(vval, np.uint8), cat(texels, np.uint8), cat(samples, np.uint8)]
+        return table, rects, {"vertices": nv, "texels": nt, "gridSamples": ns}
+
     def write_bin(self, path):
         with open(path, "wb") as f:
             f.write(b"TRLV")
@@ -296,6 +409,8 @@ class Writer:
                 f.write(np.ascontiguousarray(lm).tobytes())
             if self.light_grid is not None:
                 f.write(np.ascontiguousarray(self.light_grid.data).tobytes())
+            for a in getattr(self, "lg_pools", []):
+                f.write(np.ascontiguousarray(a).tobytes())
 
 
 def polys_to_tris(polys):
@@ -753,8 +868,9 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
     # Model lighting (modellight.py): the light grid, the static object lights and the sun; the
     # viewer lights each instance from these. The sun's sky visibility needs the world polygons, so
     # it's computed here per instance.
-    wr.light_grid = modellight.with_light_groups(w.light_grid, w.grid_light_groups)
-    lights = modellight.static_lights(w.objects, modellight.light_group_colors(w))
+    wr.light_grid = w.light_grid   # the light groups apart (Writer.light_groups)
+    wr.grid_light_groups = w.grid_light_groups
+    lights = modellight.static_lights(w.objects, {})   # each at its own colour; the viewer scales by its group
     sun = modellight.sun_light(w.objects)
     sky = modellight.SkyCaster.from_bsp(physics) if sun else None
 
@@ -814,6 +930,7 @@ def export(dat_path, out_dir, rel_name, resolver, styles, extracted, idle=None, 
     wr.finish_lightmaps()
     meta["lightmap"] = list(wr.lm_atlas.shape[1::-1]) if wr.lm_atlas is not None else [0, 0]
     meta["unmatchedLightmapTris"] = wr.unmatched_lm_tris
+    meta["lightGroups"], meta["lightmapRects"], meta["lightGroupPools"] = wr.light_groups()
     os.makedirs(out_dir, exist_ok=True)
     wr.write_bin(os.path.join(out_dir, "level.bin"))
     with open(os.path.join(out_dir, "level.json"), "w") as f:

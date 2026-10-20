@@ -121,7 +121,7 @@ def test_level_json_carries_its_effect_groups(extracted, tmp_path):
     export_level.export(os.path.join(extracted, "worlds", name + ".dat"), str(tmp_path), name,
                         export_models.Resolver(extracted), export_models.Styles(extracted), extracted)
     meta = json.loads((tmp_path / "level.json").read_text())
-    assert meta["version"] == export_level.FORMAT_VERSION == 26
+    assert meta["version"] == export_level.FORMAT_VERSION == 27
     names = {g["name"].lower() for g in meta["fxGroups"]}
     fx_names = {p["s"].lower() for o in meta["objects"] if o["cls"] == "SpecialFX" for p in o["props"]
                 if p["k"] == "FxName" and p["s"] != "<none>"}

@@ -68,7 +68,10 @@ STATIC_LIGHT_CLASSES = ("Light", "DirLight", "ObjectLight")
 def static_lights(objects, group_colors):
     """CWorldSharedBSP::AddStaticLights: the light objects that light models directly, in file order.
     Only LightObjects lights with FastLightObjects off qualify; a light without a FastLightObjects
-    property inherits the last value seen (starting at on), as the engine's loop does."""
+    property inherits the last value seen (starting at on), as the engine's loop does.
+    Each light names its LightGroup ("group", "" for none); group_colors (name -> 0-1 colour) scales
+    its colour, and an empty one leaves each light at its own (the export: the viewer scales by the
+    group's live colour, as StaticLight::m_pLightGroupColor)."""
     out = []
     fast = True
     for o in objects:
@@ -89,6 +92,7 @@ def static_lights(objects, group_colors):
         out.append({
             "name": p.get("Name", ""),
             "cls": o["class"],
+            "group": group,
             "pos": list(p.get("Pos", [0.0, 0.0, 0.0])),
             "dir": euler_forward(p["Rotation"]) if p.get("Rotation") else [0.0, 0.0, 0.0],
             "color": [c * scale * g for c, g in zip(color, gc)],
