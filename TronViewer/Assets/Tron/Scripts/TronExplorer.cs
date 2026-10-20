@@ -81,6 +81,8 @@ namespace Tron
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 
             if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
+            // -mute: starts muted, as M does (for captures and benchmarks run next to other work).
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-mute") >= 0) { muted = true; AudioListener.volume = 0; }
             var auto = GetArg("-level");
             if (auto != null) Load(auto);
             var sound = GetArg("-playsound");
