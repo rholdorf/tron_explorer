@@ -370,6 +370,10 @@ namespace Tron
                 smr.sharedMesh = mesh;
                 smr.bones = bones;
                 smr.localBounds = SkinnedBounds(go.transform, model, bones);
+                // A character's cinematic animations carry it far from where it was built (intro: the
+                // employee's M01EmpCounter walks 130 units to the counter): its bounds follow its bones, or the
+                // body is culled by the box it was built in while its attachments, on their own, still show.
+                if (character != null) smr.updateWhenOffscreen = true;
                 r = smr;
             }
             else
