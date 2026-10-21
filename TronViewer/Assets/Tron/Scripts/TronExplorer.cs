@@ -66,6 +66,7 @@ namespace Tron
             uiAdjust = PlayerPrefs.GetFloat(UiScalePref, 1f);
             ResolveRoots();
             DtxLoader.Root = extractedRoot;
+            DtxLoader.HdRoot = exportRoot == null ? null : Path.Combine(exportRoot, "textures_hd");
             TextureEffects.Root = extractedRoot;
             SoundLoader.Root = exportRoot == null ? null : Path.Combine(exportRoot, "sounds");
             gameObject.AddComponent<SpriteAnimator>();
@@ -84,6 +85,7 @@ namespace Tron
 
             remaster = Remaster.FromArgs(Environment.GetCommandLineArgs());
             if (remaster.Unknown.Length > 0) Debug.LogWarning($"-remaster: unknown techniques {string.Join(", ", remaster.Unknown)} (known: {string.Join(", ", Remaster.Ids)})");
+            remaster.Register("hd", SetHdTextures);
             remaster.Register("aniso", on => DtxLoader.SetAnisoLevel(on ? 16 : 4));
             remaster.Register("aa", SetAntialiasing);
             remaster.Register("glow", SetGlowScale);
@@ -348,6 +350,19 @@ namespace Tron
             skyData.renderType = CameraRenderType.Base;
             skyData.renderPostProcessing = false;
             skyData.cameraStack.Add(mainCam);
+        }
+
+        // Remaster hd (#102): the level's textures swap to their HD versions in place (materials keep their state;
+        // both sets stay cached), or back. Without <export>/textures_hd the status line says so.
+        void SetHdTextures(bool on)
+        {
+            var sw = Stopwatch.StartNew();
+            var swaps = DtxLoader.SetHd(on);
+            if (swaps.Count == 0) return;
+            foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
+                foreach (var id in m.GetTexturePropertyNameIDs())
+                    if (m.GetTexture(id) is Texture t && t && swaps.TryGetValue(t, out var next)) m.SetTexture(id, next);
+            Debug.Log($"HD textures {(on ? "on" : "off")}: {swaps.Count} swapped in {sw.ElapsedMilliseconds} ms");
         }
 
         // Remaster ssao (#99): the main camera alone draws with renderer 1 (PC_Renderer_SSAO: URP's SSAO, subtle,
@@ -798,7 +813,7 @@ namespace Tron
             var p = player ? player.transform.position / LT.Scale : Vector3.zero;
             string sceneTag = scene && scene.ShowingScene ? $"   [CENA {scene.LiveName}: Espaço pula, V voo livre]"
                             : scene && scene.FreeFlight ? $"   [VOO LIVRE, cena {scene.LiveName}: V volta]" : "";
-            string hud = $"{level?.Data.name}   " + (Time.captureDeltaTime > 0 ? "" : $"{fps:0} fps   ") + $"pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (remaster.On ? "   [REMASTER]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
+            string hud = $"{level?.Data.name}   " + (Time.captureDeltaTime > 0 ? "" : $"{fps:0} fps   ") + $"pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (remaster.On ? remaster.Set.Contains("hd") && !DtxLoader.HasHd ? "   [REMASTER sem HD]" : "   [REMASTER]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
                 (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "") + sceneTag;
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);

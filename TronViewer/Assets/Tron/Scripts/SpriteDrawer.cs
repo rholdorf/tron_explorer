@@ -168,7 +168,8 @@ namespace Tron
             var tex = lt.frames != null && lt.frames.Length > 1
                 ? lt.frames[SpriteMath.Frame(clock - s.Born, (int)lt.frameRate, lt.frames.Length)]
                 : lt.tex;
-            if (!SpriteMath.Corners(s, tex.width, tex.height, camPos, camRight, camUp, camFwd, corners)) return;
+            // Sized by the DTX's own size (a remaster HD texture has more texels, not a bigger sprite).
+            if (!SpriteMath.Corners(s, lt.width, lt.height, camPos, camRight, camUp, camFwd, corners)) return;
             var b = BatchOf(tex, s.Blend, s.Fog);
             if (b.Verts.Length < (b.Quads + 1) * 4) Array.Resize(ref b.Verts, b.Verts.Length * 2);
             var col = new Color32(Byte(s.R), Byte(s.G), Byte(s.B), Byte(s.A));

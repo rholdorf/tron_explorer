@@ -159,8 +159,8 @@ namespace Tron
             {
                 Frames = frames,
                 LengthMs = rate > 0 ? frames * (1000 / rate) : 0,
-                Width = t.tex.width,
-                Height = t.tex.height,
+                Width = t.width,
+                Height = t.height,
             };
         }
 

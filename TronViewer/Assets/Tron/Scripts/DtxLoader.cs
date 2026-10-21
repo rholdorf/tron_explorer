@@ -22,6 +22,10 @@ namespace Tron
         // Animated sprite (.spr) frames; tex == frames[0]
         public Texture2D[] frames;
         public float frameRate;
+        // The DTX's own size, which sprites are sized by whichever texture tex holds.
+        public int width, height;
+        // Remaster hd: tex is hd while it is on and the texture has one, else sd (the DTX's own pixels).
+        public Texture2D sd, hd;
     }
 
     // Reads DTX v-5 (LithTech Jupiter) textures straight into GPU formats.
@@ -41,9 +45,15 @@ namespace Tron
             {
                 if (t == null) continue;
                 if (t.frames != null) foreach (var f in t.frames) f.anisoLevel = level;
-                else if (t.tex) t.tex.anisoLevel = level;
+                else foreach (var x in new[] { t.sd, t.hd }) if (x) x.anisoLevel = level;
             }
         }
+
+        // Remaster hd (#102): <export>/textures_hd/<path>.dtx, an HD DTX tools/ wrote (2x, same header and command
+        // string), read in place of the texture's pixels while on. Sprite frames keep theirs.
+        public static string HdRoot;
+        static bool hd;
+        public static bool HasHd => HdRoot != null && Directory.Exists(HdRoot);
 
         public static void ClearCache()
         {
@@ -51,9 +61,47 @@ namespace Tron
             {
                 if (t == null) continue;
                 if (t.frames != null) foreach (var f in t.frames) UnityEngine.Object.Destroy(f);
-                else if (t.tex) UnityEngine.Object.Destroy(t.tex);
+                else
+                {
+                    if (t.sd) UnityEngine.Object.Destroy(t.sd);
+                    if (t.hd) UnityEngine.Object.Destroy(t.hd);
+                }
             }
             cache.Clear();
+        }
+
+        // Switches the cached textures (and later loads) to their HD versions or back; returns each texture object
+        // that changed and its replacement, for the materials that hold it. Both sets stay cached.
+        public static Dictionary<Texture, Texture> SetHd(bool on)
+        {
+            hd = on;
+            var swaps = new Dictionary<Texture, Texture>();
+            foreach (var (path, t) in cache)
+            {
+                if (t == null || t.frames != null) continue;
+                if (on && !t.hd) t.hd = LoadHd(path);
+                var next = on && t.hd ? t.hd : t.sd;
+                if (next == t.tex) continue;
+                swaps[t.tex] = next;
+                t.tex = next;
+            }
+            return swaps;
+        }
+
+        static Texture2D LoadHd(string path)
+        {
+            if (!HasHd) return null;
+            var full = Path.Combine(HdRoot, path);
+            if (!File.Exists(full)) return null;
+            try
+            {
+                return CreateTexture(File.ReadAllBytes(full), path);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"HD texture {path}: {e.Message}");
+                return null;
+            }
         }
 
         public static string Normalize(string path) => path.Replace('\\', '/').Trim().ToLowerInvariant();
@@ -90,7 +138,7 @@ namespace Tron
             {
                 int len = br.ReadUInt16();
                 var name = Encoding.ASCII.GetString(br.ReadBytes(len));
-                var t = LoadDtx(Normalize(name));
+                var t = LoadDtx(Normalize(name), false);
                 if (t == null) continue;
                 first ??= t;
                 frames.Add(t.tex);
@@ -101,7 +149,8 @@ namespace Tron
             return first;
         }
 
-        static LTTexture LoadDtx(string path)
+        // hdOk: a sprite's frames (false) keep the DTX's pixels in remaster hd.
+        static LTTexture LoadDtx(string path, bool hdOk = true)
         {
             var full = Path.Combine(Root, path);
             if (!File.Exists(full)) return null;
@@ -109,9 +158,6 @@ namespace Tron
             if (data.Length < HeaderSize) return null;
             int version = BitConverter.ToInt32(data, 4);
             if (version != -5) throw new Exception($"unsupported DTX version {version}");
-            int width = BitConverter.ToUInt16(data, 8);
-            int height = BitConverter.ToUInt16(data, 10);
-            int mips = Math.Max(1, (int)BitConverter.ToUInt16(data, 12));
             int flags = BitConverter.ToInt32(data, 16);
             byte bpp = data[24 + 2];
             var lt = new LTTexture
@@ -120,18 +166,35 @@ namespace Tron
                 uvScale = 1 << data[24 + 4],
                 detailScale = BitConverter.ToSingle(data, 24 + 6) + 1f,
                 detailAngle = (short)(data[24 + 10] | (data[24 + 11] << 8)),
+                width = BitConverter.ToUInt16(data, 8),
+                height = BitConverter.ToUInt16(data, 10),
+                hasAlpha = bpp != 4,
             };
             ParseCommand(lt, Encoding.ASCII.GetString(data, 36, 128).Split('\0')[0]);
+            lt.sd = CreateTexture(data, path);
+            if (lt.sd == null) return null;
+            if (hdOk && hd) lt.hd = LoadHd(path);
+            lt.tex = lt.hd ? lt.hd : lt.sd;
+            return lt;
+        }
 
+        // A DTX's mip chain as a GPU texture (null without a usable first mip).
+        static Texture2D CreateTexture(byte[] data, string path)
+        {
+            if (data.Length < HeaderSize) return null;
+            int width = BitConverter.ToUInt16(data, 8);
+            int height = BitConverter.ToUInt16(data, 10);
+            int mips = Math.Max(1, (int)BitConverter.ToUInt16(data, 12));
+            byte bpp = data[24 + 2];
             TextureFormat fmt;
             int blockBytes;
             bool dxt3 = false;
             switch (bpp)
             {
-                case 0: case 3: fmt = TextureFormat.BGRA32; blockBytes = 0; lt.hasAlpha = true; break;
+                case 0: case 3: fmt = TextureFormat.BGRA32; blockBytes = 0; break;
                 case 4: fmt = TextureFormat.DXT1; blockBytes = 8; break;
-                case 5: fmt = TextureFormat.DXT5; dxt3 = true; blockBytes = 16; lt.hasAlpha = true; break;
-                case 6: fmt = TextureFormat.DXT5; blockBytes = 16; lt.hasAlpha = true; break;
+                case 5: fmt = TextureFormat.DXT5; dxt3 = true; blockBytes = 16; break;
+                case 6: fmt = TextureFormat.DXT5; blockBytes = 16; break;
                 default: throw new Exception($"unsupported BPP ident {bpp}");
             }
 
@@ -155,8 +218,7 @@ namespace Tron
             if (dxt3) raw = Dxt3ToDxt5(raw);
             tex.LoadRawTextureData(raw);
             tex.Apply(false, true);
-            lt.tex = tex;
-            return lt;
+            return tex;
         }
 
         static void ParseCommand(LTTexture lt, string cmd)
