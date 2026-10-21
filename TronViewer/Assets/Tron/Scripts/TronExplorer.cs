@@ -28,6 +28,8 @@ namespace Tron
         Material blurMat, compositeMat;
         bool glowEnabled = true;
         bool muted;
+        // Remaster mode (#96): F2, -remaster [ids]; each technique registers its hook in Start.
+        Remaster remaster;
         AudioSource testSound;
         bool menuOpen = true, showHelp = true;
         Vector2 menuScroll;
@@ -79,6 +81,10 @@ namespace Tron
             Shader.SetGlobalFloat("_LTSaturate", 2); // autoexec.cfg: "Saturate" "1"
             Shader.SetGlobalFloat("_LTScale", LT.Scale);
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
+
+            remaster = Remaster.FromArgs(Environment.GetCommandLineArgs());
+            if (remaster.Unknown.Length > 0) Debug.LogWarning($"-remaster: unknown techniques {string.Join(", ", remaster.Unknown)} (known: {string.Join(", ", Remaster.Ids)})");
+            remaster.Register("aniso", on => DtxLoader.SetAnisoLevel(on ? 16 : 4));
 
             if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
             // -mute: starts muted, as M does (for captures and benchmarks run next to other work).
@@ -453,6 +459,7 @@ namespace Tron
             // The game fades in at level start; a fade in a startup or start point command (m01-01's
             // "fadeIn 2.0") replaces this one on the first frame, as a new fade does.
             fade.Start(true, LevelStartFadeTime);
+            remaster.Apply();
             status = $"{match}: {sw.ElapsedMilliseconds} ms, {level.MissingTextures.Count} texturas ausentes";
             Debug.Log(status + (level.MissingTextures.Count > 0 ? "\n" + string.Join("\n", level.MissingTextures.Take(30)) : ""));
             if (SoundLoader.Missing.Count > 0)
@@ -570,6 +577,7 @@ namespace Tron
                 if (kb.escapeKey.wasPressedThisFrame || kb.tabKey.wasPressedThisFrame) menuOpen = !menuOpen || level == null;
                 if (kb.f1Key.wasPressedThisFrame) showHelp = !showHelp;
                 if (kb.gKey.wasPressedThisFrame) glowEnabled = !glowEnabled;
+                if (kb.f2Key.wasPressedThisFrame) remaster.Toggle();
                 if (kb.mKey.wasPressedThisFrame) { muted = !muted; AudioListener.volume = muted ? 0 : 1; }
                 if (kb.uKey.wasPressedThisFrame && !menuOpen)
                 {
@@ -739,7 +747,7 @@ namespace Tron
             var p = player ? player.transform.position / LT.Scale : Vector3.zero;
             string sceneTag = scene && scene.ShowingScene ? $"   [CENA {scene.LiveName}: Espaço pula, V voo livre]"
                             : scene && scene.FreeFlight ? $"   [VOO LIVRE, cena {scene.LiveName}: V volta]" : "";
-            string hud = $"{level?.Data.name}   " + (Time.captureDeltaTime > 0 ? "" : $"{fps:0} fps   ") + $"pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
+            string hud = $"{level?.Data.name}   " + (Time.captureDeltaTime > 0 ? "" : $"{fps:0} fps   ") + $"pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (remaster.On ? "   [REMASTER]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
                 (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "") + sceneTag;
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
@@ -747,7 +755,7 @@ namespace Tron
             if (showHelp)
             {
                 var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · E usar · " +
-                                          "Cena: Espaço pula, V voo livre · G glow · M som · U legendas · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · Ctrl/Cmd +/− tamanho do texto");
+                                          "Cena: Espaço pula, V voo livre · G glow · M som · U legendas · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · F2 remaster · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }

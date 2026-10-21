@@ -31,6 +31,19 @@ namespace Tron
         const int HeaderSize = 164;
         static readonly Dictionary<string, LTTexture> cache = new Dictionary<string, LTTexture>();
         public static string Root;
+        // Anisotropic filtering level of the level's textures: 4, or 16 in remaster (aniso).
+        static int anisoLevel = 4;
+
+        public static void SetAnisoLevel(int level)
+        {
+            anisoLevel = level;
+            foreach (var t in cache.Values)
+            {
+                if (t == null) continue;
+                if (t.frames != null) foreach (var f in t.frames) f.anisoLevel = level;
+                else if (t.tex) t.tex.anisoLevel = level;
+            }
+        }
 
         public static void ClearCache()
         {
@@ -136,7 +149,7 @@ namespace Tron
             if (blockBytes != 0 && (width % 4 != 0 || height % 4 != 0))
                 throw new Exception($"compressed texture size {width}x{height} not a multiple of 4");
 
-            var tex = new Texture2D(width, height, fmt, usable, true) { name = path, wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 4 };
+            var tex = new Texture2D(width, height, fmt, usable, true) { name = path, wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = anisoLevel };
             var raw = new byte[total];
             Buffer.BlockCopy(data, offset, raw, 0, total);
             if (dxt3) raw = Dxt3ToDxt5(raw);
