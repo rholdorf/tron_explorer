@@ -76,6 +76,7 @@ namespace Tron
 
             SetupCameras();
             SetupGlow();
+            ProtoAA(); // PROTOTYPE (#97)
             Shader.SetGlobalFloat("_LTSaturate", 2); // autoexec.cfg: "Saturate" "1"
             Shader.SetGlobalFloat("_LTScale", LT.Scale);
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
@@ -110,6 +111,9 @@ namespace Tron
             showHelp = false;
             Directory.CreateDirectory(outDir);
             float start = Time.time;
+            yield return null; // PROTOTYPE (#97): -benchcmd fires effects for -frames too
+            var protoCmd = GetArg("-benchcmd");
+            if (protoCmd != null) level.Commands.Run(protoCmd);
             foreach (var at in times.Split(' ', StringSplitOptions.RemoveEmptyEntries)
                                     .Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).OrderBy(v => v))
             {
@@ -334,6 +338,48 @@ namespace Tron
             skyData.renderType = CameraRenderType.Base;
             skyData.renderPostProcessing = false;
             skyData.cameraStack.Add(mainCam);
+        }
+
+        // PROTOTYPE (#97, branch prototype/remaster-aa, never merged): -proto-aa none|post|fxaa|smaa|msaa2|msaa4|stp
+        // [-proto-scale <render scale>] switches the anti-aliasing for side-by-side captures and timings. stp takes
+        // the main camera off the sky's stack (URP gives stacked cameras no TAA/STP), so the sky isn't drawn.
+        void ProtoAA()
+        {
+            var asset = (UniversalRenderPipelineAsset)GraphicsSettings.currentRenderPipeline;
+            asset.upscalingFilter = UpscalingFilterSelection.Auto; // built with STP so its resources ship
+            var mode = GetArg("-proto-aa");
+            if (mode == null) return;
+            var skyData = skyCam.GetUniversalAdditionalCameraData();
+            var mainData = mainCam.GetUniversalAdditionalCameraData();
+            if (float.TryParse(GetArg("-proto-scale"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var scale))
+                asset.renderScale = scale;
+            switch (mode)
+            {
+                case "msaa2": asset.msaaSampleCount = 2; break;
+                case "msaa4": asset.msaaSampleCount = 4; break;
+                case "post":
+                case "fxaa":
+                case "smaa":
+                    foreach (var d in new[] { skyData, mainData })
+                    {
+                        d.renderPostProcessing = true;
+                        d.antialiasing = mode == "fxaa" ? AntialiasingMode.FastApproximateAntialiasing
+                                       : mode == "smaa" ? AntialiasingMode.SubpixelMorphologicalAntiAliasing : AntialiasingMode.None;
+                        d.antialiasingQuality = AntialiasingQuality.High;
+                    }
+                    break;
+                case "stp":
+                    skyData.cameraStack.Remove(mainCam);
+                    skyCam.enabled = false;
+                    mainData.renderType = CameraRenderType.Base;
+                    mainCam.clearFlags = CameraClearFlags.SolidColor;
+                    mainCam.backgroundColor = Color.black;
+                    mainData.renderPostProcessing = true;
+                    mainData.antialiasing = AntialiasingMode.TemporalAntiAliasing;
+                    asset.upscalingFilter = UpscalingFilterSelection.STP;
+                    break;
+            }
+            Debug.Log($"PROTO-AA {mode} scale {asset.renderScale} msaa {asset.msaaSampleCount} filter {asset.upscalingFilter}");
         }
 
         // Screen glow, as configured in the game's autoexec.cfg (ScreenGlow* console vars; the filter's are

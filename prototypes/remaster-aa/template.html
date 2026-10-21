@@ -1,0 +1,216 @@
+<title>Anti-aliasing do remaster</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one dark bench, like the viewer's own screen; timings first, then a crop wall where each tile can be held to flash the faithful frame. */
+:root {
+  color-scheme: dark;
+  --ground: #070b10;
+  --panel: #0e151d;
+  --line: #1d2a36;
+  --ink: #d7e3ec;
+  --muted: #7d909f;
+  --cyan: #5fe1ff;
+  --amber: #ffb547;
+  --bad: #ff6b6b;
+  --good: #6fe3a5;
+  --display: "Chakra Petch", "Avenir Next Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--ground); color: var(--ink); font: 15px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+main { max-width: 1240px; margin: 0 auto; display: grid; gap: 44px; }
+h1, h2 { font-family: var(--display); font-weight: 600; letter-spacing: .01em; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.1; }
+h2 { font-size: 20px; }
+.eyebrow { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--cyan); }
+header { display: grid; gap: 12px; max-width: 70ch; }
+header p { margin: 0; color: var(--muted); }
+section { display: grid; gap: 16px; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* timing chart */
+.chart { display: grid; gap: 10px; }
+.row { display: grid; grid-template-columns: 150px 1fr 120px; gap: 14px; align-items: center; }
+.row .name { font-weight: 500; }
+.row .nums { font: 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+.track { position: relative; height: 22px; }
+.bar-avg, .bar-p95 { position: absolute; left: 0; height: 100%; border-radius: 2px; }
+.bar-p95 { background: color-mix(in srgb, var(--cyan) 22%, transparent); }
+.bar-avg { background: var(--cyan); height: 60%; top: 20%; }
+.row.color .bar-avg { background: var(--amber); }
+.row.color .bar-p95 { background: color-mix(in srgb, var(--amber) 22%, transparent); }
+.budget { position: absolute; top: -6px; bottom: -6px; width: 0; border-left: 1px dashed var(--bad); }
+.axis { display: grid; grid-template-columns: 150px 1fr 120px; gap: 14px; font: 12px var(--mono); color: var(--muted); }
+.axis .scale { position: relative; height: 16px; }
+.axis .scale span { position: absolute; transform: translateX(-50%); }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 1px; }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.tablewrap { overflow-x: auto; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.pill { font: 500 12px var(--mono); padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.pill.ok { color: var(--good); } .pill.warn { color: var(--amber); }
+
+/* crop wall */
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tools button {
+  font: 500 13px var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  padding: 7px 12px; border-radius: 4px; cursor: pointer;
+}
+.tools button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+.tools button:focus-visible, .tile:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.tools .sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--tile)), 1fr)); gap: 14px; }
+.tile { margin: 0; display: grid; gap: 6px; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; }
+.tile .frame { overflow: hidden; background: #000; border: 1px solid var(--line); border-radius: 3px; aspect-ratio: 400 / 250; }
+.tile img { display: block; width: 100%; height: 100%; object-fit: none; image-rendering: pixelated; }
+.tile.holding .frame { border-color: var(--amber); }
+.tile figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.tile figcaption .mono { color: var(--muted); }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+
+.notes { display: grid; gap: 10px; max-width: 75ch; color: var(--muted); }
+.notes p { margin: 0; }
+.notes strong { color: var(--ink); font-weight: 500; }
+@media (max-width: 640px) {
+  .row, .axis { grid-template-columns: 96px 1fr 84px; gap: 8px; }
+}
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">Mapa remaster · protótipo do ticket 97</div>
+    <h1>Qual anti-aliasing o remaster usa?</h1>
+    <p>Sete variantes contra o modo fiel, no player build, na tela nativa desta máquina (3024×1964). Os tempos são de m10-04 com as 375 explosões disparadas (média de 3 execuções de 8 s). As imagens são capturas determinísticas: todas as variantes mostram o mesmo frame.</p>
+  </header>
+
+  <section aria-labelledby="t-cost">
+    <h2 id="t-cost">Custo por frame</h2>
+    <div class="legend">
+      <span><i style="background:var(--cyan)"></i>média, só arestas mudam</span>
+      <span><i style="background:var(--amber)"></i>média, a cor da cena inteira muda</span>
+      <span><i style="background:color-mix(in srgb, var(--cyan) 30%, transparent)"></i>p95</span>
+      <span><i style="border-left:1px dashed var(--bad);width:1px;height:12px"></i>orçamento p95 8,3 ms (120 Hz)</span>
+    </div>
+    <div class="chart" id="chart"></div>
+    <div class="axis"><span></span><div class="scale" id="scale"></div><span></span></div>
+  </section>
+
+  <section aria-labelledby="t-table">
+    <h2 id="t-table">O que cada variante faz com a imagem</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Variante</th><th>Média</th><th>p95</th><th>Acima do fiel</th><th>Pixels alterados</th><th>Cor</th></tr></thead>
+        <tbody id="table"></tbody>
+      </table>
+    </div>
+    <p class="hint">Pixels alterados: parcela do frame de m01-01 com diferença acima de 2 níveis em relação ao modo fiel. Um AA que só suaviza arestas fica perto de 1%.</p>
+  </section>
+
+  <section aria-labelledby="t-wall">
+    <h2 id="t-wall">Recortes em tamanho real</h2>
+    <div class="tools" role="group" aria-label="Recorte e zoom">
+      <span id="crops" style="display:contents"></span>
+      <span class="sep" aria-hidden="true"></span>
+      <button id="z1" type="button" aria-pressed="true">1×</button>
+      <button id="z2" type="button" aria-pressed="false">2×</button>
+      <button id="z3" type="button" aria-pressed="false">3×</button>
+    </div>
+    <p class="hint">Segure o clique (ou o dedo) num recorte para ver o modo fiel no mesmo lugar. Com zoom, cada pixel vira um bloco, sem filtragem.</p>
+    <div class="wall" id="wall"></div>
+  </section>
+
+  <section class="notes" aria-labelledby="t-notes">
+    <h2 id="t-notes" style="color:var(--ink)">Leia antes de decidir</h2>
+    <p><strong>Ligar o post-processing do URP já muda a cor.</strong> Sem AA nenhum, só com o post ligado, 39% dos pixels mudam e o frame custa +1,2 ms. FXAA, SMAA e STP passam por ele. Para usá-los sem mudar a cor seria preciso neutralizar o perfil de volume padrão, e esse custo fixo continua.</p>
+    <p><strong>O STP do protótipo não desenha o céu.</strong> O URP não dá STP a câmeras empilhadas, então o protótipo tirou a câmera do céu da pilha. Fazer direito custa cerca de um dia. O tempo do STP fica um pouco otimista, porque não paga o céu.</p>
+    <p><strong>O MSAA não suaviza recortes com alpha-test</strong> (grades, vazados). Para isso, os shaders precisam de alpha-to-coverage, que fica desligado no modo fiel.</p>
+    <p><strong>Resolução:</strong> o orçamento do mapa fala em 3600×2260. Esta tela é 3024×1964, cerca de 27% menos pixels. Os números escalam mais ou menos com a área.</p>
+  </section>
+</main>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById('data').textContent);
+  const BUDGET = 8.3, MAX = 9;
+  const base = data.rows[0];
+  const colorShift = r => r.changed > 5;
+  const fmt = n => n.toFixed(2).replace('.', ',');
+
+  const chart = document.getElementById('chart');
+  data.rows.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'row' + (colorShift(r) ? ' color' : '');
+    row.innerHTML = `<span class="name">${r.label}</span>
+      <div class="track">
+        <div class="bar-p95" style="width:${r.p95 / MAX * 100}%"></div>
+        <div class="bar-avg" style="width:${r.avg / MAX * 100}%"></div>
+        <div class="budget" style="left:${BUDGET / MAX * 100}%"></div>
+      </div>
+      <span class="nums">${fmt(r.avg)} / ${fmt(r.p95)} ms</span>`;
+    chart.appendChild(row);
+  });
+  const scale = document.getElementById('scale');
+  for (let ms = 0; ms <= MAX; ms += 1) {
+    const s = document.createElement('span');
+    s.style.left = (ms / MAX * 100) + '%';
+    s.textContent = ms;
+    scale.appendChild(s);
+  }
+
+  const table = document.getElementById('table');
+  data.rows.forEach(r => {
+    const tr = document.createElement('tr');
+    const over = r === base ? '—' : '+' + fmt(r.avg - base.avg) + ' ms';
+    const pill = colorShift(r) ? '<span class="pill warn">muda</span>' : '<span class="pill ok">igual</span>';
+    tr.innerHTML = `<td>${r.label}</td><td class="num">${fmt(r.avg)} ms</td><td class="num">${fmt(r.p95)} ms</td>
+      <td class="num">${over}</td><td class="num">${r.changed.toFixed(1).replace('.', ',')}%</td><td>${pill}</td>`;
+    table.appendChild(tr);
+  });
+
+  let crop = 0, zoom = 1;
+  const cropsEl = document.getElementById('crops');
+  const wall = document.getElementById('wall');
+  const cropButtons = data.crops.map((label, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.id = 'crop' + i; b.textContent = label;
+    b.addEventListener('click', () => { crop = i; render(); });
+    cropsEl.appendChild(b);
+    return b;
+  });
+  [1, 2, 3].forEach(z => document.getElementById('z' + z).addEventListener('click', () => { zoom = z; render(); }));
+
+  function render() {
+    cropButtons.forEach((b, i) => b.setAttribute('aria-pressed', String(i === crop)));
+    [1, 2, 3].forEach(z => document.getElementById('z' + z).setAttribute('aria-pressed', String(z === zoom)));
+    wall.style.setProperty('--tile', (400 * Math.min(zoom, 2)) + 'px');
+    wall.innerHTML = '';
+    data.rows.forEach(r => {
+      const own = data.imgs[crop + ':' + r.k], faithful = data.imgs[crop + ':' + base.k];
+      const fig = document.createElement('figure');
+      fig.className = 'tile'; fig.tabIndex = 0;
+      fig.innerHTML = `<div class="frame"><img alt="${data.crops[crop]}, ${r.label}" src="${own}" style="transform:scale(${zoom});transform-origin:center"></div>
+        <figcaption><span>${r.label}</span><span class="mono">${fmt(r.avg)} ms</span></figcaption>`;
+      const img = fig.querySelector('img');
+      const hold = on => { img.src = on ? faithful : own; fig.classList.toggle('holding', on); };
+      fig.addEventListener('pointerdown', () => hold(true));
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(e => fig.addEventListener(e, () => hold(false)));
+      fig.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); hold(true); } });
+      fig.addEventListener('keyup', () => hold(false));
+      wall.appendChild(fig);
+    });
+  }
+  render();
+})();
+</script>
