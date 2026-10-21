@@ -77,6 +77,7 @@ namespace Tron
             SetupCameras();
             SetupGlow();
             ProtoAA(); // PROTOTYPE (#97)
+            ProtoSSAO(); // PROTOTYPE (#99)
             Shader.SetGlobalFloat("_LTSaturate", 2); // autoexec.cfg: "Saturate" "1"
             Shader.SetGlobalFloat("_LTScale", LT.Scale);
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
@@ -395,6 +396,36 @@ namespace Tron
             Debug.Log($"PROTO-AA {mode} scale {asset.renderScale} msaa {asset.msaaSampleCount} filter {asset.upscalingFilter}");
         }
 
+        // PROTOTYPE (#99, branch prototype/remaster-ssao, never merged): -proto-ssao "i=0.4,r=0.3,f=100,s=1,d=0,b=0,after=0"
+        // gives the main camera renderer 1 (PC_Renderer_SSAO), sets its SSAO feature (intensity, radius, falloff,
+        // samples 0 high/1 medium/2 low, downsample, blur 0 bilateral/1 gaussian/2 kawase, after opaque) and
+        // makes Tron/World and Tron/Model occlude their lit term with it (_LTAO); after=1 leaves the shaders
+        // alone and lets URP darken the whole frame instead. Renderer 0 (every other camera) has SSAO off.
+        bool protoAO;
+        void ProtoSSAO()
+        {
+            var arg = GetArg("-proto-ssao");
+            if (arg == null) return;
+            var kv = arg.Split(',').Where(x => x.Contains('=')).ToDictionary(x => x.Split('=')[0], x => float.Parse(x.Split('=')[1], System.Globalization.CultureInfo.InvariantCulture));
+            float Get(string k, float d) => kv.TryGetValue(k, out var v) ? v : d;
+            var asset = (UniversalRenderPipelineAsset)GraphicsSettings.currentRenderPipeline;
+            var list = (ScriptableRendererData[])typeof(UniversalRenderPipelineAsset).GetField("m_RendererDataList", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(asset);
+            var feature = list[1].rendererFeatures.First(f => f.name == "ScreenSpaceAmbientOcclusion");
+            var settings = feature.GetType().GetField("m_Settings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(feature);
+            void Set(string f, object v)
+            {
+                var fi = settings.GetType().GetField(f, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                fi.SetValue(settings, fi.FieldType.IsEnum ? Enum.ToObject(fi.FieldType, Convert.ToInt32(v)) : fi.FieldType == typeof(bool) ? (object)(Convert.ToSingle(v) != 0) : v);
+            }
+            Set("Intensity", Get("i", 0.4f)); Set("Radius", Get("r", 0.3f)); Set("Falloff", Get("f", 100f));
+            Set("Samples", Get("s", 1)); Set("Downsample", Get("d", 0)); Set("BlurQuality", Get("b", 0));
+            Set("AfterOpaque", Get("after", 0)); Set("DirectLightingStrength", Get("dl", 0.25f));
+            feature.SetActive(true);
+            mainCam.GetUniversalAdditionalCameraData().SetRenderer(1);
+            protoAO = Get("after", 0) == 0;
+            Debug.Log($"PROTO-SSAO {arg} shaders {protoAO}");
+        }
+
         // Screen glow, as configured in the game's autoexec.cfg (ScreenGlow* console vars; the filter's are
         // render variables, which some levels sine).
         // PROTOTYPE (#98, branch prototype/remaster-glow, never merged): -proto-glow <size> [sparse|resample]
@@ -477,6 +508,7 @@ namespace Tron
         void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
             Shader.SetGlobalFloat("_LTGlowPass", cam == glowCam ? 1 : 0);
+            Shader.SetGlobalFloat("_LTAO", protoAO && cam == mainCam ? 1 : 0); // PROTOTYPE (#99)
             Shader.SetGlobalVector("_LTFogColor", fogColor);
             // The glow buffer is fogged towards black with its own distances (the shaders' glow pass).
             Shader.SetGlobalVector("_LTFogParams", cam == skyCam ? skyFogParams : cam == glowCam ? glowFogParams : fogParams);

@@ -64,19 +64,29 @@ Shader "Tron/Model"
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" "RenderPipeline"="UniversalPipeline" }
-        Pass
-        {
-            Blend [_SrcBlend] [_DstBlend]
-            ZWrite [_ZWrite]
-            ZTest [_ZTest]
-            Cull [_Cull]
-
-            HLSLPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
+        HLSLINCLUDE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
             #include "TronColor.hlsl"
+
+            // PROTOTYPE (#99): world normal for URP's DepthNormals prepass (SSAO reads it).
+            half4 PackDN(float3 n)
+            {
+            #if defined(_GBUFFER_NORMALS_OCT)
+                float2 o = PackNormalOctQuadEncode(normalize(n));
+                return half4(PackFloat2To888(saturate(o * 0.5 + 0.5)), 0);
+            #else
+                return half4(normalize(n), 0);
+            #endif
+            }
+            // PROTOTYPE (#99): -proto-ssao sets _LTAO = 1 while the main camera draws; the AO texture is URP's.
+            TEXTURE2D_X(_ScreenSpaceOcclusionTexture);
+            float _LTAO;
+            float SampleAO(float4 pos)
+            {
+                if (_LTAO <= 0) return 1;
+                return SAMPLE_TEXTURE2D_X(_ScreenSpaceOcclusionTexture, sampler_LinearClamp, GetNormalizedScreenSpaceUV(pos)).x;
+            }
 
             TEXTURE2D(_Tex1); SAMPLER(sampler_Tex1);
             TEXTURE2D(_Tex2); SAMPLER(sampler_Tex2);
@@ -203,6 +213,26 @@ Shader "Tron/Model"
                     || (func == 5 && x > r) || (func == 6 && x != r) || (func == 7 && x >= r);
             }
 
+            struct v2fDN { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float3 n : TEXCOORD1; };
+            v2fDN vertDN (appdata v)
+            {
+                v2fDN o;
+                o.pos = TransformObjectToHClip(v.vertex.xyz);
+                o.uv = v.uv;
+                o.n = TransformObjectToWorldNormal(v.normal);
+                return o;
+            }
+            half4 fragDN (v2fDN i) : SV_Target
+            {
+                if (_P0.x < 0 || _SrcBlend != 1 || _DstBlend != 0 || _ZWrite == 0 || _LTTransparency > 0) discard;
+                if (_P0.z != 0)
+                {
+                    v2f f = (v2f)0; f.uv = i.uv; f.lit = 1;
+                    if (!AlphaPass(EvalPass(_S0a, _S0b, _S1a, _S1b, _TF0, _P0.x, f).a, _P0.z, _P0.w)) discard;
+                }
+                return PackDN(i.n);
+            }
+
             float4 frag (v2f i) : SV_Target
             {
                 if (_LTGlowPass > 0)
@@ -224,6 +254,7 @@ Shader "Tron/Model"
                     return float4(g.rgb * i.fog, g.a);
                 }
                 if (_P0.x < 0) discard;
+                i.lit.rgb *= SampleAO(i.pos); // PROTOTYPE (#99): occludes the D3D lighting only (lit passes)
                 float4 c = EvalPass(_S0a, _S0b, _S1a, _S1b, _TF0, _P0.x, i);
                 if (!AlphaPass(c.a, _P0.z, _P0.w)) discard;
                 if (_P1.x >= 0)
@@ -234,6 +265,30 @@ Shader "Tron/Model"
                 c.rgb = lerp(_LTFogColor.rgb, saturate(c.rgb), i.fog);
                 return float4(TargetColor(c.rgb), saturate(c.a));
             }
+        ENDHLSL
+        Pass
+        {
+            Blend [_SrcBlend] [_DstBlend]
+            ZWrite [_ZWrite]
+            ZTest [_ZTest]
+            Cull [_Cull]
+
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            ENDHLSL
+        }
+        // PROTOTYPE (#99)
+        Pass
+        {
+            Name "DepthNormalsOnly"
+            Tags { "LightMode"="DepthNormalsOnly" }
+            ZWrite On
+            Cull [_Cull]
+            HLSLPROGRAM
+            #pragma vertex vertDN
+            #pragma fragment fragDN
+            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
             ENDHLSL
         }
     }
