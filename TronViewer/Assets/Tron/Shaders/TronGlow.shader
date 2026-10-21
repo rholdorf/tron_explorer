@@ -14,8 +14,8 @@ Shader "Hidden/Tron/GlowBlur"
             sampler2D _MainTex;
             float4 _MainTex_TexelSize;
             float4 _GlowDir;          // xy = texel step direction * uvScale
-            float _GlowOffsets[32];
-            float _GlowWeights[32];
+            float _GlowOffsets[64];   // MaxGlowTaps: remaster's resampled filter has 48
+            float _GlowWeights[64];
             int _GlowTaps;
             fixed4 frag (v2f_img i) : SV_Target
             {

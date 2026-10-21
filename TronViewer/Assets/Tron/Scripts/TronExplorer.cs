@@ -85,6 +85,8 @@ namespace Tron
             remaster = Remaster.FromArgs(Environment.GetCommandLineArgs());
             if (remaster.Unknown.Length > 0) Debug.LogWarning($"-remaster: unknown techniques {string.Join(", ", remaster.Unknown)} (known: {string.Join(", ", Remaster.Ids)})");
             remaster.Register("aniso", on => DtxLoader.SetAnisoLevel(on ? 16 : 4));
+            remaster.Register("aa", SetAntialiasing);
+            remaster.Register("glow", SetGlowScale);
 
             if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
             // -mute: starts muted, as M does (for captures and benchmarks run next to other work).
@@ -240,7 +242,11 @@ namespace Tron
             return true;
         }
 
-        void OnDestroy() => RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
+        void OnDestroy()
+        {
+            RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
+            remaster.Switch(false);   // runtime-only settings on shared assets (the pipeline's MSAA) back to faithful
+        }
 
         // [MissionText] TypeSound / ScrollSound and the transmissions' msgfadeout soundbute: interface sounds,
         // unpositioned.
@@ -342,23 +348,32 @@ namespace Tron
             skyData.cameraStack.Add(mainCam);
         }
 
+        // Remaster aa (#97): MSAA 4x on the pipeline asset while on (the sky camera's stack resolves it; the glow
+        // camera renders into its own single-sample target), with alpha-to-coverage on alpha-tested opaque materials.
+        // The asset stays at 1 on disk: faithful's back buffer is single-sample, and OnDestroy puts it back so an
+        // Editor session doesn't keep the runtime value.
+        void SetAntialiasing(bool on)
+        {
+            if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset asset) asset.msaaSampleCount = on ? 4 : 1;
+            level?.SetAlphaToCoverage(on);
+        }
+
         // Screen glow, as configured in the game's autoexec.cfg (ScreenGlow* console vars; the filter's are
         // render variables, which some levels sine).
-        const int GlowTextureSize = 256, GlowFilterSize = 24;
+        // Remaster glow (#98) renders it at glowScale 2: 512², the engine's filter resampled at twice the taps over
+        // the same apparent radius (weights halved, ScreenGlowPixelShift doubled); faithful is 1.
+        const int GlowTextureSize = 256, GlowFilterSize = 24, MaxGlowTaps = 64;
+        int glowScale = 1;
 
         void SetupGlow()
         {
-            glowRT = new RenderTexture(GlowTextureSize, GlowTextureSize, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "Glow" };
-            blurA = new RenderTexture(GlowTextureSize, GlowTextureSize, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "GlowBlurA" };
-            blurB = new RenderTexture(GlowTextureSize, GlowTextureSize, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "GlowBlurB" };
-            foreach (var rt in new[] { glowRT, blurA, blurB }) rt.wrapMode = TextureWrapMode.Clamp;
             blurMat = new Material(glowBlurShader ? glowBlurShader : Shader.Find("Hidden/Tron/GlowBlur"));
             compositeMat = new Material(glowCompositeShader ? glowCompositeShader : Shader.Find("Hidden/Tron/GlowComposite"));
             UpdateGlowFilter();
 
             var go = new GameObject("Glow Camera");
             glowCam = go.AddComponent<Camera>();
-            glowCam.targetTexture = glowRT;
+            AllocateGlowTargets();
             glowCam.clearFlags = CameraClearFlags.SolidColor;
             glowCam.backgroundColor = Color.black;
             glowCam.cullingMask = mainCam.cullingMask;
@@ -371,21 +386,43 @@ namespace Tron
 
         // UpdateGaussianFilter(), which the engine runs on every glow render: weight = sum(amp / exp(r *
         // radius)), r = offset^2 / center^2.
+        void AllocateGlowTargets()
+        {
+            foreach (var old in new[] { glowRT, blurA, blurB })
+                if (old) { old.Release(); Destroy(old); }
+            int size = GlowTextureSize * glowScale;
+            glowRT = new RenderTexture(size, size, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "Glow" };
+            blurA = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "GlowBlurA" };
+            blurB = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "GlowBlurB" };
+            foreach (var rt in new[] { glowRT, blurA, blurB }) rt.wrapMode = TextureWrapMode.Clamp;
+            glowCam.targetTexture = glowRT;
+        }
+
+        void SetGlowScale(bool remastered)
+        {
+            int scale = remastered ? 2 : 1;
+            if (scale == glowScale) return;
+            glowScale = scale;
+            AllocateGlowTargets();
+            UpdateGlowFilter();
+        }
+
         void UpdateGlowFilter()
         {
             float amp0 = renderVars["ScreenGlowGaussAmp0"], radius0 = renderVars["ScreenGlowGaussRadius0"];
             float amp1 = renderVars["ScreenGlowGaussAmp1"], radius1 = renderVars["ScreenGlowGaussRadius1"];
             float shift = renderVars["ScreenGlowPixelShift"];
-            float center = (GlowFilterSize - 1) / 2f;
-            var offsets = new float[32];
-            var weights = new float[32];
+            int k = glowScale, size = GlowFilterSize * k;
+            float center = (size - 1) / 2f;
+            var offsets = new float[MaxGlowTaps];
+            var weights = new float[MaxGlowTaps];
             int n = 0;
-            for (int i = 0; i < GlowFilterSize && n < 32; i++)
+            for (int i = 0; i < size && n < MaxGlowTaps; i++)
             {
-                float o = i - center + shift;
+                float o = i - center + shift * k;
                 float r = o * o / (center * center);
-                float w = amp0 / Mathf.Exp(r * radius0) + amp1 / Mathf.Exp(r * radius1);
-                if (w <= 0.001f) continue;
+                float w = (amp0 / Mathf.Exp(r * radius0) + amp1 / Mathf.Exp(r * radius1)) / k;
+                if (w <= 0.001f / k) continue;
                 offsets[n] = o; weights[n] = w; n++;
             }
             blurMat.SetFloatArray("_GlowOffsets", offsets);

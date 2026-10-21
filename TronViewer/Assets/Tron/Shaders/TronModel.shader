@@ -58,6 +58,7 @@ Shader "Tron/Model"
         _SrcBlend ("Src", Float) = 1
         _DstBlend ("Dst", Float) = 0
         _ZWrite ("ZWrite", Float) = 1
+        _AlphaToMask ("Alpha to coverage (remaster aa)", Float) = 0
         _ZTest ("ZTest", Float) = 4
         _Cull ("Cull", Float) = 2
     }
@@ -69,6 +70,7 @@ Shader "Tron/Model"
             Blend [_SrcBlend] [_DstBlend]
             ZWrite [_ZWrite]
             ZTest [_ZTest]
+            AlphaToMask [_AlphaToMask]
             Cull [_Cull]
 
             HLSLPROGRAM
@@ -87,7 +89,7 @@ Shader "Tron/Model"
                 float4 _S0a, _S0b, _S1a, _S1b, _T0a, _T0b, _T1a, _T1b, _G0a, _G0b, _G1a, _G1b, _H0a, _H0b, _H1a, _H1b;
                 float4 _TF0, _TF1, _TFG, _TFH, _P0, _P1, _PG, _PH;
                 float4 _MatDiffuse, _MatEmissive, _MatAmbient;
-                float _SrcBlend, _DstBlend, _ZWrite, _ZTest, _Cull;
+                float _SrcBlend, _DstBlend, _ZWrite, _ZTest, _Cull, _AlphaToMask;
             CBUFFER_END
 
             // Globals shared with Tron/World (set by TronExplorer).
@@ -221,18 +223,22 @@ Shader "Tron/Model"
                     }
                     if (!pass0) discard;
                     if (_PG.y > 0) g = float4(g.rgb * g.a, 1);
-                    return float4(g.rgb * i.fog, g.a);
+                    return float4(g.rgb * i.fog, _AlphaToMask > 0 ? 1 : g.a);
                 }
                 if (_P0.x < 0) discard;
                 float4 c = EvalPass(_S0a, _S0b, _S1a, _S1b, _TF0, _P0.x, i);
-                if (!AlphaPass(c.a, _P0.z, _P0.w)) discard;
+                // Remaster aa (_AlphaToMask: opaque draws whose pass 0 tests < <= > >=): the test becomes coverage,
+                // sharpened to a texel-wide edge as URP's SharpenAlphaStrict does; == and != keep discarding.
+                float edge = (saturate(c.a) - _P0.w) / max(fwidth(saturate(c.a)), 1e-4);
+                float coverage = saturate((_P0.z == 2 || _P0.z == 4 ? -edge : edge) + 0.5);
+                if (_AlphaToMask == 0 && !AlphaPass(c.a, _P0.z, _P0.w)) discard;
                 if (_P1.x >= 0)
                 {
                     float4 c1 = EvalPass(_T0a, _T0b, _T1a, _T1b, _TF1, _P1.x, i);
                     if (AlphaPass(c1.a, _P1.z, _P1.w)) c.rgb = _P1.y > 0 ? lerp(c.rgb, c1.rgb, saturate(c1.a)) : c1.rgb;
                 }
                 c.rgb = lerp(_LTFogColor.rgb, saturate(c.rgb), i.fog);
-                return float4(TargetColor(c.rgb), saturate(c.a));
+                return float4(TargetColor(c.rgb), _AlphaToMask > 0 ? coverage : saturate(c.a));
             }
             ENDHLSL
         }

@@ -32,6 +32,7 @@ Shader "Tron/World"
         _SrcBlend ("Src", Float) = 1
         _DstBlend ("Dst", Float) = 0
         _ZWrite ("ZWrite", Float) = 1
+        _AlphaToMask ("Alpha to coverage (remaster aa)", Float) = 0
         _ZTest ("ZTest", Float) = 4
         _NoFog ("Fog disabled (FLAG_FOGDISABLE)", Float) = 0
         _Cull ("Cull", Float) = 2
@@ -44,6 +45,7 @@ Shader "Tron/World"
             Blend [_SrcBlend] [_DstBlend]
             ZWrite [_ZWrite]
             ZTest [_ZTest]
+            AlphaToMask [_AlphaToMask]
             Cull [_Cull]
 
             HLSLPROGRAM
@@ -64,7 +66,7 @@ Shader "Tron/World"
                 float4 _DetailScale, _TexFxModes;
                 float4x4 _TexFxBase, _TexFxEnv;
                 float _UseEnv, _EnvAlpha, _UseDetail, _Cutoff, _Alpha, _Fullbright, _NoFog, _UseLightmap;
-                float _SrcBlend, _DstBlend, _ZWrite, _ZTest, _Cull;
+                float _SrcBlend, _DstBlend, _ZWrite, _ZTest, _Cull, _AlphaToMask;
             CBUFFER_END
 
             // Set globally per camera by TronExplorer: color (gamma 0-1), x=near, y=far, z=enabled
@@ -146,7 +148,11 @@ Shader "Tron/World"
             float4 frag (v2f i) : SV_Target
             {
                 float4 tex = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, i.uv);
-                if (_Cutoff > 0 && tex.a < _Cutoff) discard;
+                // Remaster aa (_AlphaToMask, alpha-tested opaque materials only): the alpha test becomes coverage,
+                // sharpened to a texel-wide edge as URP's SharpenAlphaStrict does; the glow pass keeps the test.
+                float coverage = saturate((tex.a - _Cutoff) / max(fwidth(tex.a), 1e-4) + 0.5);
+                bool a2c = _AlphaToMask > 0 && _LTGlowPass == 0;
+                if (!a2c && _Cutoff > 0 && tex.a < _Cutoff) discard;
                 float3 c = tex.rgb;
                 if (_UseEnv > 0)
                 {
@@ -162,7 +168,7 @@ Shader "Tron/World"
                 {
                     // Glow buffer is kept in gamma space; fogged towards black (screenglowmgr.cpp).
                     float3 g = _Fullbright > 0 ? tex.rgb * tex.a : 0;
-                    return float4(g * i.fog, a);
+                    return float4(g * i.fog, _AlphaToMask > 0 ? 1 : a);
                 }
                 float sat = max(_LTSaturate, 1);
                 if (_UseLightmap > 0)
@@ -172,12 +178,12 @@ Shader "Tron/World"
                     float3 texPass = lerp(1 / sat, c, i.fog);
                     c = saturate(lm * texPass * sat);
                     if (_Fullbright > 0) c = lerp(c, lerp(1 / sat, tex.rgb, i.fog), tex.a);
-                    return float4(TargetColor(c), a);
+                    return float4(TargetColor(c), a2c ? coverage : a);
                 }
                 float3 lit = c * i.color.rgb * sat;
                 c = _Fullbright > 0 ? lerp(lit, tex.rgb, tex.a) : lit;
                 c = lerp(_LTFogColor.rgb, saturate(c), i.fog);
-                return float4(TargetColor(c), a);
+                return float4(TargetColor(c), a2c ? coverage : a);
             }
             ENDHLSL
         }

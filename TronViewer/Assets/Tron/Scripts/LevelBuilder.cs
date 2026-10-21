@@ -69,6 +69,27 @@ namespace Tron
         Material[] materials;
         readonly Dictionary<(int, string, float, int, bool), Material> blendedMaterials = new Dictionary<(int, string, float, int, bool), Material>();
         readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
+        bool alphaToCoverage;
+
+        // Remaster aa (#97): alpha-tested opaque materials turn their test into coverage (MSAA alpha-to-coverage).
+        public void SetAlphaToCoverage(bool on)
+        {
+            alphaToCoverage = on;
+            foreach (var o in owned)
+                if (o is Material m) ApplyAlphaToCoverage(m);
+        }
+
+        // World: an AlphaRef texture; Model: pass 0 tests < <= > >= (Unity CompareFunction 2, 4, 5, 7). Both drawn
+        // opaque (One Zero, ZWrite on); blended and == / != draws keep their test.
+        void ApplyAlphaToCoverage(Material m)
+        {
+            if (!m.HasProperty("_AlphaToMask")) return;
+            bool opaque = m.GetFloat("_SrcBlend") == (float)BlendMode.One && m.GetFloat("_DstBlend") == (float)BlendMode.Zero
+                          && m.GetFloat("_ZWrite") > 0;
+            bool tested = m.shader == shader ? m.GetFloat("_Cutoff") > 0
+                        : m.GetVector("_P0") is var p && p.x >= 0 && (p.z == 2 || p.z == 4 || p.z == 5 || p.z == 7);
+            m.SetFloat("_AlphaToMask", alphaToCoverage && opaque && tested ? 1 : 0);
+        }
         Shader shader, modelShader;
         Texture2D lightmapAtlas;
         ModelLighting lighting;
@@ -217,6 +238,7 @@ namespace Tron
                     m.SetFloat("_UseLightmap", 1);
                 }
                 TextureEffects.Apply(m, mj.effect);
+                ApplyAlphaToCoverage(m);
                 materials[i] = m;
             }
         }
@@ -620,6 +642,7 @@ namespace Tron
                           : draw.passes.Length > 0 && draw.passes[0].alphaTest[0] != 0 ? (int)RenderQueue.AlphaTest
                           : (int)RenderQueue.Geometry;
                 m.renderQueue = d == 0 ? queue : Math.Max(queue, result[d - 1].renderQueue + 1);
+                ApplyAlphaToCoverage(m);
                 result[d] = m;
             }
             return result;
@@ -664,6 +687,7 @@ namespace Tron
                 m.SetFloat("_ZTest", (float)CompareFunction.Always);
                 m.renderQueue = (int)RenderQueue.Background + skySlot;
             }
+            ApplyAlphaToCoverage(m);
             blendedMaterials[key] = m;
             return m;
         }
