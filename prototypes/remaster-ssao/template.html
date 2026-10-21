@@ -188,7 +188,7 @@ __NOTES__
       const fig = document.createElement('figure');
       fig.className = 'tile'; fig.tabIndex = 0;
       fig.innerHTML = `<div class="frame"><img alt="${data.views[view][1]}, ${r.label}" src="${own}" style="transform:scale(${zoom})"></div>
-        <figcaption><span>${r.label}</span><span class="ms">${fmt(r.avg)} ms</span></figcaption>`;
+        <figcaption><span>${r.label}</span><span class="ms">${r.avg == null ? '' : fmt(r.avg) + ' ms'}</span></figcaption>`;
       const img = fig.querySelector('img');
       const hold = on => { img.src = on ? faithful : own; fig.classList.toggle('holding', on); };
       fig.addEventListener('pointerdown', () => hold(true));

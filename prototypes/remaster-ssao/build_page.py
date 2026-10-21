@@ -6,12 +6,19 @@ from PIL import Image
 
 G, OUT = Path(sys.argv[1]), Path(sys.argv[2])
 HERE = Path(__file__).parent
-VIS = [("off", "sem SSAO"), ("cheap", "médio, ½ res"), ("cheapstrong", "forte, ½ res"),
-       ("subtle", "sutil"), ("medium", "médio"), ("strong", "forte"), ("after", "depois do opaco")]
+VIS = [("off", "sem SSAO"), ("subtle", "sutil"), ("subtlehalfmed", "sutil, ½ res, amostras médias"),
+       ("subtlecheap", "sutil, ½ res, poucas amostras"), ("subtlehalfgauss", "sutil, ½ res, gaussiano"),
+       ("cheap", "médio, ½ res"), ("cheapstrong", "forte, ½ res"), ("medium", "médio"), ("strong", "forte"), ("after", "depois do opaco")]
 BENCH_NAMES = {"off": "sem SSAO", "subtle": "sutil (0,5 · 0,3 m)", "medium": "médio (1 · 0,5 m)", "strong": "forte (2 · 1 m)",
                "after": "depois do opaco", "cheap": "médio, ½ res", "cheapstrong": "forte, ½ res",
                "bench-off": "sem SSAO", "bench-medium": "médio", "bench-medium-cheap": "médio, ½ res",
-               "bench-strong-cheap": "forte, ½ res"}
+               "bench-strong-cheap": "forte, ½ res", "subtlecheap": "sutil, ½ res, poucas amostras",
+               "subtlehalfmed": "sutil, ½ res, amostras médias", "subtlehalfgauss": "sutil, ½ res, gaussiano",
+               "bench-subtle": "sutil", "bench-subtle-cheap": "sutil, ½ res, poucas amostras",
+               "bench-subtle-halfmed": "sutil, ½ res, amostras médias", "bench-subtle-halfgauss": "sutil, ½ res, gaussiano"}
+STACK = {"off": "bench-off", "subtle": "bench-subtle", "subtlehalfmed": "bench-subtle-halfmed", "subtlecheap": "bench-subtle-cheap",
+         "subtlehalfgauss": "bench-subtle-halfgauss", "cheap": "bench-medium-cheap", "cheapstrong": "bench-strong-cheap",
+         "medium": "bench-medium"}   # tile ms: the whole remaster with that SSAO
 STILLS = ["intro/40.0", "intro/20.0", "m01-01/3.0", "m02-04/3.0", "m05-01/3.0", "m10-04/3.0"]
 CW, CH = 480, 300
 
@@ -40,11 +47,12 @@ for line in (G / "bench.txt").read_text().splitlines():
     bench.setdefault(tag, []).append((float(m[1]), float(m[2])))
 avg = {t: (sum(a for a, _ in v) / len(v), sum(p for _, p in v) / len(v)) for t, v in bench.items()}
 
-data = {"rows": [{"k": k, "label": l, "avg": round(avg[k][0], 2)} for k, l in VIS],
+data = {"rows": [{"k": k, "label": l, "avg": round(avg[STACK[k]][0], 2) if k in STACK else None} for k, l in VIS],
         "bench": [{"group": "fiel + SSAO", "label": BENCH_NAMES[t], "avg": round(avg[t][0], 2), "p95": round(avg[t][1], 2)}
-                  for t in ["off", "cheap", "cheapstrong", "subtle", "medium", "strong", "after"]]
+                  for t in ["off", "cheap", "cheapstrong", "subtle", "medium", "strong", "after"] if t in avg]
                + [{"group": "remaster (MSAA 4x + glow 512²)", "label": BENCH_NAMES[t], "avg": round(avg[t][0], 2), "p95": round(avg[t][1], 2)}
-                  for t in ["bench-off", "bench-medium-cheap", "bench-strong-cheap", "bench-medium"]],
+                  for t in ["bench-off", "bench-subtle-halfmed", "bench-subtle-cheap", "bench-subtle-halfgauss", "bench-subtle",
+                            "bench-medium-cheap", "bench-strong-cheap", "bench-medium"]],
         "views": [], "still": {}, "ratio_still": {}, "anims": {}, "ratio_anims": {}}
 
 # motion: intro 21 s, the crop where the strong variant darkens most on the first frame
