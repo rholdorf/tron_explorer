@@ -87,6 +87,7 @@ namespace Tron
             remaster.Register("aniso", on => DtxLoader.SetAnisoLevel(on ? 16 : 4));
             remaster.Register("aa", SetAntialiasing);
             remaster.Register("glow", SetGlowScale);
+            remaster.Register("ssao", SetAmbientOcclusion);
 
             if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
             // -mute: starts muted, as M does (for captures and benchmarks run next to other work).
@@ -245,7 +246,8 @@ namespace Tron
         void OnDestroy()
         {
             RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
-            remaster.Switch(false);   // runtime-only settings on shared assets (the pipeline's MSAA) back to faithful
+            // The pipeline asset is shared with the Editor: its runtime MSAA (remaster aa) goes back to faithful's.
+            if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset asset) asset.msaaSampleCount = 1;
         }
 
         // [MissionText] TypeSound / ScrollSound and the transmissions' msgfadeout soundbute: interface sounds,
@@ -346,6 +348,17 @@ namespace Tron
             skyData.renderType = CameraRenderType.Base;
             skyData.renderPostProcessing = false;
             skyData.cameraStack.Add(mainCam);
+        }
+
+        // Remaster ssao (#99): the main camera alone draws with renderer 1 (PC_Renderer_SSAO: URP's SSAO, subtle,
+        // at half resolution), and Tron/World and Tron/Model occlude their lit term with it while it draws (_LTAO).
+        // The sky, glow and IO cameras stay on renderer 0, which has no SSAO.
+        bool ambientOcclusion;
+
+        void SetAmbientOcclusion(bool on)
+        {
+            ambientOcclusion = on;
+            mainCam.GetUniversalAdditionalCameraData().SetRenderer(on ? 1 : 0);
         }
 
         // Remaster aa (#97): MSAA 4x on the pipeline asset while on (the sky camera's stack resolves it; the glow
@@ -454,6 +467,7 @@ namespace Tron
         void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
             Shader.SetGlobalFloat("_LTGlowPass", cam == glowCam ? 1 : 0);
+            Shader.SetGlobalFloat("_LTAO", ambientOcclusion && cam == mainCam ? 1 : 0);
             Shader.SetGlobalVector("_LTFogColor", fogColor);
             // The glow buffer is fogged towards black with its own distances (the shaders' glow pass).
             Shader.SetGlobalVector("_LTFogParams", cam == skyCam ? skyFogParams : cam == glowCam ? glowFogParams : fogParams);

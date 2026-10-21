@@ -65,20 +65,11 @@ Shader "Tron/Model"
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" "RenderPipeline"="UniversalPipeline" }
-        Pass
-        {
-            Blend [_SrcBlend] [_DstBlend]
-            ZWrite [_ZWrite]
-            ZTest [_ZTest]
-            AlphaToMask [_AlphaToMask]
-            Cull [_Cull]
-
-            HLSLPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
+        HLSLINCLUDE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
             #include "TronColor.hlsl"
+            #include "TronAO.hlsl"
 
             TEXTURE2D(_Tex1); SAMPLER(sampler_Tex1);
             TEXTURE2D(_Tex2); SAMPLER(sampler_Tex2);
@@ -205,6 +196,28 @@ Shader "Tron/Model"
                     || (func == 5 && x > r) || (func == 6 && x != r) || (func == 7 && x >= r);
             }
 
+            // Remaster ssao: URP's DepthNormals prepass for the main camera. Only opaque, depth-writing lit draws
+            // occlude (not glow-only draws, not blended or fading ones); pass 0's alpha test as the color pass's.
+            struct v2fDN { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float3 n : TEXCOORD1; };
+            v2fDN vertDN (appdata v)
+            {
+                v2fDN o;
+                o.pos = TransformObjectToHClip(v.vertex.xyz);
+                o.uv = v.uv;
+                o.n = TransformObjectToWorldNormal(v.normal);
+                return o;
+            }
+            half4 fragDN (v2fDN i) : SV_Target
+            {
+                if (_P0.x < 0 || _SrcBlend != 1 || _DstBlend != 0 || _ZWrite == 0 || _LTTransparency > 0) discard;
+                if (_P0.z != 0)
+                {
+                    v2f f = (v2f)0; f.uv = i.uv; f.lit = 1;
+                    if (!AlphaPass(EvalPass(_S0a, _S0b, _S1a, _S1b, _TF0, _P0.x, f).a, _P0.z, _P0.w)) discard;
+                }
+                return PackDepthNormal(i.n);
+            }
+
             float4 frag (v2f i) : SV_Target
             {
                 if (_LTGlowPass > 0)
@@ -226,6 +239,7 @@ Shader "Tron/Model"
                     return float4(g.rgb * i.fog, _AlphaToMask > 0 ? 1 : g.a);
                 }
                 if (_P0.x < 0) discard;
+                i.lit.rgb *= SampleAO(i.pos);   // remaster ssao: the D3D lighting only (unlit passes keep theirs)
                 float4 c = EvalPass(_S0a, _S0b, _S1a, _S1b, _TF0, _P0.x, i);
                 // Remaster aa (_AlphaToMask: opaque draws whose pass 0 tests < <= > >=): the test becomes coverage,
                 // sharpened to a texel-wide edge as URP's SharpenAlphaStrict does; == and != keep discarding.
@@ -240,6 +254,31 @@ Shader "Tron/Model"
                 c.rgb = lerp(_LTFogColor.rgb, saturate(c.rgb), i.fog);
                 return float4(TargetColor(c.rgb), _AlphaToMask > 0 ? coverage : saturate(c.a));
             }
+        ENDHLSL
+        Pass
+        {
+            Blend [_SrcBlend] [_DstBlend]
+            ZWrite [_ZWrite]
+            ZTest [_ZTest]
+            AlphaToMask [_AlphaToMask]
+            Cull [_Cull]
+
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "DepthNormalsOnly"
+            Tags { "LightMode"="DepthNormalsOnly" }
+            ZWrite On
+            Cull [_Cull]
+
+            HLSLPROGRAM
+            #pragma vertex vertDN
+            #pragma fragment fragDN
+            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
             ENDHLSL
         }
     }
