@@ -25,8 +25,8 @@ encoded with Pillow's DDS writer. Rows stay in the DTX's own order: row 0 of the
 LoadRawTextureData uploads it. Mip m is max(1, w >> m) x max(1, h >> m), in 4x4 blocks of 8 (DXT1) or 16 bytes.
 
 Pillow's BC encoder is fast (milliseconds a texture) but plain: on 20 of m10-04's textures its RGB is 29 to 44 dB
-PSNR against the uncompressed 2x image, 1 to 5 dB below a PCA + least-squares BC1 fit, and its DXT5 alpha about
-9 dB below block min/max endpoints (#105).
+PSNR against the uncompressed 2x image, 1 to 5 dB below a PCA + least-squares BC1 fit. Its DXT5 alpha was about
+9 dB below block min/max endpoints, so the alpha blocks are this module's own (alpha_blocks) (#105).
 """
 import glob
 import io
@@ -179,9 +179,32 @@ def mips(img):
 
 # --- file -----------------------------------------------------------------------------------------------------
 
+def alpha_blocks(a):
+    """DXT5 alpha blocks (8 bytes each, blocks row by row) of a (h, w) uint8 alpha: endpoints a0 = the block's max,
+    a1 = its min (a0 > a1: the 8-level palette a0, a1, (6 a0 + a1) / 7 ... (a0 + 6 a1) / 7), each texel the nearest
+    level, 3-bit indices little-endian in texel order. A flat block is a0 = a1 with every index 0. A side that
+    isn't a multiple of 4 is edge-padded (the padding is never sampled)."""
+    h, w = a.shape
+    a = np.pad(a, ((0, -h % 4), (0, -w % 4)), mode="edge")
+    bh, bw = a.shape[0] // 4, a.shape[1] // 4
+    b = a.reshape(bh, 4, bw, 4).transpose(0, 2, 1, 3).reshape(-1, 16).astype(np.int32)
+    a0, a1 = b.max(1), b.min(1)
+    i = np.arange(1, 7)
+    levels = np.concatenate([a0[:, None], a1[:, None], ((7 - i) * a0[:, None] + i * a1[:, None]) / 7], 1)
+    idx = np.abs(b[:, :, None] - levels[:, None, :]).argmin(2).astype(np.uint64)
+    idx[a0 == a1] = 0
+    bits = (idx << (np.arange(16, dtype=np.uint64) * 3)).sum(1, dtype=np.uint64)
+    out = np.zeros((len(b), 8), np.uint8)
+    out[:, 0], out[:, 1] = a0, a1
+    for k in range(6):
+        out[:, 2 + k] = (bits >> np.uint64(8 * k)) & np.uint64(0xFF)
+    return out
+
+
 def encode(level, bpp, alpha):
-    """BC blocks of an RGBA level (DXT1 or DXT5 ident), from Pillow's DDS writer: the data after its 128-byte
-    header. A DXT1 level keeps alpha only when the source had cut-out texels (alpha thresholded at 128)."""
+    """BC blocks of an RGBA level (DXT1 or DXT5 ident): colour from Pillow's DDS writer (the data after its 128-byte
+    header), DXT5 alpha from alpha_blocks (Pillow's is ~9 dB worse). A DXT1 level keeps alpha only when the source
+    had cut-out texels (alpha thresholded at 128)."""
     if bpp == DXT1:
         im = Image.fromarray(np.ascontiguousarray(level[..., :3]))
         if alpha:
@@ -194,7 +217,11 @@ def encode(level, bpp, alpha):
     data = b.getvalue()[128:]
     blocks = ((level.shape[1] + 3) // 4) * ((level.shape[0] + 3) // 4)
     assert len(data) == blocks * (8 if bpp == DXT1 else 16), "unexpected DDS data size"
-    return data
+    if bpp == DXT1:
+        return data
+    out = np.frombuffer(data, np.uint8).reshape(-1, 16).copy()
+    out[:, :8] = alpha_blocks(level[..., 3])
+    return out.tobytes()
 
 
 def hd_bpp(src_bpp):

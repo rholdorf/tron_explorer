@@ -1,6 +1,7 @@
 """Remaster's HD textures (tools/hd_textures.py, #105): 2x the DTX, RGB through the upscaler, alpha bicubic per
 channel, wrap-padded, written as an HD DTX the viewer's DtxLoader reads through its raw path. The core runs with a
 stand-in for waifu2x (a bicubic 4x per channel); the real upscaler's tests skip without $WAIFU2X."""
+import io
 import os
 import struct
 
@@ -134,6 +135,33 @@ def test_alpha_is_per_channel_bicubic(tmp_path):
     assert np.abs(out[..., 3].astype(int) - ref).max() <= 1
     clear = out[8:-8, 8:w - 8, 3] == 0
     assert clear.all() and out[8:-8, 8:w - 8, :3][clear].mean() > 60   # inverted 64..255: 0..191, not black
+
+
+def psnr(a, b):
+    mse = ((a.astype(float) - b) ** 2).mean()
+    return 99.0 if mse == 0 else 10 * np.log10(255 ** 2 / mse)
+
+
+def test_dxt5_alpha_beats_pillow():
+    """The DXT5 alpha blocks (min/max endpoints, 8 levels, nearest index) beat Pillow's on gradients and edges by a
+    clear margin, keep flat blocks and hard 0/255 edges exact, and leave Pillow's colour blocks as they were."""
+    y, x = np.mgrid[0:64, 0:64]
+    img = np.zeros((64, 64, 4), np.uint8)
+    img[..., 0], img[..., 1], img[..., 2] = x * 4, y * 4, 128
+    a = np.where(x < 32, x * 255 / 31, 0)                       # ramp, then a hard edge to 0
+    a = np.where(y < 16, a, np.where(y < 32, (x + y) % 16 * 17, a))   # sharp sawtooth
+    a[48:, :16] = 200                                            # flat blocks
+    a[48:, 16:32] = np.where((x[48:, 16:32] + y[48:, 16:32]) % 2, 255, 0)   # 0/255 checker
+    img[..., 3] = a.astype(np.uint8)
+    ours = np.asarray(Image.frombuffer("RGBA", (64, 64), hd.encode(img, hd.DXT5, True), "bcn", 3))
+    b = io.BytesIO()
+    Image.fromarray(img).save(b, "DDS", pixel_format="DXT5")
+    pil = np.asarray(Image.frombuffer("RGBA", (64, 64), b.getvalue()[128:], "bcn", 3))
+    assert psnr(ours[..., 3], img[..., 3]) > psnr(pil[..., 3], img[..., 3]) + 6
+    assert (ours[48:, :32, 3] == img[48:, :32, 3]).all()
+    assert (ours[..., :3] == pil[..., :3]).all()
+    for size in [(1, 1), (2, 2), (8, 2)]:     # small mips: one block per started 4x4
+        assert len(hd.alpha_blocks(np.zeros(size[::-1], np.uint8))) == ((size[0] + 3) // 4) * ((size[1] + 3) // 4)
 
 
 def edge_step(img):
