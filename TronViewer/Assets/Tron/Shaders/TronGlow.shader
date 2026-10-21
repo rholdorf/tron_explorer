@@ -14,8 +14,8 @@ Shader "Hidden/Tron/GlowBlur"
             sampler2D _MainTex;
             float4 _MainTex_TexelSize;
             float4 _GlowDir;          // xy = texel step direction * uvScale
-            float _GlowOffsets[32];
-            float _GlowWeights[32];
+            float _GlowOffsets[128];
+            float _GlowWeights[128];
             int _GlowTaps;
             fixed4 frag (v2f_img i) : SV_Target
             {

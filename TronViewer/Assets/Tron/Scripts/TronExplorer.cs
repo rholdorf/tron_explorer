@@ -121,6 +121,19 @@ namespace Tron
                 yield return new WaitForEndOfFrame();
                 ScreenCapture.CaptureScreenshot(Path.Combine(Path.GetFullPath(outDir), $"{at:0.0}.png"));
             }
+            // PROTOTYPE (#98): -proto-seq "<start> <count>": count consecutive frames from start, f000.png ...
+            var seq = GetArg("-proto-seq")?.Split(' ');
+            if (seq != null)
+            {
+                float s0 = float.Parse(seq[0], System.Globalization.CultureInfo.InvariantCulture);
+                while (Time.time - start < s0) yield return null;
+                for (int f = 0; f < int.Parse(seq[1]); f++)
+                {
+                    yield return new WaitForEndOfFrame();
+                    ScreenCapture.CaptureScreenshot(Path.Combine(Path.GetFullPath(outDir), $"f{f:000}.png"));
+                    yield return null;
+                }
+            }
             yield return null;
             Debug.Log($"FRAMES {level.Data.name} to {outDir}");
             Application.Quit();
@@ -384,10 +397,15 @@ namespace Tron
 
         // Screen glow, as configured in the game's autoexec.cfg (ScreenGlow* console vars; the filter's are
         // render variables, which some levels sine).
-        const int GlowTextureSize = 256, GlowFilterSize = 24;
+        // PROTOTYPE (#98, branch prototype/remaster-glow, never merged): -proto-glow <size> [sparse|resample]
+        // renders the glow at size^2 and keeps the blur's apparent radius: sparse spaces the 24 taps by size/256,
+        // resample runs the engine's filter over 24*size/256 taps with weights / (size/256).
+        static int GlowTextureSize = 256; const int GlowFilterSize = 24;
+        static float protoK = 1; static bool protoResample;
 
         void SetupGlow()
         {
+            if (int.TryParse(GetArg("-proto-glow"), out var gs)) { GlowTextureSize = gs; protoK = gs / 256f; protoResample = GetArg("-proto-glow-mode") == "resample"; Debug.Log($"PROTO-GLOW {gs} {(protoResample ? "resample" : "sparse")}"); }
             glowRT = new RenderTexture(GlowTextureSize, GlowTextureSize, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "Glow" };
             blurA = new RenderTexture(GlowTextureSize, GlowTextureSize, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "GlowBlurA" };
             blurB = new RenderTexture(GlowTextureSize, GlowTextureSize, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear) { name = "GlowBlurB" };
@@ -416,17 +434,19 @@ namespace Tron
             float amp0 = renderVars["ScreenGlowGaussAmp0"], radius0 = renderVars["ScreenGlowGaussRadius0"];
             float amp1 = renderVars["ScreenGlowGaussAmp1"], radius1 = renderVars["ScreenGlowGaussRadius1"];
             float shift = renderVars["ScreenGlowPixelShift"];
-            float center = (GlowFilterSize - 1) / 2f;
-            var offsets = new float[32];
-            var weights = new float[32];
+            int size = protoResample ? Mathf.RoundToInt(GlowFilterSize * protoK) : GlowFilterSize;
+            float center = (size - 1) / 2f;
+            var offsets = new float[128];
+            var weights = new float[128];
             int n = 0;
-            for (int i = 0; i < GlowFilterSize && n < 32; i++)
+            for (int i = 0; i < size && n < 128; i++)
             {
-                float o = i - center + shift;
+                float o = i - center + shift * (protoResample ? protoK : 1);
                 float r = o * o / (center * center);
                 float w = amp0 / Mathf.Exp(r * radius0) + amp1 / Mathf.Exp(r * radius1);
-                if (w <= 0.001f) continue;
-                offsets[n] = o; weights[n] = w; n++;
+                if (protoResample) w /= protoK;
+                if (w <= 0.001f / (protoResample ? protoK : 1)) continue;
+                offsets[n] = protoResample ? o : o * protoK; weights[n] = w; n++;
             }
             blurMat.SetFloatArray("_GlowOffsets", offsets);
             blurMat.SetFloatArray("_GlowWeights", weights);
