@@ -1,0 +1,189 @@
+<title>Glow do remaster</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the same dark bench as the anti-aliasing page; cost first, then a crop wall that plays the glow in motion, each tile held to flash the faithful glow. */
+:root {
+  color-scheme: dark;
+  --ground: #070b10;
+  --panel: #0e151d;
+  --line: #1d2a36;
+  --ink: #d7e3ec;
+  --muted: #7d909f;
+  --cyan: #5fe1ff;
+  --amber: #ffb547;
+  --bad: #ff6b6b;
+  --display: "Chakra Petch", "Avenir Next Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--ground); color: var(--ink); font: 15px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+main { max-width: 1240px; margin: 0 auto; display: grid; gap: 44px; }
+h1, h2 { font-family: var(--display); font-weight: 600; letter-spacing: .01em; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.1; }
+h2 { font-size: 20px; }
+.eyebrow { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--cyan); }
+header { display: grid; gap: 12px; max-width: 72ch; }
+header p { margin: 0; color: var(--muted); }
+section { display: grid; gap: 16px; }
+
+.chart { display: grid; gap: 10px; }
+.row { display: grid; grid-template-columns: 210px 1fr 120px; gap: 14px; align-items: center; }
+.row .name { font-weight: 500; }
+.row .nums { font: 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+.track { position: relative; height: 22px; }
+.bar-avg, .bar-p95 { position: absolute; left: 0; height: 100%; border-radius: 2px; }
+.bar-p95 { background: color-mix(in srgb, var(--cyan) 22%, transparent); }
+.bar-avg { background: var(--cyan); height: 60%; top: 20%; }
+.row.base .bar-avg { background: var(--muted); }
+.row.base .bar-p95 { background: color-mix(in srgb, var(--muted) 25%, transparent); }
+.budget { position: absolute; top: -6px; bottom: -6px; width: 0; border-left: 1px dashed var(--bad); }
+.axis { display: grid; grid-template-columns: 210px 1fr 120px; gap: 14px; font: 12px var(--mono); color: var(--muted); }
+.axis .scale { position: relative; height: 16px; }
+.axis .scale span { position: absolute; transform: translateX(-50%); }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 1px; }
+
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tools .label { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-right: 4px; }
+.tools button {
+  font: 500 13px var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  padding: 7px 12px; border-radius: 4px; cursor: pointer;
+}
+.tools button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+.tools button:focus-visible, .tile:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.tools .sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--tile)), 1fr)); gap: 14px; }
+.tile { margin: 0; display: grid; gap: 6px; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; }
+.tile .frame { overflow: hidden; background: #000; border: 1px solid var(--line); border-radius: 3px; aspect-ratio: 480 / 300; }
+.tile img { display: block; width: 100%; height: 100%; object-fit: none; image-rendering: pixelated; }
+.tile.holding .frame { border-color: var(--amber); }
+.tile figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.tile figcaption .ms { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+
+.notes { display: grid; gap: 10px; max-width: 75ch; color: var(--muted); }
+.notes p { margin: 0; }
+.notes strong { color: var(--ink); font-weight: 500; }
+@media (max-width: 640px) {
+  .row, .axis { grid-template-columns: 120px 1fr 84px; gap: 8px; }
+}
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">Mapa remaster · protótipo do ticket 98</div>
+    <h1>O glow cresce com a tela no remaster?</h1>
+    <p>O jogo desenha o glow num buffer quadrado de 256² e o borra com 24 taps. Na tela nativa (3024×1964), cada texel desse buffer cobre cerca de 12×8 pixels. As variantes renderizam o buffer a 512² ou 1024² e mantêm o raio aparente do blur de duas formas: espaçando os mesmos 24 taps, ou reamostrando o filtro do jogo com mais taps.</p>
+  </header>
+
+  <section aria-labelledby="t-cost">
+    <h2 id="t-cost">Custo por frame</h2>
+    <div class="legend">
+      <span><i style="background:var(--muted)"></i>fiel</span>
+      <span><i style="background:var(--cyan)"></i>média</span>
+      <span><i style="background:color-mix(in srgb, var(--cyan) 30%, transparent)"></i>p95</span>
+      <span><i style="border-left:1px dashed var(--bad);width:1px;height:12px"></i>orçamento p95 8,3 ms</span>
+    </div>
+    <div class="chart" id="chart"></div>
+    <div class="axis"><span></span><div class="scale" id="scale"></div><span></span></div>
+    <p class="hint">m10-04 com as 375 explosões, 3024×1964, player build, média de 3 execuções de 8 s. Sem MSAA: some o custo do MSAA 4x (+1,1 ms) para chegar ao remaster.</p>
+  </section>
+
+  <section aria-labelledby="t-wall">
+    <h2 id="t-wall">Recortes em tamanho real</h2>
+    <div class="tools" role="group" aria-label="Recorte">
+      <span class="label">Em movimento</span><span id="moves" style="display:contents"></span>
+    </div>
+    <div class="tools" role="group" aria-label="Recorte parado e zoom">
+      <span class="label">Parado</span><span id="stills" style="display:contents"></span>
+      <span class="sep" aria-hidden="true"></span>
+      <button id="z1" type="button" aria-pressed="true">1×</button>
+      <button id="z2" type="button" aria-pressed="false">2×</button>
+    </div>
+    <p class="hint">Os recortes em movimento são 24 frames consecutivos a 60 Hz, mostrados a 12 fps para que o tremido do glow apareça. Segure o clique (ou o dedo) num recorte para ver o glow fiel no mesmo lugar.</p>
+    <div class="wall" id="wall"></div>
+  </section>
+
+  <section class="notes" aria-labelledby="t-notes">
+    <h2 id="t-notes" style="color:var(--ink)">Leia antes de decidir</h2>
+    <p><strong>Taps espaçados listram o halo a 1024².</strong> Com 4 texels entre taps, o blur deixa faixas no halo das linhas finas (veja as linhas do traje no m10-04). A 512² o espaçamento é 2 e a filtragem bilinear ainda cobre o vão.</p>
+    <p><strong>O raio aparente se mantém.</strong> A luminância média do frame fica a menos de 2 níveis da fiel em todas as variantes. O filtro reamostrado clareia um pouco (1 a 2 níveis no intro), porque mais taps passam do corte de peso mínimo.</p>
+    <p><strong>A conferência do método:</strong> 256² com o filtro reamostrado sai igual ao fiel em 53 de 54 capturas; na outra, 86 pixels diferem em 1 nível (arredondamento). A reamostragem reproduz o filtro do jogo.</p>
+  </section>
+</main>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById('data').textContent);
+  const BUDGET = 8.3, MAX = 9;
+  const base = data.rows[0];
+  const fmt = n => n.toFixed(2).replace('.', ',');
+
+  const chart = document.getElementById('chart');
+  data.rows.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'row' + (r === base ? ' base' : '');
+    const over = r === base ? '' : ` <span title="acima do fiel">(+${fmt(r.avg - base.avg)})</span>`;
+    row.innerHTML = `<span class="name">${r.label}</span>
+      <div class="track">
+        <div class="bar-p95" style="width:${r.p95 / MAX * 100}%"></div>
+        <div class="bar-avg" style="width:${r.avg / MAX * 100}%"></div>
+        <div class="budget" style="left:${BUDGET / MAX * 100}%"></div>
+      </div>
+      <span class="nums">${fmt(r.avg)} / ${fmt(r.p95)}${over}</span>`;
+    chart.appendChild(row);
+  });
+  const scale = document.getElementById('scale');
+  for (let ms = 0; ms <= MAX; ms++) {
+    const s = document.createElement('span');
+    s.style.left = (ms / MAX * 100) + '%';
+    s.textContent = ms;
+    scale.appendChild(s);
+  }
+
+  let view = 0, zoom = 1;
+  const wall = document.getElementById('wall');
+  const buttons = [];
+  let mi = 0, si = 0;
+  data.views.forEach(([kind, label], i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.id = 'view' + i; b.textContent = label;
+    b.dataset.key = kind === 'move' ? 'anims:' + (mi++) : 'still:' + (si++);
+    b.addEventListener('click', () => { view = i; render(); });
+    document.getElementById(kind === 'move' ? 'moves' : 'stills').appendChild(b);
+    buttons.push(b);
+  });
+  [1, 2].forEach(z => document.getElementById('z' + z).addEventListener('click', () => { zoom = z; render(); }));
+
+  function render() {
+    buttons.forEach((b, i) => b.setAttribute('aria-pressed', String(i === view)));
+    [1, 2].forEach(z => document.getElementById('z' + z).setAttribute('aria-pressed', String(z === zoom)));
+    const [set, idx] = buttons[view].dataset.key.split(':');
+    wall.style.setProperty('--tile', (480 * zoom) + 'px');
+    wall.innerHTML = '';
+    data.rows.forEach(r => {
+      const own = data[set][idx + ':' + r.k], faithful = data[set][idx + ':' + base.k];
+      const fig = document.createElement('figure');
+      fig.className = 'tile'; fig.tabIndex = 0;
+      fig.innerHTML = `<div class="frame"><img alt="${data.views[view][1]}, ${r.label}" src="${own}" style="transform:scale(${zoom})"></div>
+        <figcaption><span>${r.label}</span><span class="ms">${fmt(r.avg)} ms</span></figcaption>`;
+      const img = fig.querySelector('img');
+      const hold = on => { img.src = on ? faithful : own; fig.classList.toggle('holding', on); };
+      fig.addEventListener('pointerdown', () => hold(true));
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(e => fig.addEventListener(e, () => hold(false)));
+      fig.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); hold(true); } });
+      fig.addEventListener('keyup', () => hold(false));
+      wall.appendChild(fig);
+    });
+  }
+  render();
+})();
+</script>
