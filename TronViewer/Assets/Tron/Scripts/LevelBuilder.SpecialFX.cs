@@ -32,7 +32,7 @@ namespace Tron
 
         void BuildSpecialFX(string exportRoot)
         {
-            Effects = new ClientFXMgr();
+            Effects = new ClientFXMgr(ViewerRandom.NextDouble());
             var looks = new Dictionary<FxKey, FxModelLook>();
             foreach (var g in Data.fxGroups ?? new FxGroupJson[0])
             {

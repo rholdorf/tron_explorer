@@ -9,7 +9,7 @@ namespace Tron
     // goes on, as the engine's does when PlaySoundFromPos fails.
     public class SoundButeFX : MonoBehaviour
     {
-        static readonly System.Random random = new System.Random();
+        static readonly System.Random random = ViewerRandom.New();
 
         AudioClip[] clips;
         SoundButeTimer timer;

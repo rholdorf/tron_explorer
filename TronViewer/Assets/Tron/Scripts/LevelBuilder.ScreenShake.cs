@@ -10,7 +10,7 @@ namespace Tron
     public partial class LevelBuilder
     {
         public ScreenShakes ScreenShakes;
-        public readonly CameraShake CameraShake = new CameraShake();
+        public readonly CameraShake CameraShake = new CameraShake(ViewerRandom.NextDouble());
         // After BuildSpecialFX (the sound player, CameraJitter).
         void BuildScreenShakes()
         {

@@ -18,7 +18,7 @@ namespace Tron
             IOCamLayout layout = null;
             var path = Path.Combine(exportRoot ?? "", "hud", "iocam.json");
             if (exportRoot != null && File.Exists(path)) layout = JsonUtility.FromJson<IOCamLayout>(File.ReadAllText(path));
-            IOCam = new IOCam(layout);
+            IOCam = new IOCam(layout, ViewerRandom.NextDouble());
             Dialogues.IsIOCamTarget = id => IOCam.Target == id;
             IOCamView = Root.AddComponent<IOCamView>();
             IOCamView.Init(IOCam);

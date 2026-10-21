@@ -247,7 +247,7 @@ namespace Tron
             if (Data.soundFX == null || Data.soundFX.Length == 0) return;
             var parent = new GameObject("SoundFX");
             parent.transform.SetParent(Root.transform, false);
-            var random = new System.Random();
+            var random = ViewerRandom.New();
             foreach (var s in Data.soundFX)
             {
                 var go = new GameObject(s.name);

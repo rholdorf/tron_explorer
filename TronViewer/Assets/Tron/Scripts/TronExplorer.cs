@@ -83,6 +83,12 @@ namespace Tron
             if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
             // -mute: starts muted, as M does (for captures and benchmarks run next to other work).
             if (Array.IndexOf(Environment.GetCommandLineArgs(), "-mute") >= 0) { muted = true; AudioListener.volume = 0; }
+            // -shots and -frames draw the same frames on every run: a fixed 60 Hz frame time and seeded randoms (#92).
+            if (GetArg("-shots") != null || GetArg("-frames") != null)
+            {
+                Time.captureDeltaTime = 1f / 60;
+                ViewerRandom.Seed(1);
+            }
             var auto = GetArg("-level");
             if (auto != null) Load(auto);
             var sound = GetArg("-playsound");
@@ -96,7 +102,8 @@ namespace Tron
         }
 
         // -level <name> -frames "<seconds> ..." -out <dir>: the screen as it is shown (HUD and subtitles too) at
-        // each time after the load, to <dir>/<seconds>.png; then quit. For comparing a scene with the game's.
+        // each time after the load (game time, in fixed 60 Hz frames: the same pixels on every run), to
+        // <dir>/<seconds>.png; then quit. For comparing a scene with the game's.
         System.Collections.IEnumerator Frames(string times, string outDir)
         {
             Application.runInBackground = true;
@@ -137,7 +144,7 @@ namespace Tron
             while (waited < 2 || (fade.Alpha > 0 && waited < ScreenFade.SafetyNetDelay + ScreenFade.SafetyNetFadeTime + 4))
             {
                 yield return null;
-                waited += Time.unscaledDeltaTime;
+                waited += Time.deltaTime;
             }
             capturing = true;
             ObjectTicker.FreezePlayerBox = true;
@@ -732,7 +739,7 @@ namespace Tron
             var p = player ? player.transform.position / LT.Scale : Vector3.zero;
             string sceneTag = scene && scene.ShowingScene ? $"   [CENA {scene.LiveName}: Espaço pula, V voo livre]"
                             : scene && scene.FreeFlight ? $"   [VOO LIVRE, cena {scene.LiveName}: V volta]" : "";
-            string hud = $"{level?.Data.name}   {fps:0} fps   pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
+            string hud = $"{level?.Data.name}   " + (Time.captureDeltaTime > 0 ? "" : $"{fps:0} fps   ") + $"pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
                 (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "") + sceneTag;
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);

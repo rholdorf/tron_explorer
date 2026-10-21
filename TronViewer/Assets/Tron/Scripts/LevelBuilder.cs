@@ -141,7 +141,7 @@ namespace Tron
         // (LevelBuilder.Spawners.cs). Ticked by CommandTicker.
         void JoinCommands()
         {
-            Commands = new CommandMgr();
+            Commands = new CommandMgr(ViewerRandom.NextDouble());
             foreach (var o in Data.objects)
             {
                 if (o.Bool("Template"))
