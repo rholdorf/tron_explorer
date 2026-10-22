@@ -34,11 +34,8 @@ def load(root, name):
     return np.asarray(img), fullbright
 
 
-def frames(root, name):
-    """Every frame of a texture as [(RGBA, fullbright)]: one for a DTX, each frame for a sprite."""
-    if not name.lower().endswith(".spr"):
-        t = load(root, name)
-        return [t] if t else []
+def sprite_paths(root, name):
+    """A sprite's frame DTX paths, in order, as written; [] when the file is missing."""
     path = _path(root, name)
     if not os.path.exists(path):
         return []
@@ -46,8 +43,14 @@ def frames(root, name):
     n, p, out = struct.unpack_from("<I", data, 0)[0], 20, []
     for _ in range(n):
         ln = struct.unpack_from("<H", data, p)[0]
-        t = load(root, data[p + 2:p + 2 + ln].decode("ascii"))
+        out.append(data[p + 2:p + 2 + ln].decode("ascii"))
         p += 2 + ln
-        if t:
-            out.append(t)
     return out
+
+
+def frames(root, name):
+    """Every frame of a texture as [(RGBA, fullbright)]: one for a DTX, each frame for a sprite."""
+    if not name.lower().endswith(".spr"):
+        t = load(root, name)
+        return [t] if t else []
+    return [t for t in (load(root, f) for f in sprite_paths(root, name)) if t]

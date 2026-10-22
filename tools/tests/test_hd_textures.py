@@ -2,6 +2,7 @@
 channel, wrap-padded, written as an HD DTX the viewer's DtxLoader reads through its raw path. The core runs with a
 stand-in for waifu2x (a bicubic 4x per channel); the real upscaler's tests skip without $WAIFU2X."""
 import io
+import json
 import os
 import struct
 
@@ -239,3 +240,22 @@ def test_referenced_and_incremental(extracted, tmp_path):
     assert os.path.isfile(tmp_path / "export" / "textures_hd" / tex)
     s = hd.run(extracted, str(tmp_path / "export"), counting, log=lambda *_: None)
     assert s["written"] == 0 and s["skipped"] == len(names) and len(calls) == 1
+
+
+def test_surface_sprite_frames(extracted, tmp_path):
+    """A .spr a world material draws (materials[].tex / tex2) brings its frames, wherever they live; a .spr only
+    effects draw (a ScaleSprite's Filename, an FX group's props or pieces) doesn't (#111)."""
+    surface, effect = "fx/spr/m01detail01.spr", "fx/spr/blinding01.spr"
+    frames, effect_frames = hd.sprite_frames(extracted, surface), hd.sprite_frames(extracted, effect)
+    assert len(frames) > 1 and all(f.startswith("tex/") and f.endswith(".dtx") for f in frames)
+    assert effect_frames and not set(effect_frames) & set(frames)
+    level = tmp_path / "export" / "levels" / "x"
+    level.mkdir(parents=True)
+    (level / "level.json").write_text(json.dumps({
+        "materials": [{"tex": "FX\\Spr\\M01Detail01.spr", "tex2": ""}],
+        "objects": [{"cls": "ScaleSprite", "props": [{"k": "Filename", "s": "FX\\Spr\\Blinding01.spr"}]}],
+        "fxGroups": [{"fx": [{"props": [{"s": effect}], "pieces": [{"tex": [effect]}]}]}]}))
+    names = hd.referenced(extracted, str(tmp_path / "export"))
+    assert set(frames) <= set(names)
+    assert not set(effect_frames) & set(names)
+    assert not any(n.endswith(".spr") for n in names)

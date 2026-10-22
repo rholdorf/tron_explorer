@@ -19,8 +19,10 @@ namespace Tron
         public float detailAngle;       // degrees
         public bool hasAlpha;
         public float uvScale = 1;       // UI mipmap offset (Extra[4])
-        // Animated sprite (.spr) frames; tex == frames[0]
-        public Texture2D[] frames;
+        // Animated sprite (.spr) frames; tex == frames[0]. frames holds the current set (sdFrames, or each frame's
+        // hdFrames entry in remaster hd) and is rewritten in place, so whoever holds the array follows a swap.
+        public Texture2D[] frames, sdFrames, hdFrames;
+        public string[] framePaths;
         public float frameRate;
         // The DTX's own size, which sprites are sized by whichever texture tex holds.
         public int width, height;
@@ -44,13 +46,13 @@ namespace Tron
             foreach (var t in cache.Values)
             {
                 if (t == null) continue;
-                if (t.frames != null) foreach (var f in t.frames) f.anisoLevel = level;
-                else foreach (var x in new[] { t.sd, t.hd }) if (x) x.anisoLevel = level;
+                foreach (var x in Textures(t)) x.anisoLevel = level;
             }
         }
 
         // Remaster hd (#102): <export>/textures_hd/<path>.dtx, an HD DTX tools/ wrote (2x, same header and command
-        // string), read in place of the texture's pixels while on. Sprite frames keep theirs.
+        // string), read in place of the texture's pixels while on. A sprite's frames too, where tools/ wrote them
+        // (the .spr world materials draw, #111): effects drawing the same .spr follow, at the DTX's own size.
         public static string HdRoot;
         static bool hd;
         public static bool HasHd => HdRoot != null && Directory.Exists(HdRoot);
@@ -60,14 +62,22 @@ namespace Tron
             foreach (var t in cache.Values)
             {
                 if (t == null) continue;
-                if (t.frames != null) foreach (var f in t.frames) UnityEngine.Object.Destroy(f);
-                else
-                {
-                    if (t.sd) UnityEngine.Object.Destroy(t.sd);
-                    if (t.hd) UnityEngine.Object.Destroy(t.hd);
-                }
+                foreach (var x in Textures(t)) UnityEngine.Object.Destroy(x);
             }
             cache.Clear();
+        }
+
+        // Every texture object a cached texture owns: both sets, a sprite's frames included.
+        static IEnumerable<Texture2D> Textures(LTTexture t)
+        {
+            if (t.sdFrames == null)
+            {
+                if (t.sd) yield return t.sd;
+                if (t.hd) yield return t.hd;
+                yield break;
+            }
+            foreach (var x in t.sdFrames) yield return x;
+            if (t.hdFrames != null) foreach (var x in t.hdFrames) if (x) yield return x;
         }
 
         // Switches the cached textures (and later loads) to their HD versions or back; returns each texture object
@@ -78,7 +88,12 @@ namespace Tron
             var swaps = new Dictionary<Texture, Texture>();
             foreach (var (path, t) in cache)
             {
-                if (t == null || t.frames != null) continue;
+                if (t == null) continue;
+                if (t.frames != null)
+                {
+                    PointFrames(t, swaps);
+                    continue;
+                }
                 if (on && !t.hd) t.hd = LoadHd(path);
                 var next = on && t.hd ? t.hd : t.sd;
                 if (next == t.tex) continue;
@@ -86,6 +101,25 @@ namespace Tron
                 t.tex = next;
             }
             return swaps;
+        }
+
+        // A sprite's frames to the current set (an HD frame read when hd is on and it has none yet, as SetHd does
+        // for a texture), recording each change.
+        static void PointFrames(LTTexture t, Dictionary<Texture, Texture> swaps)
+        {
+            if (hd)
+            {
+                t.hdFrames ??= new Texture2D[t.frames.Length];
+                for (int i = 0; i < t.frames.Length; i++) if (!t.hdFrames[i]) t.hdFrames[i] = LoadHd(t.framePaths[i]);
+            }
+            for (int i = 0; i < t.frames.Length; i++)
+            {
+                var next = hd && t.hdFrames[i] ? t.hdFrames[i] : t.sdFrames[i];
+                if (next == t.frames[i]) continue;
+                if (swaps != null) swaps[t.frames[i]] = next;
+                t.frames[i] = next;
+            }
+            t.tex = t.frames[0];
         }
 
         static Texture2D LoadHd(string path)
@@ -133,23 +167,29 @@ namespace Tron
             int frameRate = br.ReadInt32();
             br.ReadBytes(12); // transparent, translucent, colorkey
             var frames = new List<Texture2D>();
+            var paths = new List<string>();
             LTTexture first = null;
             for (int i = 0; i < frameCount; i++)
             {
                 int len = br.ReadUInt16();
                 var name = Encoding.ASCII.GetString(br.ReadBytes(len));
-                var t = LoadDtx(Normalize(name), false);
+                var framePath = Normalize(name);
+                var t = LoadDtx(framePath, false);
                 if (t == null) continue;
                 first ??= t;
-                frames.Add(t.tex);
+                frames.Add(t.sd);
+                paths.Add(framePath);
             }
             if (first == null) return null;
+            first.sdFrames = frames.ToArray();
             first.frames = frames.ToArray();
+            first.framePaths = paths.ToArray();
             first.frameRate = frameRate;
+            PointFrames(first, null);
             return first;
         }
 
-        // hdOk: a sprite's frames (false) keep the DTX's pixels in remaster hd.
+        // hdOk: false for a sprite's frames, whose HD set PointFrames reads.
         static LTTexture LoadDtx(string path, bool hdOk = true)
         {
             var full = Path.Combine(Root, path);

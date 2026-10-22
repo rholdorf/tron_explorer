@@ -10,8 +10,10 @@ writes nothing. Level filters match level paths as export_level.py's do. Writes 
 
 Which textures: every DTX path in the exported levels' level.json (world materials, model skins, attachments,
 effect models' skins, objects' texture properties), the EnvMap / DetailTex their command strings name, and the
-IO camera's frame (interface/hud/ionode_hud.dtx, ionode_static.dtx). Not effect textures (an fx/ folder: no gain
-in the trial, #100) and not sprites (.spr frames: sprites keep the DTX's size).
+IO camera's frame (interface/hud/ionode_hud.dtx, ionode_static.dtx), and the frames of every .spr a world material
+draws (materials[].tex / tex2: animated surfaces such as m01's detail panels, #111). Not effect textures (an fx/
+folder: no gain in the trial, #100) and not the frames of .spr only effects draw (sprite objects, FX groups); a
+surface .spr's frames are taken wherever they live.
 
 Pixels: the DTX's first mip, wrap-padded (16 texels, or the whole tile when the side is <= 64) so tiling edges
 match. RGB only goes through waifu2x (cunet, noise 3, 4x, folder mode); alpha is bicubic as its own channel. The
@@ -76,10 +78,15 @@ def command_textures(cmd):
     return out
 
 
+def sprite_frames(root, spr):
+    """The frame DTX paths (normalised) of a .spr, in order; [] when it's missing."""
+    return [norm(f) for f in dtx.sprite_paths(root, spr)]
+
+
 def referenced(root, export_root, only=()):
     """Sorted DTX paths (normalised) the exported levels draw, as the module docstring says, that exist in root
     (and aren't empty)."""
-    found = set(HUD)
+    found, surface = set(HUD), set()
 
     def walk(o):
         if isinstance(o, dict):
@@ -97,12 +104,19 @@ def referenced(root, export_root, only=()):
         if only and not any(s in rel for s in only):
             continue
         with open(f) as fp:
-            walk(json.load(fp))
-    out, todo = set(), sorted(p for p in found if not excluded(p))
+            level = json.load(fp)
+        walk(level)
+        for m in level.get("materials", []):
+            for k in ("tex", "tex2"):
+                if norm(m.get(k) or "").endswith(".spr"):
+                    surface.update(sprite_frames(root, m[k]))
+    def wanted(p):
+        return not excluded(p) or p in surface
+    out, todo = set(), sorted(p for p in found | surface if wanted(p))
     while todo:
         p = todo.pop()
         full = os.path.join(root, p)
-        if p in out or excluded(p) or not os.path.isfile(full) or os.path.getsize(full) < dtx.HEADER:
+        if p in out or not wanted(p) or not os.path.isfile(full) or os.path.getsize(full) < dtx.HEADER:
             continue
         out.add(p)
         with open(full, "rb") as fp:

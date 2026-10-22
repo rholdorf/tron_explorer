@@ -253,6 +253,7 @@ namespace Tron
         struct Entry { public Material mat; public Texture2D[] frames; public float rate; }
         static readonly List<Entry> entries = new List<Entry>();
 
+        // frames: the LTTexture's own array, kept by reference (remaster hd rewrites it in place; don't copy it).
         public static void Register(Material m, Texture2D[] frames, float rate)
         {
             entries.Add(new Entry { mat = m, frames = frames, rate = rate > 0 ? rate : 10 });
