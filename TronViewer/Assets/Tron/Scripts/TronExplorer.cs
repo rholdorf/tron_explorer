@@ -94,11 +94,18 @@ namespace Tron
             if (GetArg("-gridorder") == "ltjs") ltjsGridOrder = true;
             // -mute: starts muted, as M does (for captures and benchmarks run next to other work).
             if (Array.IndexOf(Environment.GetCommandLineArgs(), "-mute") >= 0) { muted = true; AudioListener.volume = 0; }
-            // -shots and -frames draw the same frames on every run: a fixed 60 Hz frame time and seeded randoms (#92).
+            // -shots and -frames draw the same frames on every run: a fixed 60 Hz frame time and seeded randoms (#92),
+            // and no input: the player's window takes focus, so keys or mouse moves meant for another window would
+            // move the camera, skip a scene or toggle a mode (#110).
             if (GetArg("-shots") != null || GetArg("-frames") != null)
             {
                 Time.captureDeltaTime = 1f / 60;
                 ViewerRandom.Seed(1);
+                foreach (var d in InputSystem.devices) InputSystem.DisableDevice(d);
+                InputSystem.onDeviceChange += (d, change) =>
+                {
+                    if (change == InputDeviceChange.Added || change == InputDeviceChange.Reconnected) InputSystem.DisableDevice(d);
+                };
             }
             var auto = GetArg("-level");
             if (auto != null) Load(auto);
