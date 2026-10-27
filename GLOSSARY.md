@@ -374,3 +374,13 @@ _Avoid_: original mode, classic mode
 **Remaster mode**:
 An opt-in presentation that changes only how a level is presented (sampling, resolution, texture detail, occlusion), never its content or behaviour; the game's own visual bugs stay as they are.
 _Avoid_: HD mode, enhanced mode, mod
+
+### Picking
+
+**Pick mode**:
+An opt-in mode of the viewer for aiming at things in a level and choosing them for seiri; off, it leaves the faithful mode pixel-identical.
+_Avoid_: selection mode, export mode
+
+**Pick**:
+One thing aimed at and confirmed in pick mode, recorded with its level, its kind (placed model, world model, world geometry, surface, effect, or a box for a seiri Cut), what identifies it there, and a name given to it. A pick says what was chosen; turning it into something usable is seiri's job.
+_Avoid_: selection (what is under the crosshair before confirming), export request, export
