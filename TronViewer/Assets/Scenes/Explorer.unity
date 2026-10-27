@@ -154,6 +154,7 @@ MonoBehaviour:
   glowCompositeShader: {fileID: 4800000, guid: a5425a5cf1e094c7b99e386d535e8d44, type: 3}
   effectShader: {fileID: 4800000, guid: 0ecbfa87b5434fa98b46c1e703b6223d, type: 3}
   hudTextShader: {fileID: 4800000, guid: 5f919142856a64884a37b7a37b177f0f, type: 3}
+  pickLineShader: {fileID: 4800000, guid: c9687614a4fd434eb914c5653014f293, type: 3}
   ltjsGridOrder: 0
 --- !u!4 &1700072705
 Transform:

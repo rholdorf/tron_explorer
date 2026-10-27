@@ -114,6 +114,7 @@ namespace Tron
                 Commands.Handle(i, fx.OnMessage);
                 ticker.Objects.Add((fx, go.transform));
                 pointObjects[i] = go.transform;
+                SpecialFXObjects.Add((i, go.transform));
                 if (o.Bool("StartOn", true)) startOn.Add(fx);
                 var group = Effects.Find(fx.FxName);
                 if (group == null) continue;

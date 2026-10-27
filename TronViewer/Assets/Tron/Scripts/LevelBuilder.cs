@@ -100,6 +100,7 @@ namespace Tron
         {
             shader = worldShader;
             this.modelShader = modelShader;
+            Dir = levelDir;
             Data = JsonUtility.FromJson<LevelJson>(File.ReadAllText(Path.Combine(levelDir, "level.json")));
             if (Data.version != FormatVersion) throw new Exception($"level format v{Data.version}, expected v{FormatVersion}: re-run tools/export_level.py");
             bin = File.ReadAllBytes(Path.Combine(levelDir, "level.bin"));
@@ -128,7 +129,7 @@ namespace Tron
             world.transform.SetParent(Root.transform, false);
             world.isStatic = true;
             foreach (var mi in Data.worldMeshes)
-                AddRenderer(world.transform, mi, null, 1f);
+                PickMeshes.Add(new PickMesh { Renderer = AddRenderer(world.transform, mi, null, 1f), Mesh = mi });
             if (Data.worldCollider >= 0) AddCollider(world.transform, Data.worldCollider, "PhysicsBSP");
             if (Data.blockerCollider >= 0) AddCollider(world.transform, Data.blockerCollider, "Blockers");
 
@@ -759,7 +760,8 @@ namespace Tron
                     // (FLAG2_ADDITIVE / FLAG2_FORCETRANSLUCENT) decides whether blending is enabled.
                     float alpha = 1f;
                     bool noFog = obj != null && obj.Bool("FogDisable");
-                    AddRenderer(geom.transform, wm.mesh, blend, alpha, sky ? skySlot : -1, noFog);
+                    var r = AddRenderer(geom.transform, wm.mesh, blend, alpha, sky ? skySlot : -1, noFog);
+                    if (!sky) PickMeshes.Add(new PickMesh { Renderer = r, Mesh = wm.mesh, Blend = blend, WorldModel = wm.name, Class = cls });
                 }
                 if (sky)
                 {
@@ -787,7 +789,7 @@ namespace Tron
             foreach (Transform c in go.transform) SetLayer(c.gameObject, layer);
         }
 
-        void AddRenderer(Transform parent, int meshIndex, string blend, float alpha, int skySlot = -1, bool noFog = false)
+        MeshRenderer AddRenderer(Transform parent, int meshIndex, string blend, float alpha, int skySlot = -1, bool noFog = false)
         {
             var mj = Data.meshes[meshIndex];
             var go = new GameObject(mj.name);
@@ -803,6 +805,7 @@ namespace Tron
             mr.receiveShadows = false;
             mr.lightProbeUsage = LightProbeUsage.Off;
             mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            return mr;
         }
 
         Mesh BuildMesh(MeshJson mj, int meshIndex)

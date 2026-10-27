@@ -13,7 +13,7 @@ namespace Tron
     // Entry point: level menu, loading, sky/world cameras, fog, HUD.
     public class TronExplorer : MonoBehaviour
     {
-        public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader, effectShader, hudTextShader;
+        public Shader worldShader, modelShader, glowBlurShader, glowCompositeShader, effectShader, hudTextShader, pickLineShader;
         // Light grid interpolation order for models (ModelLighting's ltjsGridOrder), applied on level load.
         // Also "-gridorder ltjs" on the command line.
         public bool ltjsGridOrder;
@@ -30,6 +30,8 @@ namespace Tron
         bool muted;
         // Remaster mode (#96): F2, -remaster [ids]; each technique registers its hook in Start.
         Remaster remaster;
+        // Pick mode (#112): F3, Picks for seiri.
+        PickMode pick;
         AudioSource testSound;
         bool menuOpen = true, showHelp = true;
         Vector2 menuScroll;
@@ -79,6 +81,10 @@ namespace Tron
 
             SetupCameras();
             SetupGlow();
+            pick = gameObject.AddComponent<PickMode>();
+            pick.Cam = mainCam;
+            pick.LineShader = pickLineShader;
+            pick.PicksDir = PickRecord.PicksDir(Environment.GetCommandLineArgs(), exportRoot == null ? null : Path.GetDirectoryName(exportRoot));
             Shader.SetGlobalFloat("_LTSaturate", 2); // autoexec.cfg: "Saturate" "1"
             Shader.SetGlobalFloat("_LTScale", LT.Scale);
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
@@ -501,6 +507,7 @@ namespace Tron
             if (match == null) { status = $"Fase {name} não encontrada"; return; }
             var sw = Stopwatch.StartNew();
             LogCommandReport();
+            pick.Detach();
             level?.Destroy();
             missionText.Clear();
             transmissions.Clear();
@@ -537,6 +544,7 @@ namespace Tron
             Debug.Log(status + (level.MissingTextures.Count > 0 ? "\n" + string.Join("\n", level.MissingTextures.Take(30)) : ""));
             if (SoundLoader.Missing.Count > 0)
                 Debug.LogWarning($"{match}: {SoundLoader.Missing.Count} sons ausentes\n" + string.Join("\n", SoundLoader.Missing));
+            pick.Attach(level, match);
             menuOpen = false;
         }
 
@@ -651,6 +659,7 @@ namespace Tron
                 if (kb.f1Key.wasPressedThisFrame) showHelp = !showHelp;
                 if (kb.gKey.wasPressedThisFrame) glowEnabled = !glowEnabled;
                 if (kb.f2Key.wasPressedThisFrame) remaster.Toggle();
+                if (kb.f3Key.wasPressedThisFrame && level != null && !menuOpen) pick.Toggle();
                 if (kb.mKey.wasPressedThisFrame) { muted = !muted; AudioListener.volume = muted ? 0 : 1; }
                 if (kb.uKey.wasPressedThisFrame && !menuOpen)
                 {
@@ -674,6 +683,7 @@ namespace Tron
             }
             if (level?.IOCamView) level.IOCamView.Suspended = capturing || benchAt;
             if (player) player.InputEnabled = playing && !(scene && scene.ShowingScene);
+            pick.InputEnabled = playing && !(scene && scene.ShowingScene);
             if (level != null)
             {
                 renderVars.Update(Time.deltaTime);
@@ -783,6 +793,7 @@ namespace Tron
                 GUI.color = prev;
             }
             if (capturing) return;   // -shots: the scene only
+            if (!menuOpen) pick.DrawCrosshair();
             bool hudText = Event.current.type == EventType.Repaint && level != null && hudFont != null;
             // The game's HUD text goes under the menu, but over the viewer's info bar and help.
             if (hudText && menuOpen) DrawHudText();
@@ -820,15 +831,22 @@ namespace Tron
             var p = player ? player.transform.position / LT.Scale : Vector3.zero;
             string sceneTag = scene && scene.ShowingScene ? $"   [CENA {scene.LiveName}: Espaço pula, V voo livre]"
                             : scene && scene.FreeFlight ? $"   [VOO LIVRE, cena {scene.LiveName}: V volta]" : "";
-            string hud = $"{level?.Data.name}   " + (Time.captureDeltaTime > 0 ? "" : $"{fps:0} fps   ") + $"pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (remaster.On ? remaster.Set.Contains("hd") && !DtxLoader.HasHd ? "   [REMASTER sem HD]" : "   [REMASTER]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") +
+            string hud = $"{level?.Data.name}   " + (Time.captureDeltaTime > 0 ? "" : $"{fps:0} fps   ") + $"pos ({p.x:0}, {p.y:0}, {p.z:0})" + (player && player.Noclip && !(scene && scene.FreeFlight) ? "   [NOCLIP]" : "") + (muted ? "   [MUDO]" : "") + (remaster.On ? remaster.Set.Contains("hd") && !DtxLoader.HasHd ? "   [REMASTER sem HD]" : "   [REMASTER]" : "") + (subtitlesOn ? "" : "   [SEM LEGENDAS]") + (pick.On ? "   [PICK]" : "") +
                 (spawnPoints.Count > 0 ? $"   ponto {spawnIndex + 1}/{spawnPoints.Count}: {spawnPoints[spawnIndex].name}" : "") + sceneTag;
             var hudContent = new GUIContent(hud);
             var hs = hudStyle.CalcSize(hudContent);
             GUI.Label(new Rect(8, 8, Mathf.Min(hs.x, w - 16), hs.y), hudContent, hudStyle);
+            if (pick.On)
+            {
+                var pc = new GUIContent((string.IsNullOrEmpty(pick.TargetLabel) ? "(nada sob a mira)" : pick.TargetLabel) +
+                                        (string.IsNullOrEmpty(pick.Status) ? "" : "\n" + pick.Status));
+                var ps = hudStyle.CalcSize(pc);
+                GUI.Label(new Rect(8, h - ps.y - 8, Mathf.Min(ps.x, w - 16), ps.y), pc, hudStyle);
+            }
             if (showHelp)
             {
                 var help = new GUIContent("WASD mover · Mouse olhar · Espaço pular · Shift andar · C agachar · N noclip (Alt rápido) · E usar · " +
-                                          "Cena: Espaço pula, V voo livre · G glow · M som · U legendas · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · F2 remaster · Ctrl/Cmd +/− tamanho do texto");
+                                          "Cena: Espaço pula, V voo livre · G glow · M som · U legendas · R reiniciar · T próximo ponto · L comandos não tratados (console) · Tab/Esc menu · F1 ajuda · F2 remaster · F3 pick (clique: alvo, botão direito: superfície, B: corte) · Ctrl/Cmd +/− tamanho do texto");
                 float hw = Mathf.Min(helpStyle.CalcSize(help).x, w - 16);
                 GUI.Label(new Rect(8, 12 + hs.y, hw, helpStyle.CalcHeight(help, hw)), help, helpStyle);
             }

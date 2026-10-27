@@ -37,6 +37,12 @@ WASD move · mouse look · Space jump · Shift walk · C/Ctrl crouch · N noclip
 G screen glow · M sound · R respawn · T next start/teleport point · L log the commands nobody handled ·
 Tab/Esc level menu · F1 help · Ctrl/Cmd +/− text size.
 
+**Pick mode** (F3, for the sibling project seiri, #112): a crosshair aims at the drawn world, placed models and
+SpecialFX. Left click records the target as a Pick (one JSON file in `-picks <dir>`, by default `../seiri/requests/`);
+on the main world it opens a box around the island of triangles hit (F / Shift+F face, `]` `[` or the wheel push and
+pull it, Alt 8×, Enter records, Backspace drops). Right click records the surface; B starts a cut box from two
+clicked corners. Off, nothing of it exists: faithful mode stays identical.
+
 ## Fidelity notes
 
 - **Geometry/UV/textures**: render blocks from the DAT render section (44-byte vertices:
